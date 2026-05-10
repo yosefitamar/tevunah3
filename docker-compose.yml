@@ -1,0 +1,113 @@
+name: tevunah
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: tevunah-postgres
+    restart: unless-stopped
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-tevunah}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tevunah}
+      POSTGRES_DB: ${POSTGRES_DB:-tevunah}
+      # Consumidos pelo init script 01_roles.sh
+      APP_DB_USER: ${APP_DB_USER:-tevunah_app}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:-tevunah_app}
+      AUDIT_DB_USER: ${AUDIT_DB_USER:-tevunah_audit_writer}
+      AUDIT_DB_PASSWORD: ${AUDIT_DB_PASSWORD:-tevunah_audit_writer}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./backend/db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-tevunah} -d ${POSTGRES_DB:-tevunah}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - tevunah
+
+  redis:
+    image: redis:7-alpine
+    container_name: tevunah-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - tevunah
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    container_name: tevunah-backend
+    working_dir: /app
+    ports:
+      - "${BACKEND_PORT:-8080}:8080"
+    volumes:
+      - ./backend:/app
+      - go-mod-cache:/go/pkg/mod
+      - go-build-cache:/root/.cache/go-build
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      ADDR: ":8080"
+      # Migrations rodam como superuser; CRUD do app usa tevunah_app;
+      # writer de audit usa tevunah_audit_writer.
+      MIGRATIONS_DATABASE_URL: "postgres://${POSTGRES_USER:-tevunah}:${POSTGRES_PASSWORD:-tevunah}@postgres:5432/${POSTGRES_DB:-tevunah}?sslmode=disable"
+      APP_DATABASE_URL:        "postgres://${APP_DB_USER:-tevunah_app}:${APP_DB_PASSWORD:-tevunah_app}@postgres:5432/${POSTGRES_DB:-tevunah}?sslmode=disable"
+      AUDIT_DATABASE_URL:      "postgres://${AUDIT_DB_USER:-tevunah_audit_writer}:${AUDIT_DB_PASSWORD:-tevunah_audit_writer}@postgres:5432/${POSTGRES_DB:-tevunah}?sslmode=disable"
+      REDIS_URL:               "redis://redis:6379/0"
+      # Seed dev — só usado pelo `admin seed-dev` quando APP_ENV=development
+      DEV_ADMIN_EMAIL:    ${DEV_ADMIN_EMAIL:-admin@tevunah.local}
+      DEV_ADMIN_NAME:     ${DEV_ADMIN_NAME:-Administrador Dev}
+      DEV_ADMIN_PASSWORD: ${DEV_ADMIN_PASSWORD:-tevunah-dev-12345}
+      DEV_ADMIN_CODE:     ${DEV_ADMIN_CODE:-ADM-0001}
+      # Permite go run/build sem go.sum congelado em dev
+      GOFLAGS: "-mod=mod"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - tevunah
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: tevunah-frontend
+    working_dir: /app
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    volumes:
+      - ./frontend:/app
+      - frontend-node-modules:/app/node_modules
+      - frontend-next-cache:/app/.next
+    environment:
+      # Usado pelo rewrite do Next em next.config.ts.
+      BACKEND_INTERNAL_URL: "http://backend:8080"
+    depends_on:
+      - backend
+    networks:
+      - tevunah
+
+volumes:
+  postgres-data:
+  redis-data:
+  go-mod-cache:
+  go-build-cache:
+  frontend-node-modules:
+  frontend-next-cache:
+
+networks:
+  tevunah:
+    driver: bridge

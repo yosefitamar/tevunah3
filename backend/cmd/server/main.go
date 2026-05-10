@@ -1,0 +1,268 @@
+// tevunah-backend é o servidor HTTP do Tevunah.
+//
+// Endpoints (MVP):
+//
+//	GET    /api/health        -> liveness + ambiente
+//	POST   /api/auth/login    -> {email, password, totp_code} -> {token, user}
+//	GET    /api/auth/me       -> usuário autenticado (Bearer)
+//	POST   /api/auth/logout   -> encerra a sessão atual
+package main
+
+import (
+	"database/sql"
+	"errors"
+	"log"
+	"net/http"
+	"os"
+	"time"
+
+	"github.com/belia/tevunah/backend/internal/audit"
+	"github.com/belia/tevunah/backend/internal/authz"
+	"github.com/belia/tevunah/backend/internal/crypt"
+	idb "github.com/belia/tevunah/backend/internal/db"
+	"github.com/belia/tevunah/backend/internal/httpx"
+	"github.com/belia/tevunah/backend/internal/middleware"
+	"github.com/belia/tevunah/backend/internal/session"
+	"github.com/belia/tevunah/backend/internal/users"
+	"github.com/pquerna/otp/totp"
+)
+
+var start = time.Now()
+
+type app struct {
+	env      string
+	users    *users.Repo
+	audit    *audit.Logger
+	sessions *session.Store
+	policy   *authz.Policy
+}
+
+func main() {
+	env := idb.Env("APP_ENV", "development")
+	addr := idb.Env("ADDR", ":8080")
+
+	appDB := mustOpen("APP_DATABASE_URL")
+	defer appDB.Close()
+
+	auditDB := mustOpen("AUDIT_DATABASE_URL")
+	defer auditDB.Close()
+
+	store, err := session.New(idb.Env("REDIS_URL", "redis://redis:6379/0"), 30*time.Minute)
+	if err != nil {
+		log.Fatalf("session store: %v", err)
+	}
+
+	a := &app{
+		env:      env,
+		users:    users.New(appDB),
+		audit:    audit.New(auditDB),
+		sessions: store,
+		policy:   authz.New(appDB),
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/health", a.handleHealth)
+	mux.HandleFunc("POST /api/auth/login", a.handleLogin)
+
+	auth := middleware.RequireAuth(a.sessions, a.users)
+	mux.Handle("GET /api/auth/me", auth(http.HandlerFunc(a.handleMe)))
+	mux.Handle("POST /api/auth/logout", auth(http.HandlerFunc(a.handleLogout)))
+
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           withRequestLog(mux),
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
+
+	log.Printf("tevunah-backend (%s) escutando em %s", env, addr)
+	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Fatal(err)
+	}
+}
+
+func mustOpen(envVar string) *sql.DB {
+	dsn := os.Getenv(envVar)
+	if dsn == "" {
+		log.Fatalf("%s não definido", envVar)
+	}
+	d, err := idb.Open(dsn)
+	if err != nil {
+		log.Fatalf("%s: %v", envVar, err)
+	}
+	return d
+}
+
+func withRequestLog(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t0 := time.Now()
+		next.ServeHTTP(w, r)
+		log.Printf("%s %s (%s)", r.Method, r.URL.Path, time.Since(t0))
+	})
+}
+
+// ─────────────────────────── handlers ────────────────────────────
+
+func (a *app) handleHealth(w http.ResponseWriter, _ *http.Request) {
+	httpx.OK(w, map[string]any{
+		"service": "tevunah-backend",
+		"env":     a.env,
+		"uptime":  time.Since(start).String(),
+		"now":     time.Now().UTC().Format(time.RFC3339),
+	})
+}
+
+type loginRequest struct {
+	Email     string `json:"email"`
+	Password  string `json:"password"`
+	TOTPCode  string `json:"totp_code"`
+}
+
+type publicUser struct {
+	ID             string    `json:"id"`
+	Code           string    `json:"code"`
+	Email          string    `json:"email"`
+	DisplayName    string    `json:"display_name"`
+	ClearanceLevel int       `json:"clearance_level"`
+	Roles          []string  `json:"roles"`
+	LastLoginAt    *time.Time `json:"last_login_at,omitempty"`
+}
+
+func toPublic(u *users.User) publicUser {
+	roles := u.Roles
+	if roles == nil {
+		roles = []string{}
+	}
+	return publicUser{
+		ID: u.ID, Code: u.Code, Email: u.Email, DisplayName: u.DisplayName,
+		ClearanceLevel: u.ClearanceLevel, Roles: roles, LastLoginAt: u.LastLoginAt,
+	}
+}
+
+func (a *app) handleLogin(w http.ResponseWriter, r *http.Request) {
+	var req loginRequest
+	if err := httpx.Decode(r, &req); err != nil {
+		httpx.Error(w, http.StatusBadRequest, "corpo inválido")
+		return
+	}
+	if req.Email == "" || req.Password == "" || req.TOTPCode == "" {
+		httpx.Error(w, http.StatusBadRequest, "email, senha e código TOTP são obrigatórios")
+		return
+	}
+
+	ctx := r.Context()
+	ip := httpx.ClientIP(r)
+	logDenied := func(actorID *string, reason string) {
+		_ = a.audit.Log(ctx, audit.Entry{
+			ActorUserID: actorID,
+			ActorIP:     audit.Ptr(ip),
+			Action:      "auth.login_denied",
+			Reason:      audit.Ptr(reason),
+			After:       map[string]any{"email": req.Email},
+		})
+	}
+
+	u, err := a.users.FindByEmail(ctx, req.Email)
+	if err != nil {
+		logDenied(nil, "usuário não encontrado")
+		httpx.Error(w, http.StatusUnauthorized, "credenciais inválidas")
+		return
+	}
+	if !u.IsActive() {
+		logDenied(&u.ID, "usuário inativo: "+u.Status)
+		httpx.Error(w, http.StatusUnauthorized, "credenciais inválidas")
+		return
+	}
+
+	ok, err := crypt.Verify(req.Password, u.PasswordHash)
+	if err != nil || !ok {
+		logDenied(&u.ID, "senha inválida")
+		httpx.Error(w, http.StatusUnauthorized, "credenciais inválidas")
+		return
+	}
+
+	if u.TOTPSecret == "" {
+		logDenied(&u.ID, "TOTP não configurado")
+		httpx.Error(w, http.StatusUnauthorized, "credenciais inválidas")
+		return
+	}
+	if !totp.Validate(req.TOTPCode, u.TOTPSecret) {
+		logDenied(&u.ID, "código TOTP inválido")
+		httpx.Error(w, http.StatusUnauthorized, "credenciais inválidas")
+		return
+	}
+
+	sess, err := a.sessions.Create(ctx, u.ID, ip)
+	if err != nil {
+		httpx.Error(w, http.StatusInternalServerError, "erro ao iniciar sessão")
+		return
+	}
+	a.setSessionCookie(w, sess.Token, int(a.sessions.TTL().Seconds()))
+	if err := a.users.TouchLastLogin(ctx, u.ID); err != nil {
+		log.Printf("touch last_login: %v", err)
+	}
+	_ = a.audit.Log(ctx, audit.Entry{
+		ActorUserID:    &u.ID,
+		ActorSessionID: &sess.Token,
+		ActorIP:        audit.Ptr(ip),
+		Action:         "auth.login",
+		After:          map[string]any{"email": u.Email, "roles": u.Roles},
+	})
+
+	httpx.OK(w, map[string]any{
+		"token":      sess.Token,
+		"expires_in": int(a.sessions.TTL().Seconds()),
+		"user":       toPublic(u),
+	})
+}
+
+func (a *app) handleMe(w http.ResponseWriter, r *http.Request) {
+	u := middleware.UserFrom(r.Context())
+	httpx.OK(w, map[string]any{"user": toPublic(u)})
+}
+
+// setSessionCookie emite o cookie HttpOnly da sessão.
+// Secure é ligado em produção (HTTPS). SameSite=Strict bloqueia envio cross-site.
+func (a *app) setSessionCookie(w http.ResponseWriter, token string, maxAgeSec int) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     middleware.SessionCookieName,
+		Value:    token,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   a.env == "production",
+		SameSite: http.SameSiteStrictMode,
+		MaxAge:   maxAgeSec,
+	})
+}
+
+func (a *app) clearSessionCookie(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     middleware.SessionCookieName,
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   a.env == "production",
+		SameSite: http.SameSiteStrictMode,
+		MaxAge:   -1,
+	})
+}
+
+func (a *app) handleLogout(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	sess := middleware.SessionFrom(ctx)
+	u := middleware.UserFrom(ctx)
+
+	if err := a.sessions.Delete(ctx, sess.Token); err != nil {
+		log.Printf("delete session: %v", err)
+	}
+	a.clearSessionCookie(w)
+	_ = a.audit.Log(ctx, audit.Entry{
+		ActorUserID:    &u.ID,
+		ActorSessionID: &sess.Token,
+		ActorIP:        audit.Ptr(httpx.ClientIP(r)),
+		Action:         "auth.logout",
+	})
+	httpx.NoContent(w)
+}

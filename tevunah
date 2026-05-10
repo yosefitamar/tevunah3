@@ -1,0 +1,234 @@
+#!/usr/bin/env bash
+# Belia Tevunah — CLI estilo Sail para orquestrar o ambiente Docker
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+# Detecta docker compose (v2 padrão) ou docker-compose (legado)
+if docker compose version >/dev/null 2>&1; then
+  DC="docker compose"
+elif command -v docker-compose >/dev/null 2>&1; then
+  DC="docker-compose"
+else
+  echo "❌ Docker não encontrado. Instale o Docker Desktop ou Docker Engine."
+  exit 1
+fi
+
+COMPOSE="$DC -f docker-compose.yml"
+
+usage() {
+  cat <<EOF
+Tevunah CLI — orquestrador do ambiente de desenvolvimento
+
+Uso:
+  ./tevunah <comando> [args]
+
+Comandos principais:
+  up                  Sobe o ambiente em modo detached
+  up:fg               Sobe no foreground (logs em tempo real)
+  down                Derruba o ambiente
+  restart [svc]       Reinicia tudo ou um serviço específico
+  build [svc]         Reconstrói as imagens (sem cache em --no-cache)
+  rebuild             Derruba, reconstrói sem cache e sobe
+  ps                  Lista serviços e status
+  logs [svc]          Mostra logs (-f para seguir)
+  status              Resumo rápido (ps + URLs)
+
+Atalhos por serviço:
+  backend [...args]   Executa comando arbitrário dentro do container backend
+  frontend [...args]  Executa comando arbitrário dentro do container frontend
+  go [...args]        Executa 'go ...' no backend (go test ./..., go mod tidy, etc.)
+  npm [...args]       Executa 'npm ...' no frontend
+  npx [...args]       Executa 'npx ...' no frontend
+  psql [...args]      Abre psql no Postgres (ou roda comando: ./tevunah psql -c '\\dt')
+  redis-cli [...args] Abre redis-cli (ou roda comando)
+  sh:backend          Abre shell no backend
+  sh:frontend         Abre shell no frontend
+  sh:postgres         Abre shell no postgres
+  sh:redis            Abre shell no redis
+
+Banco e bootstrap:
+  migrate [args]      Aplica migrations (up|down|status|version|redo|reset). Default: up
+  admin:create        Cria um administrador interativamente (use em produção)
+  seed:dev            Cria o admin de desenvolvimento (idempotente; só se APP_ENV=development)
+  setup               up + aguarda DB + migrate up + seed:dev
+
+Limpeza:
+  db:reset            Apaga só o volume do Postgres (init script re-roda na próxima subida)
+  prune               Remove TODOS volumes nomeados do projeto (cache go/node, db, etc.)
+  nuke                down + remove volumes + remove imagens locais
+
+Exemplos:
+  ./tevunah setup                    # bootstrap completo do ambiente dev
+  ./tevunah up
+  ./tevunah migrate status
+  ./tevunah admin:create
+  ./tevunah logs frontend
+  ./tevunah go test ./...
+  ./tevunah sh:backend
+EOF
+}
+
+cmd="${1:-}"
+shift || true
+
+case "$cmd" in
+  ""|-h|--help|help)
+    usage
+    ;;
+
+  up)
+    $COMPOSE up -d "$@"
+    echo ""
+    echo "✓ Ambiente Tevunah no ar:"
+    echo "  • Frontend: http://localhost:${FRONTEND_PORT:-3000}"
+    echo "  • Backend : http://localhost:${BACKEND_PORT:-8080}/api/health"
+    echo "  • Postgres: localhost:${POSTGRES_PORT:-5432}  (./tevunah psql)"
+    echo "  • Redis   : localhost:${REDIS_PORT:-6379}     (./tevunah redis-cli)"
+    ;;
+
+  up:fg)
+    $COMPOSE up "$@"
+    ;;
+
+  down)
+    $COMPOSE down "$@"
+    ;;
+
+  restart)
+    $COMPOSE restart "$@"
+    ;;
+
+  build)
+    $COMPOSE build "$@"
+    ;;
+
+  rebuild)
+    $COMPOSE down
+    $COMPOSE build --no-cache
+    $COMPOSE up -d
+    ;;
+
+  ps)
+    $COMPOSE ps
+    ;;
+
+  logs)
+    $COMPOSE logs -f "$@"
+    ;;
+
+  status)
+    $COMPOSE ps
+    echo ""
+    echo "  • Frontend: http://localhost:${FRONTEND_PORT:-3000}"
+    echo "  • Backend : http://localhost:${BACKEND_PORT:-8080}/api/health"
+    echo "  • Postgres: localhost:${POSTGRES_PORT:-5432}"
+    echo "  • Redis   : localhost:${REDIS_PORT:-6379}"
+    ;;
+
+  backend)
+    $COMPOSE exec backend "$@"
+    ;;
+
+  frontend)
+    $COMPOSE exec frontend "$@"
+    ;;
+
+  go)
+    $COMPOSE exec backend go "$@"
+    ;;
+
+  npm)
+    $COMPOSE exec frontend npm "$@"
+    ;;
+
+  npx)
+    $COMPOSE exec frontend npx "$@"
+    ;;
+
+  psql)
+    # Carrega .env se existir para POSTGRES_USER/DB
+    [ -f .env ] && set -a && . ./.env && set +a || true
+    $COMPOSE exec postgres psql -U "${POSTGRES_USER:-tevunah}" -d "${POSTGRES_DB:-tevunah}" "$@"
+    ;;
+
+  redis-cli)
+    $COMPOSE exec redis redis-cli "$@"
+    ;;
+
+  sh:backend)
+    $COMPOSE exec backend sh
+    ;;
+
+  sh:frontend)
+    $COMPOSE exec frontend sh
+    ;;
+
+  sh:postgres)
+    $COMPOSE exec postgres sh
+    ;;
+
+  sh:redis)
+    $COMPOSE exec redis sh
+    ;;
+
+  migrate)
+    sub="${1:-up}"
+    shift || true
+    $COMPOSE exec backend go run ./cmd/migrate "$sub" "$@"
+    ;;
+
+  admin:create)
+    $COMPOSE exec backend go run ./cmd/admin create "$@"
+    ;;
+
+  seed:dev)
+    $COMPOSE exec backend go run ./cmd/admin seed-dev
+    ;;
+
+  setup)
+    $COMPOSE up -d
+    echo "→ aguardando Postgres ficar saudável…"
+    until $COMPOSE exec -T postgres pg_isready -U "${POSTGRES_USER:-tevunah}" -d "${POSTGRES_DB:-tevunah}" >/dev/null 2>&1; do
+      sleep 1
+    done
+    echo "→ aplicando migrations…"
+    $COMPOSE exec -T backend go run ./cmd/migrate up
+    echo "→ seed de desenvolvimento…"
+    $COMPOSE exec -T backend go run ./cmd/admin seed-dev || true
+    echo ""
+    echo "✓ Setup concluído."
+    echo "  • Frontend: http://localhost:${FRONTEND_PORT:-3000}"
+    echo "  • Backend : http://localhost:${BACKEND_PORT:-8080}/api/health"
+    ;;
+
+  db:reset)
+    echo "⚠  Isto apaga o volume tevunah_postgres-data (todos os dados do banco)."
+    read -p "Confirme [yes/N]: " ans
+    if [ "$ans" = "yes" ]; then
+      $COMPOSE stop postgres
+      $COMPOSE rm -f postgres
+      docker volume rm tevunah_postgres-data 2>/dev/null || true
+      echo "✓ Volume removido. Próximo ./tevunah up re-roda o init script."
+    else
+      echo "Cancelado."
+    fi
+    ;;
+
+  prune)
+    $COMPOSE down -v
+    ;;
+
+  nuke)
+    $COMPOSE down -v --rmi local
+    ;;
+
+  *)
+    echo "❌ Comando desconhecido: $cmd"
+    echo ""
+    usage
+    exit 1
+    ;;
+esac

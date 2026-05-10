@@ -1,0 +1,24 @@
+# Node
+node_modules/
+.next/
+out/
+dist/
+.env*.local
+
+# Go
+backend/bin/
+backend/tmp/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# Env
+.env

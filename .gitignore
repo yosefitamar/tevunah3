@@ -4,6 +4,7 @@ node_modules/
 out/
 dist/
 .env*.local
+*.tsbuildinfo
 
 # Go
 backend/bin/

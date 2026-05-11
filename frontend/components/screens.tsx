@@ -1,5 +1,8 @@
 "use client";
 
+import AgentesScreen from "./agentes/AgentesScreen";
+import AprovacoesScreen from "./aprovacoes/AprovacoesScreen";
+
 type PlaceholderProps = {
   tag: string;
   title: string;
@@ -17,13 +20,9 @@ function Placeholder({ tag, title, sub }: PlaceholderProps) {
   );
 }
 
-export const ScreenAgentes = () => (
-  <Placeholder
-    tag="// MOD-02 / AGENTES"
-    title="CADASTRO DE AGENTES"
-    sub="Cadastro unificado dos integrantes do sistema (agente, analista, gestor, administrador). Criação restrita ao administrador. Cada agente possui papel(is), clearance e compartimentos de acesso."
-  />
-);
+export const ScreenAgentes = AgentesScreen;
+
+export const ScreenAprovacoes = AprovacoesScreen;
 
 export const ScreenAuditoria = () => (
   <Placeholder

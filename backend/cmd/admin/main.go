@@ -11,10 +11,7 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
 	"database/sql"
-	"encoding/base32"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -22,8 +19,10 @@ import (
 	"os"
 	"strings"
 
+	"github.com/belia/tevunah/backend/internal/audit"
 	"github.com/belia/tevunah/backend/internal/crypt"
-	"github.com/belia/tevunah/backend/internal/db"
+	idb "github.com/belia/tevunah/backend/internal/db"
+	"github.com/belia/tevunah/backend/internal/users"
 	"golang.org/x/term"
 )
 
@@ -48,121 +47,59 @@ func usage() {
 }
 
 func openDB() *sql.DB {
-	dsn := db.Env("APP_DATABASE_URL", db.Env("DATABASE_URL", ""))
+	dsn := idb.Env("APP_DATABASE_URL", idb.Env("DATABASE_URL", ""))
 	if dsn == "" {
 		log.Fatal("APP_DATABASE_URL ou DATABASE_URL não definido")
 	}
-	conn, err := db.Open(dsn)
+	conn, err := idb.Open(dsn)
 	if err != nil {
 		log.Fatalf("db: %v", err)
 	}
 	return conn
 }
 
-// generateTOTPSecret devolve 20 bytes aleatórios em base32 (formato RFC 4648
-// sem padding), usados como secret de TOTP.
-func generateTOTPSecret() (string, error) {
-	b := make([]byte, 20)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	return base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(b), nil
-}
-
-// nextAdminCode devolve o próximo código sequencial no formato ADM-NNNN.
-func nextAdminCode(ctx context.Context, conn *sql.DB) (string, error) {
-	var n int
-	err := conn.QueryRowContext(ctx, `
-		SELECT COALESCE(MAX(NULLIF(regexp_replace(code, '^ADM-', ''), '')::int), 0)
-		  FROM app.users
-		 WHERE code LIKE 'ADM-%'`).Scan(&n)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return "", err
-	}
-	return fmt.Sprintf("ADM-%04d", n+1), nil
-}
-
-type newAdminInput struct {
-	Email       string
-	DisplayName string
-	Code        string
-	Password    string
-	Clearance   int
-	Reason      string
-}
-
-// createAdmin insere o usuário, vincula ao role administrador e registra audit.
-// Não recebe TOTP em texto: gera o secret e devolve para exibir uma única vez.
-func createAdmin(ctx context.Context, conn *sql.DB, in newAdminInput) (userID, totpSecret string, err error) {
-	if in.Email == "" || in.DisplayName == "" || in.Password == "" {
-		return "", "", errors.New("email, nome e senha são obrigatórios")
-	}
-	if in.Clearance < 1 || in.Clearance > 5 {
-		in.Clearance = 5
-	}
-	if in.Code == "" {
-		c, err := nextAdminCode(ctx, conn)
-		if err != nil {
-			return "", "", fmt.Errorf("código: %w", err)
-		}
-		in.Code = c
-	}
-
-	hash, err := crypt.Hash(in.Password)
+// createAdminUser hasheia a senha, gera TOTP, insere usuário+papel e registra audit.
+// Devolve o usuário criado e o TOTP secret (mostrado uma única vez).
+func createAdminUser(ctx context.Context, repo *users.Repo, auditLog *audit.Logger,
+	email, name, password, reason string,
+) (*users.User, string, error) {
+	code, err := repo.GenerateCode(ctx)
 	if err != nil {
-		return "", "", fmt.Errorf("hash: %w", err)
+		return nil, "", fmt.Errorf("código: %w", err)
 	}
-	secret, err := generateTOTPSecret()
+	hash, err := crypt.Hash(password)
 	if err != nil {
-		return "", "", fmt.Errorf("totp: %w", err)
+		return nil, "", fmt.Errorf("hash: %w", err)
 	}
-
-	tx, err := conn.BeginTx(ctx, nil)
+	secret, err := crypt.NewTOTPSecret()
 	if err != nil {
-		return "", "", err
+		return nil, "", fmt.Errorf("totp: %w", err)
 	}
-	defer func() {
-		if err != nil {
-			_ = tx.Rollback()
-		}
-	}()
 
-	err = tx.QueryRowContext(ctx, `
-		INSERT INTO app.users
-		  (code, email, display_name, password_hash, totp_secret, clearance_level, status)
-		VALUES ($1, $2, $3, $4, $5, $6, 'active')
-		RETURNING id`,
-		in.Code, strings.ToLower(in.Email), in.DisplayName, hash, secret, in.Clearance,
-	).Scan(&userID)
+	u, err := repo.Create(ctx, users.NewUser{
+		Code: code, Email: email, DisplayName: name,
+		PasswordHash: hash, TOTPSecret: secret,
+		ClearanceLevel: 5,
+		Roles:          []string{"administrador"},
+	})
 	if err != nil {
-		return "", "", fmt.Errorf("insert user: %w", err)
+		return nil, "", err
 	}
 
-	if _, err = tx.ExecContext(ctx, `
-		INSERT INTO app.user_roles (user_id, role_code) VALUES ($1, 'administrador')`,
-		userID,
-	); err != nil {
-		return "", "", fmt.Errorf("vincular role: %w", err)
+	if err := auditLog.Log(ctx, audit.Entry{
+		ActorUserID:  nil, // bootstrap: sem ator humano
+		Action:       "user.create",
+		ResourceType: audit.Ptr("user"),
+		ResourceID:   audit.Ptr(u.ID),
+		After: map[string]any{
+			"code": u.Code, "email": u.Email, "display_name": u.DisplayName,
+			"clearance_level": u.ClearanceLevel, "roles": u.Roles,
+		},
+		Reason: audit.Ptr(reason),
+	}); err != nil {
+		log.Printf("aviso: falha ao gravar audit do bootstrap: %v", err)
 	}
-
-	after := map[string]any{
-		"code": in.Code, "email": in.Email, "display_name": in.DisplayName,
-		"clearance_level": in.Clearance, "roles": []string{"administrador"},
-	}
-	afterJSON, _ := json.Marshal(after)
-
-	if _, err = tx.ExecContext(ctx, `
-		INSERT INTO audit.audit_log (action, resource_type, resource_id, after, reason)
-		VALUES ($1, 'user', $2, $3::jsonb, $4)`,
-		"user.create", userID, string(afterJSON), in.Reason,
-	); err != nil {
-		return "", "", fmt.Errorf("audit: %w", err)
-	}
-
-	if err = tx.Commit(); err != nil {
-		return "", "", err
-	}
-	return userID, secret, nil
+	return u, secret, nil
 }
 
 func prompt(label string, hidden bool) (string, error) {
@@ -186,8 +123,6 @@ func runCreate(args []string) {
 	fs := flag.NewFlagSet("create", flag.ExitOnError)
 	email := fs.String("email", "", "e-mail do administrador")
 	name := fs.String("name", "", "nome de exibição")
-	code := fs.String("code", "", "código (opcional; ex.: ADM-0001)")
-	clearance := fs.Int("clearance", 5, "nível de clearance (1..5)")
 	_ = fs.Parse(args)
 
 	if *email == "" {
@@ -221,13 +156,15 @@ func runCreate(args []string) {
 
 	conn := openDB()
 	defer conn.Close()
+	repo := users.New(conn)
+	auditLog := audit.New(conn)
 
-	ctx := context.Background()
-	id, secret, err := createAdmin(ctx, conn, newAdminInput{
-		Email: *email, DisplayName: *name, Code: *code,
-		Password: pass, Clearance: *clearance, Reason: "cli admin create",
-	})
+	u, secret, err := createAdminUser(context.Background(), repo, auditLog,
+		*email, *name, pass, "cli admin create")
 	if err != nil {
+		if errors.Is(err, users.ErrDuplicate) {
+			log.Fatal("e-mail ou código já cadastrado")
+		}
 		log.Fatalf("falhou: %v", err)
 	}
 
@@ -235,17 +172,18 @@ func runCreate(args []string) {
 ✓ Administrador criado.
 
   id           : %s
+  code         : %s
   email        : %s
   clearance    : CL-%02d
   TOTP secret  : %s
 
 Configure o secret acima em um app TOTP (Aegis, 1Password, Authy)
 ANTES do primeiro login. Ele NÃO será exibido novamente.
-`, id, *email, *clearance, secret)
+`, u.ID, u.Code, u.Email, u.ClearanceLevel, secret)
 }
 
 func runSeedDev(_ []string) {
-	env := db.Env("APP_ENV", "")
+	env := idb.Env("APP_ENV", "")
 	if env != "development" {
 		log.Printf("seed-dev: APP_ENV=%q != development — nada a fazer", env)
 		return
@@ -256,14 +194,13 @@ func runSeedDev(_ []string) {
 	ctx := context.Background()
 
 	var n int
-	err := conn.QueryRowContext(ctx, `
+	if err := conn.QueryRowContext(ctx, `
 		SELECT count(*)
 		  FROM app.user_roles ur
 		  JOIN app.users u ON u.id = ur.user_id
 		 WHERE ur.role_code = 'administrador'
 		   AND u.status = 'active'
-		   AND u.deleted_at IS NULL`).Scan(&n)
-	if err != nil {
+		   AND u.deleted_at IS NULL`).Scan(&n); err != nil {
 		log.Fatalf("contar admins: %v", err)
 	}
 	if n > 0 {
@@ -271,15 +208,15 @@ func runSeedDev(_ []string) {
 		return
 	}
 
-	email := db.Env("DEV_ADMIN_EMAIL", "admin@tevunah.local")
-	name := db.Env("DEV_ADMIN_NAME", "Administrador Dev")
-	pass := db.Env("DEV_ADMIN_PASSWORD", "tevunah-dev-12345")
-	code := db.Env("DEV_ADMIN_CODE", "ADM-0001")
+	email := idb.Env("DEV_ADMIN_EMAIL", "admin@tevunah.local")
+	name := idb.Env("DEV_ADMIN_NAME", "Administrador Dev")
+	pass := idb.Env("DEV_ADMIN_PASSWORD", "tevunah-dev-12345")
 
-	id, secret, err := createAdmin(ctx, conn, newAdminInput{
-		Email: email, DisplayName: name, Code: code,
-		Password: pass, Clearance: 5, Reason: "seed-dev",
-	})
+	repo := users.New(conn)
+	auditLog := audit.New(conn)
+
+	u, secret, err := createAdminUser(ctx, repo, auditLog,
+		email, name, pass, "seed-dev")
 	if err != nil {
 		log.Fatalf("seed-dev: %v", err)
 	}
@@ -293,5 +230,5 @@ func runSeedDev(_ []string) {
   TOTP secret  : %s
 
 Use em DEV apenas. Em produção, rode: ./tevunah admin:create
-`, id, email, pass, secret)
+`, u.ID, email, pass, secret)
 }

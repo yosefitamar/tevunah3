@@ -9,11 +9,12 @@ import Topbar from "./Topbar";
 import PaletteSwitcher from "./PaletteSwitcher";
 import LoginScreen from "./LoginScreen";
 import Dashboard from "./dashboard/Dashboard";
-import { ScreenAgentes, ScreenAuditoria, ScreenAdmin } from "./screens";
+import { ScreenAgentes, ScreenAprovacoes, ScreenAuditoria, ScreenAdmin } from "./screens";
 
 const VIEWS: Record<ModuleId, React.ComponentType> = {
   dashboard: Dashboard,
   agentes: ScreenAgentes,
+  aprovacoes: ScreenAprovacoes,
   auditoria: ScreenAuditoria,
   admin: ScreenAdmin,
 };

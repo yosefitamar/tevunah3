@@ -16,6 +16,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/belia/tevunah/backend/internal/approvals"
 	"github.com/belia/tevunah/backend/internal/audit"
 	"github.com/belia/tevunah/backend/internal/authz"
 	"github.com/belia/tevunah/backend/internal/crypt"
@@ -30,11 +31,12 @@ import (
 var start = time.Now()
 
 type app struct {
-	env      string
-	users    *users.Repo
-	audit    *audit.Logger
-	sessions *session.Store
-	policy   *authz.Policy
+	env       string
+	users     *users.Repo
+	audit     *audit.Logger
+	sessions  *session.Store
+	policy    *authz.Policy
+	approvals *approvals.Repo
 }
 
 func main() {
@@ -53,11 +55,12 @@ func main() {
 	}
 
 	a := &app{
-		env:      env,
-		users:    users.New(appDB),
-		audit:    audit.New(auditDB),
-		sessions: store,
-		policy:   authz.New(appDB),
+		env:       env,
+		users:     users.New(appDB),
+		audit:     audit.New(auditDB),
+		sessions:  store,
+		policy:    authz.New(appDB),
+		approvals: approvals.New(appDB),
 	}
 
 	mux := http.NewServeMux()
@@ -67,6 +70,20 @@ func main() {
 	auth := middleware.RequireAuth(a.sessions, a.users)
 	mux.Handle("GET /api/auth/me", auth(http.HandlerFunc(a.handleMe)))
 	mux.Handle("POST /api/auth/logout", auth(http.HandlerFunc(a.handleLogout)))
+
+	mux.Handle("GET /api/users", auth(http.HandlerFunc(a.handleUsersList)))
+	mux.Handle("POST /api/users", auth(http.HandlerFunc(a.handleUserCreate)))
+	mux.Handle("GET /api/users/{id}", auth(http.HandlerFunc(a.handleUserDetail)))
+	mux.Handle("PATCH /api/users/{id}", auth(http.HandlerFunc(a.handleUserUpdate)))
+	mux.Handle("POST /api/users/{id}/deactivate", auth(http.HandlerFunc(a.handleUserDeactivate)))
+	mux.Handle("POST /api/users/{id}/roles", auth(http.HandlerFunc(a.handleUserSetRoles)))
+	mux.Handle("POST /api/users/{id}/clearance", auth(http.HandlerFunc(a.handleUserSetClearance)))
+
+	mux.Handle("GET /api/approvals", auth(http.HandlerFunc(a.handleApprovalsList)))
+	mux.Handle("GET /api/approvals/{id}", auth(http.HandlerFunc(a.handleApprovalDetail)))
+	mux.Handle("POST /api/approvals/{id}/approve", auth(http.HandlerFunc(a.handleApprovalApprove)))
+	mux.Handle("POST /api/approvals/{id}/reject", auth(http.HandlerFunc(a.handleApprovalReject)))
+	mux.Handle("POST /api/approvals/{id}/cancel", auth(http.HandlerFunc(a.handleApprovalCancel)))
 
 	srv := &http.Server{
 		Addr:              addr,
@@ -121,12 +138,13 @@ type loginRequest struct {
 }
 
 type publicUser struct {
-	ID             string    `json:"id"`
-	Code           string    `json:"code"`
-	Email          string    `json:"email"`
-	DisplayName    string    `json:"display_name"`
-	ClearanceLevel int       `json:"clearance_level"`
-	Roles          []string  `json:"roles"`
+	ID             string     `json:"id"`
+	Code           string     `json:"code"`
+	Email          string     `json:"email"`
+	DisplayName    string     `json:"display_name"`
+	ClearanceLevel int        `json:"clearance_level"`
+	Status         string     `json:"status"`
+	Roles          []string   `json:"roles"`
 	LastLoginAt    *time.Time `json:"last_login_at,omitempty"`
 }
 
@@ -137,7 +155,8 @@ func toPublic(u *users.User) publicUser {
 	}
 	return publicUser{
 		ID: u.ID, Code: u.Code, Email: u.Email, DisplayName: u.DisplayName,
-		ClearanceLevel: u.ClearanceLevel, Roles: roles, LastLoginAt: u.LastLoginAt,
+		ClearanceLevel: u.ClearanceLevel, Status: u.Status,
+		Roles: roles, LastLoginAt: u.LastLoginAt,
 	}
 }
 

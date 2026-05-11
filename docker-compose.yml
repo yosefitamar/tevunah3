@@ -69,7 +69,6 @@ services:
       DEV_ADMIN_EMAIL:    ${DEV_ADMIN_EMAIL:-admin@tevunah.local}
       DEV_ADMIN_NAME:     ${DEV_ADMIN_NAME:-Administrador Dev}
       DEV_ADMIN_PASSWORD: ${DEV_ADMIN_PASSWORD:-tevunah-dev-12345}
-      DEV_ADMIN_CODE:     ${DEV_ADMIN_CODE:-ADM-0001}
       # Permite go run/build sem go.sum congelado em dev
       GOFLAGS: "-mod=mod"
     depends_on:

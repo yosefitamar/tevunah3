@@ -9,7 +9,7 @@ export type NavItem = {
 };
 export type NavEntry = NavGroup | NavItem;
 
-export type ModuleId = "dashboard" | "agentes" | "auditoria" | "admin";
+export type ModuleId = "dashboard" | "agentes" | "aprovacoes" | "auditoria" | "admin";
 
 export const NAV: NavEntry[] = [
   { group: "OPERACIONAL" },
@@ -17,7 +17,8 @@ export const NAV: NavEntry[] = [
   { id: "agentes", key: "02", lbl: "AGENTES", glyph: "◬" },
 
   { group: "SUPERVISÃO" },
-  { id: "auditoria", key: "03", lbl: "AUDITORIA", glyph: "▤" },
+  { id: "aprovacoes", key: "03", lbl: "APROVAÇÕES", glyph: "✓" },
+  { id: "auditoria", key: "04", lbl: "AUDITORIA", glyph: "▤" },
 
   { group: "SISTEMA" },
   { id: "admin", key: "99", lbl: "ADMIN", glyph: "⚙" },
@@ -26,6 +27,7 @@ export const NAV: NavEntry[] = [
 export const MODULE_TITLES: Record<ModuleId, string> = {
   dashboard: "DASHBOARD",
   agentes: "AGENTES",
+  aprovacoes: "APROVAÇÕES",
   auditoria: "AUDITORIA",
   admin: "ADMINISTRAÇÃO",
 };

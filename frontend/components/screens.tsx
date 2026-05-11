@@ -1,7 +1,9 @@
 "use client";
 
 import AgentesScreen from "./agentes/AgentesScreen";
+import AdminScreen from "./admin/AdminScreen";
 import AprovacoesScreen from "./aprovacoes/AprovacoesScreen";
+import AuditoriaScreen from "./auditoria/AuditoriaScreen";
 
 type PlaceholderProps = {
   tag: string;
@@ -24,18 +26,6 @@ export const ScreenAgentes = AgentesScreen;
 
 export const ScreenAprovacoes = AprovacoesScreen;
 
-export const ScreenAuditoria = () => (
-  <Placeholder
-    tag="// MOD-03 / AUDITORIA"
-    title="TRILHO DE AUDITORIA"
-    sub="Registro imutável de toda ação do sistema — logins, leituras, alterações, tentativas negadas. Append-only com cadeia de hash. Consultável por gestor e administrador."
-  />
-);
+export const ScreenAuditoria = AuditoriaScreen;
 
-export const ScreenAdmin = () => (
-  <Placeholder
-    tag="// MOD-99 / ADMIN"
-    title="CONFIGURAÇÕES DO SISTEMA"
-    sub="Matriz de permissões (RBAC ajustável), parametrização de 4-eyes por ação, integrações e parâmetros gerais. Restrito ao administrador."
-  />
-);
+export const ScreenAdmin = AdminScreen;

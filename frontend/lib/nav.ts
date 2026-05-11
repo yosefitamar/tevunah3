@@ -9,7 +9,13 @@ export type NavItem = {
 };
 export type NavEntry = NavGroup | NavItem;
 
-export type ModuleId = "dashboard" | "agentes" | "aprovacoes" | "auditoria" | "admin";
+export type ModuleId =
+  | "dashboard"
+  | "agentes"
+  | "aprovacoes"
+  | "auditoria"
+  | "admin"
+  | "sandbox";
 
 export const NAV: NavEntry[] = [
   { group: "OPERACIONAL" },
@@ -22,6 +28,7 @@ export const NAV: NavEntry[] = [
 
   { group: "SISTEMA" },
   { id: "admin", key: "99", lbl: "ADMIN", glyph: "⚙" },
+  { id: "sandbox", key: "98", lbl: "SANDBOX", glyph: "⌬", badge: "DEV", badgeKind: "warn" },
 ];
 
 export const MODULE_TITLES: Record<ModuleId, string> = {
@@ -30,4 +37,5 @@ export const MODULE_TITLES: Record<ModuleId, string> = {
   aprovacoes: "APROVAÇÕES",
   auditoria: "AUDITORIA",
   admin: "ADMINISTRAÇÃO",
+  sandbox: "SANDBOX · MODAIS",
 };

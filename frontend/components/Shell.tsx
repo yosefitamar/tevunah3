@@ -4,12 +4,14 @@ import { useEffect, useState } from "react";
 import { MODULE_TITLES, type ModuleId } from "@/lib/nav";
 import { type PaletteId } from "@/lib/palettes";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
+import { ModalProvider } from "@/contexts/ModalContext";
 import Sidebar from "./Sidebar";
 import Topbar from "./Topbar";
 import PaletteSwitcher from "./PaletteSwitcher";
 import LoginScreen from "./LoginScreen";
 import Dashboard from "./dashboard/Dashboard";
 import { ScreenAgentes, ScreenAprovacoes, ScreenAuditoria, ScreenAdmin } from "./screens";
+import SandboxModais from "./sandbox/SandboxModais";
 
 const VIEWS: Record<ModuleId, React.ComponentType> = {
   dashboard: Dashboard,
@@ -17,6 +19,7 @@ const VIEWS: Record<ModuleId, React.ComponentType> = {
   aprovacoes: ScreenAprovacoes,
   auditoria: ScreenAuditoria,
   admin: ScreenAdmin,
+  sandbox: SandboxModais,
 };
 
 function AuthenticatedShell() {
@@ -78,7 +81,9 @@ function AuthGate() {
 export default function Shell() {
   return (
     <AuthProvider>
-      <AuthGate />
+      <ModalProvider>
+        <AuthGate />
+      </ModalProvider>
     </AuthProvider>
   );
 }

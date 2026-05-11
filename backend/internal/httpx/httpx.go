@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strings"
 )
 
 // Envelope é o formato padrão de resposta da API: { success, data, message, errors }.
@@ -60,14 +61,40 @@ func Decode(r *http.Request, dst any) error {
 	return nil
 }
 
-// ClientIP devolve o IP do cliente; em dev isolado é apenas o RemoteAddr.
-// Em produção atrás de proxy, deve ser substituído por parsing de X-Forwarded-For/X-Real-IP confiável.
+// ClientIP devolve o IP do cliente. Tenta primeiro X-Forwarded-For (primeiro
+// IP da lista — o cliente original em cadeia de proxies) e X-Real-IP. Em
+// produção, espera-se que o ingress (Caddy/nginx/Cloudflare) seta esses
+// headers. Em dev sem reverse proxy frontal eles normalmente não chegam e
+// caímos no RemoteAddr (que em Docker é o IP da bridge interna).
+//
+// Em produção crítica conviria validar que a request veio de subnet confiável
+// antes de honrar os headers (proxy chain trust). Fica de lição de casa
+// quando expusermos a API publicamente.
 func ClientIP(r *http.Request) string {
-	host := r.RemoteAddr
-	for i := len(host) - 1; i >= 0; i-- {
-		if host[i] == ':' {
-			return host[:i]
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		if i := strings.IndexByte(xff, ','); i > 0 {
+			return strings.TrimSpace(xff[:i])
+		}
+		return strings.TrimSpace(xff)
+	}
+	if xri := r.Header.Get("X-Real-IP"); xri != "" {
+		return strings.TrimSpace(xri)
+	}
+	return stripPort(r.RemoteAddr)
+}
+
+// stripPort remove ":port" do final, tratando IPv6 "[::1]:8080".
+func stripPort(addr string) string {
+	if addr == "" {
+		return ""
+	}
+	if addr[0] == '[' {
+		if end := strings.IndexByte(addr, ']'); end > 0 {
+			return addr[1:end]
 		}
 	}
-	return host
+	if i := strings.LastIndexByte(addr, ':'); i >= 0 && strings.Count(addr, ":") == 1 {
+		return addr[:i]
+	}
+	return addr
 }

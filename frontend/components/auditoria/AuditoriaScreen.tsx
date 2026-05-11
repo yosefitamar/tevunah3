@@ -1,45 +1,73 @@
 "use client";
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { Filter, Plus, Search, ShieldAlert } from "lucide-react";
+import { Filter, RefreshCcw, Search, ShieldAlert } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
-import { listUsers, type UsersList } from "@/lib/users-api";
-import { canListUsers, canCreateUsers } from "@/lib/permissions";
-import {
-  ROLE_LABEL,
-  ROLES_LIST,
-  STATUS_LABEL,
-  STATUS_PILL,
-  clearanceLabel,
-  type RoleCode,
-  type UserStatus,
-} from "@/lib/types";
+import { listAudit, type AuditList } from "@/lib/audit-api";
+import { canReadAudit } from "@/lib/permissions";
+import { actionGroup, type AuditEntry } from "@/lib/types";
 import { formatBR } from "@/lib/format";
-import CreateAgentModal from "./CreateAgentModal";
-import AgentDrawer from "./AgentDrawer";
+import AuditDetail from "./AuditDetail";
 import SortHeader, { type SortState } from "../shared/SortHeader";
 
 const PAGE_SIZE = 25;
 
+const ACTION_PREFIXES: Array<{ value: string; label: string }> = [
+  { value: "", label: "TODAS" },
+  { value: "auth.*", label: "AUTENTICAÇÃO (auth.*)" },
+  { value: "user.*", label: "AGENTES (user.*)" },
+  { value: "approval.*", label: "APROVAÇÕES (approval.*)" },
+  { value: "audit.*", label: "AUDITORIA (audit.*)" },
+];
+
+const RESOURCE_TYPES: Array<{ value: string; label: string }> = [
+  { value: "", label: "TODOS" },
+  { value: "user", label: "AGENTE" },
+  { value: "operation", label: "OPERAÇÃO" },
+];
+
 type Filters = {
-  role: RoleCode | "";
-  clearance: number; // 0 = todos
-  status: "" | UserStatus;
+  action: string;        // ex.: "auth.*"
+  resourceType: string;
+  from: string;          // YYYY-MM-DD
+  to: string;
 };
 
-const EMPTY_FILTERS: Filters = { role: "", clearance: 0, status: "" };
+const EMPTY_FILTERS: Filters = { action: "", resourceType: "", from: "", to: "" };
 
 function activeFilterCount(f: Filters) {
   let n = 0;
-  if (f.role) n++;
-  if (f.clearance) n++;
-  if (f.status) n++;
+  if (f.action) n++;
+  if (f.resourceType) n++;
+  if (f.from) n++;
+  if (f.to) n++;
   return n;
 }
 
-export default function AgentesScreen() {
+function shortHash(h: string): string {
+  return h ? h.slice(0, 10) : "—";
+}
+
+function resourceCell(e: AuditEntry): string {
+  if (!e.resource_type && !e.resource_id) return "—";
+  const t = (e.resource_type ?? "").toUpperCase();
+  const id = e.resource_id ?? "";
+  if (!id) return t;
+  const short = id.length > 12 ? id.slice(0, 8) + "…" : id;
+  return t ? `${t}:${short}` : short;
+}
+
+function actorCell(e: AuditEntry): string {
+  if (!e.actor_user_id) return "// SISTEMA";
+  const code = e.actor_user_code ?? "";
+  const name = (e.actor_display_name ?? "").toUpperCase();
+  if (code && name) return `${code} · ${name}`;
+  return code || name || (e.actor_user_id.slice(0, 8) + "…");
+}
+
+export default function AuditoriaScreen() {
   const { user: me } = useAuth();
-  const [data, setData] = useState<UsersList | null>(null);
+  const [data, setData] = useState<AuditList | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchInput, setSearchInput] = useState("");
@@ -47,28 +75,28 @@ export default function AgentesScreen() {
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [page, setPage] = useState(0);
-  const [sort, setSort] = useState<SortState>({ field: "code", dir: "asc" });
-  const [createOpen, setCreateOpen] = useState(false);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [sort, setSort] = useState<SortState>({ field: "id", dir: "desc" });
+  const [selectedId, setSelectedId] = useState<number | null>(null);
 
   const reload = useCallback(
     async (q: string, f: Filters, p: number, s: SortState) => {
       setLoading(true);
       setError(null);
       try {
-        const res = await listUsers({
+        const res = await listAudit({
           limit: PAGE_SIZE,
           offset: p * PAGE_SIZE,
           search: q || undefined,
-          role: f.role || undefined,
-          status: f.status || undefined,
-          clearance: f.clearance || undefined,
-          sort_by: (s?.field as "code" | "display_name" | "email" | "clearance_level" | "status" | "last_login_at") || undefined,
+          action: f.action || undefined,
+          resource_type: f.resourceType || undefined,
+          from: f.from || undefined,
+          to: f.to || undefined,
+          sort_by: (s?.field as "id" | "ts" | "action" | "actor" | "resource") || undefined,
           sort_dir: s?.dir,
         });
         setData(res);
       } catch (e) {
-        setError((e as Error).message || "Erro ao listar agentes");
+        setError((e as Error).message || "Erro ao carregar trilho de auditoria");
       } finally {
         setLoading(false);
       }
@@ -77,7 +105,7 @@ export default function AgentesScreen() {
   );
 
   useEffect(() => {
-    if (canListUsers(me)) reload(search, filters, page, sort);
+    if (canReadAudit(me)) reload(search, filters, page, sort);
   }, [me, page, search, filters, sort, reload]);
 
   function changeSort(next: SortState) {
@@ -85,16 +113,16 @@ export default function AgentesScreen() {
     setSort(next);
   }
 
-  if (!canListUsers(me)) {
+  if (!canReadAudit(me)) {
     return (
       <div className="placeholder">
-        <div className="ph-tag">// MOD-02 / AGENTES</div>
+        <div className="ph-tag">// MOD-04 / AUDITORIA</div>
         <div className="ph-ttl" style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <ShieldAlert size={22} /> ACESSO RESTRITO
         </div>
         <div className="ph-sub">
-          Seu papel não permite visualizar o cadastro de agentes. Esta seção é restrita a gestores
-          e administradores. Tentativas de acesso são registradas no trilho de auditoria.
+          Seu papel não permite consultar o trilho de auditoria. Esta seção é restrita
+          a gestores e administradores. Tentativas de acesso são registradas.
         </div>
       </div>
     );
@@ -113,8 +141,8 @@ export default function AgentesScreen() {
   return (
     <div className="screen-fill">
       <div className="section-title">
-        AGENTES · {total} REGISTRO{total === 1 ? "" : "S"}
-        <span style={{ color: "var(--fg-2)" }}>· CADASTRO UNIFICADO</span>
+        TRILHO DE AUDITORIA · {total} REGISTRO{total === 1 ? "" : "S"}
+        <span style={{ color: "var(--fg-2)" }}>· APPEND-ONLY · CADEIA DE HASH</span>
       </div>
 
       <div className="toolbar">
@@ -122,7 +150,7 @@ export default function AgentesScreen() {
           <Search size={14} strokeWidth={1.6} />
           <input
             type="text"
-            placeholder="buscar por código, e-mail ou nome…"
+            placeholder="buscar por ação, código, e-mail ou id de recurso…"
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
           />
@@ -140,15 +168,15 @@ export default function AgentesScreen() {
           {activeCount > 0 && <span className="btn-badge">{activeCount}</span>}
         </button>
 
-        {canCreateUsers(me) && (
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={() => setCreateOpen(true)}
-          >
-            <Plus size={14} strokeWidth={2} /> NOVO AGENTE
-          </button>
-        )}
+        <button
+          type="button"
+          className="btn"
+          onClick={() => reload(search, filters, page, sort)}
+          disabled={loading}
+          title="Recarregar"
+        >
+          <RefreshCcw size={14} strokeWidth={1.8} /> ATUALIZAR
+        </button>
       </div>
 
       {filtersOpen && (
@@ -159,7 +187,6 @@ export default function AgentesScreen() {
             setFilters(f);
             setFiltersOpen(false);
           }}
-          onClose={() => setFiltersOpen(false)}
         />
       )}
 
@@ -170,13 +197,13 @@ export default function AgentesScreen() {
           <table className="tbl">
             <thead>
               <tr>
-                <SortHeader field="code" label="CÓDIGO" sort={sort} onChange={changeSort} width={90} />
-                <SortHeader field="display_name" label="NOME" sort={sort} onChange={changeSort} />
-                <SortHeader field="email" label="E-MAIL" sort={sort} onChange={changeSort} />
-                <th style={{ width: 200 }}>PAPEL</th>
-                <SortHeader field="clearance_level" label="CL" sort={sort} onChange={changeSort} width={60} />
-                <SortHeader field="status" label="STATUS" sort={sort} onChange={changeSort} width={110} />
-                <SortHeader field="last_login_at" label="ÚLT. LOGIN" sort={sort} onChange={changeSort} width={130} />
+                <SortHeader field="id" label="ID" sort={sort} onChange={changeSort} width={64} />
+                <SortHeader field="ts" label="TIMESTAMP" sort={sort} onChange={changeSort} width={160} />
+                <SortHeader field="action" label="AÇÃO" sort={sort} onChange={changeSort} width={220} />
+                <SortHeader field="actor" label="ATOR" sort={sort} onChange={changeSort} />
+                <SortHeader field="resource" label="RECURSO" sort={sort} onChange={changeSort} width={200} />
+                <th style={{ width: 130 }}>IP</th>
+                <th style={{ width: 120 }}>HASH</th>
               </tr>
             </thead>
             <tbody>
@@ -195,29 +222,32 @@ export default function AgentesScreen() {
                 </tr>
               )}
               {!loading &&
-                data?.items.map((u) => (
+                data?.items.map((e) => (
                   <tr
-                    key={u.id}
-                    onClick={() => setSelectedId(u.id)}
+                    key={e.id}
+                    onClick={() => setSelectedId(e.id)}
                     className="row-clickable"
                   >
-                    <td className="id">{u.code}</td>
-                    <td style={{ color: "var(--fg-0)", fontWeight: 600 }}>
-                      {u.display_name.toUpperCase()}
-                    </td>
-                    <td className="muted">{u.email}</td>
+                    <td className="id">#{e.id}</td>
+                    <td className="muted">{formatBR(e.ts)}</td>
                     <td>
-                      {u.roles
-                        .map((r) => ROLE_LABEL[r as RoleCode] ?? r.toUpperCase())
-                        .join(" · ")}
-                    </td>
-                    <td>{clearanceLabel(u.clearance_level)}</td>
-                    <td>
-                      <span className={"pill " + STATUS_PILL[u.status as UserStatus]}>
-                        {STATUS_LABEL[u.status as UserStatus]}
+                      <span style={{ color: "var(--fg-0)", fontWeight: 600 }}>
+                        {e.action}
+                      </span>
+                      <span className="muted" style={{ marginLeft: 6, fontSize: 9 }}>
+                        / {actionGroup(e.action)}
                       </span>
                     </td>
-                    <td className="muted">{formatBR(u.last_login_at)}</td>
+                    <td>{actorCell(e)}</td>
+                    <td className="muted">{resourceCell(e)}</td>
+                    <td className="muted">{e.actor_ip ?? "—"}</td>
+                    <td
+                      className="muted"
+                      style={{ fontFamily: "var(--font-mono)", letterSpacing: 0 }}
+                      title={e.hash}
+                    >
+                      {shortHash(e.hash)}
+                    </td>
                   </tr>
                 ))}
             </tbody>
@@ -252,21 +282,10 @@ export default function AgentesScreen() {
         </div>
       </div>
 
-      {createOpen && (
-        <CreateAgentModal
-          onClose={() => setCreateOpen(false)}
-          onCreated={() => {
-            setCreateOpen(false);
-            reload(search, filters, page, sort);
-          }}
-        />
-      )}
-
-      {selectedId && (
-        <AgentDrawer
-          userId={selectedId}
+      {selectedId !== null && (
+        <AuditDetail
+          entryId={selectedId}
           onClose={() => setSelectedId(null)}
-          onChanged={() => reload(search, filters, page)}
         />
       )}
     </div>
@@ -278,7 +297,6 @@ export default function AgentesScreen() {
 type FilterPanelProps = {
   value: Filters;
   onApply: (f: Filters) => void;
-  onClose: () => void;
 };
 
 function FilterPanel({ value, onApply }: FilterPanelProps) {
@@ -288,48 +306,49 @@ function FilterPanel({ value, onApply }: FilterPanelProps) {
     <div className="filter-panel">
       <div className="filter-row">
         <label className="filter-field">
-          <span>PAPEL</span>
+          <span>FAMÍLIA DE AÇÃO</span>
           <select
-            value={local.role}
-            onChange={(e) => setLocal({ ...local, role: e.target.value as RoleCode | "" })}
+            value={local.action}
+            onChange={(e) => setLocal({ ...local, action: e.target.value })}
           >
-            <option value="">TODOS</option>
-            {ROLES_LIST.map((r) => (
-              <option key={r} value={r}>
-                {ROLE_LABEL[r]}
+            {ACTION_PREFIXES.map((p) => (
+              <option key={p.value} value={p.value}>
+                {p.label}
               </option>
             ))}
           </select>
         </label>
 
         <label className="filter-field">
-          <span>CLEARANCE</span>
+          <span>TIPO DE RECURSO</span>
           <select
-            value={local.clearance}
-            onChange={(e) => setLocal({ ...local, clearance: Number(e.target.value) })}
+            value={local.resourceType}
+            onChange={(e) => setLocal({ ...local, resourceType: e.target.value })}
           >
-            <option value={0}>TODOS</option>
-            {[1, 2, 3, 4, 5].map((n) => (
-              <option key={n} value={n}>
-                CL-0{n}
+            {RESOURCE_TYPES.map((p) => (
+              <option key={p.value} value={p.value}>
+                {p.label}
               </option>
             ))}
           </select>
         </label>
 
         <label className="filter-field">
-          <span>STATUS</span>
-          <select
-            value={local.status}
-            onChange={(e) =>
-              setLocal({ ...local, status: e.target.value as "" | UserStatus })
-            }
-          >
-            <option value="">TODOS</option>
-            <option value="active">{STATUS_LABEL.active}</option>
-            <option value="suspended">{STATUS_LABEL.suspended}</option>
-            <option value="deactivated">{STATUS_LABEL.deactivated}</option>
-          </select>
+          <span>DE</span>
+          <input
+            type="date"
+            value={local.from}
+            onChange={(e) => setLocal({ ...local, from: e.target.value })}
+          />
+        </label>
+
+        <label className="filter-field">
+          <span>ATÉ</span>
+          <input
+            type="date"
+            value={local.to}
+            onChange={(e) => setLocal({ ...local, to: e.target.value })}
+          />
         </label>
       </div>
       <div className="filter-actions">

@@ -12,6 +12,10 @@ export const canListUsers = (u: User | null) => hasRole(u, "gestor", "administra
 export const canCreateUsers = (u: User | null) => hasRole(u, "administrador");
 export const canReadAudit = (u: User | null) => hasRole(u, "gestor", "administrador");
 
+// Admin: gerenciar matriz RBAC e demais parâmetros do sistema.
+export const canAccessAdmin = (u: User | null) => hasRole(u, "administrador");
+export const canManagePermissions = (u: User | null) => hasRole(u, "administrador");
+
 // Solicitar mudança de papel/clearance: matriz hoje exige admin (4-eyes -> gestor decide).
 // UI mostra os botões para admin; servidor é a fonte de verdade.
 export const canRequestRoleChange = (u: User | null) => hasRole(u, "administrador");

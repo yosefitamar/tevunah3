@@ -36,12 +36,16 @@ export type ApprovalsList = {
 export type ListApprovalsOpts = {
   mode?: "" | "mine" | "pending_for_me";
   status?: "" | ApprovalStatus;
+  sort_by?: "requested_at" | "action" | "status" | "expires_at";
+  sort_dir?: "asc" | "desc";
 };
 
 function qs(opts: ListApprovalsOpts): string {
   const p = new URLSearchParams();
   if (opts.mode) p.set("mode", opts.mode);
   if (opts.status) p.set("status", opts.status);
+  if (opts.sort_by) p.set("sort_by", opts.sort_by);
+  if (opts.sort_dir) p.set("sort_dir", opts.sort_dir);
   const s = p.toString();
   return s ? "?" + s : "";
 }

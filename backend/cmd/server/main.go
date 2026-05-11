@@ -23,6 +23,7 @@ import (
 	idb "github.com/belia/tevunah/backend/internal/db"
 	"github.com/belia/tevunah/backend/internal/httpx"
 	"github.com/belia/tevunah/backend/internal/middleware"
+	"github.com/belia/tevunah/backend/internal/permissions"
 	"github.com/belia/tevunah/backend/internal/session"
 	"github.com/belia/tevunah/backend/internal/users"
 	"github.com/pquerna/otp/totp"
@@ -31,12 +32,14 @@ import (
 var start = time.Now()
 
 type app struct {
-	env       string
-	users     *users.Repo
-	audit     *audit.Logger
-	sessions  *session.Store
-	policy    *authz.Policy
-	approvals *approvals.Repo
+	env         string
+	users       *users.Repo
+	audit       *audit.Logger
+	auditReader *audit.Reader
+	sessions    *session.Store
+	policy      *authz.Policy
+	approvals   *approvals.Repo
+	perms       *permissions.Repo
 }
 
 func main() {
@@ -55,12 +58,14 @@ func main() {
 	}
 
 	a := &app{
-		env:       env,
-		users:     users.New(appDB),
-		audit:     audit.New(auditDB),
-		sessions:  store,
-		policy:    authz.New(appDB),
-		approvals: approvals.New(appDB),
+		env:         env,
+		users:       users.New(appDB),
+		audit:       audit.New(auditDB),
+		auditReader: audit.NewReader(appDB),
+		sessions:    store,
+		policy:      authz.New(appDB),
+		approvals:   approvals.New(appDB),
+		perms:       permissions.New(appDB),
 	}
 
 	mux := http.NewServeMux()
@@ -78,6 +83,12 @@ func main() {
 	mux.Handle("POST /api/users/{id}/deactivate", auth(http.HandlerFunc(a.handleUserDeactivate)))
 	mux.Handle("POST /api/users/{id}/roles", auth(http.HandlerFunc(a.handleUserSetRoles)))
 	mux.Handle("POST /api/users/{id}/clearance", auth(http.HandlerFunc(a.handleUserSetClearance)))
+
+	mux.Handle("GET /api/audit", auth(http.HandlerFunc(a.handleAuditList)))
+	mux.Handle("GET /api/audit/{id}", auth(http.HandlerFunc(a.handleAuditDetail)))
+
+	mux.Handle("GET /api/admin/permissions", auth(http.HandlerFunc(a.handleAdminPermissionsList)))
+	mux.Handle("PATCH /api/admin/permissions/{role_code}/{action}", auth(http.HandlerFunc(a.handleAdminPermissionsUpdate)))
 
 	mux.Handle("GET /api/approvals", auth(http.HandlerFunc(a.handleApprovalsList)))
 	mux.Handle("GET /api/approvals/{id}", auth(http.HandlerFunc(a.handleApprovalDetail)))
@@ -173,13 +184,18 @@ func (a *app) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 	ip := httpx.ClientIP(r)
+	var uaPtr *string
+	if ua := r.UserAgent(); ua != "" {
+		uaPtr = &ua
+	}
 	logDenied := func(actorID *string, reason string) {
 		_ = a.audit.Log(ctx, audit.Entry{
-			ActorUserID: actorID,
-			ActorIP:     audit.Ptr(ip),
-			Action:      "auth.login_denied",
-			Reason:      audit.Ptr(reason),
-			After:       map[string]any{"email": req.Email},
+			ActorUserID:    actorID,
+			ActorIP:        audit.Ptr(ip),
+			ActorUserAgent: uaPtr,
+			Action:         "auth.login_denied",
+			Reason:         audit.Ptr(reason),
+			After:          map[string]any{"email": req.Email},
 		})
 	}
 
@@ -226,6 +242,7 @@ func (a *app) handleLogin(w http.ResponseWriter, r *http.Request) {
 		ActorUserID:    &u.ID,
 		ActorSessionID: &sess.Token,
 		ActorIP:        audit.Ptr(ip),
+		ActorUserAgent: uaPtr,
 		Action:         "auth.login",
 		After:          map[string]any{"email": u.Email, "roles": u.Roles},
 	})
@@ -277,10 +294,15 @@ func (a *app) handleLogout(w http.ResponseWriter, r *http.Request) {
 		log.Printf("delete session: %v", err)
 	}
 	a.clearSessionCookie(w)
+	var uaPtr *string
+	if ua := r.UserAgent(); ua != "" {
+		uaPtr = &ua
+	}
 	_ = a.audit.Log(ctx, audit.Entry{
 		ActorUserID:    &u.ID,
 		ActorSessionID: &sess.Token,
 		ActorIP:        audit.Ptr(httpx.ClientIP(r)),
+		ActorUserAgent: uaPtr,
 		Action:         "auth.logout",
 	})
 	httpx.NoContent(w)

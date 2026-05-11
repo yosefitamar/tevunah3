@@ -22,9 +22,9 @@ var (
 	emailRE = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
 )
 
-// actorInfo extrai actor_user_id, actor_session_id e ip da requisição
-// para preencher entradas de audit.
-func (a *app) actorInfo(r *http.Request) (actorID, sessionID, ip *string) {
+// actorInfo extrai actor_user_id, actor_session_id, ip e user_agent da
+// requisição para preencher entradas de audit.
+func (a *app) actorInfo(r *http.Request) (actorID, sessionID, ip, userAgent *string) {
 	if u := middleware.UserFrom(r.Context()); u != nil {
 		actorID = &u.ID
 	}
@@ -33,6 +33,9 @@ func (a *app) actorInfo(r *http.Request) (actorID, sessionID, ip *string) {
 	}
 	v := httpx.ClientIP(r)
 	ip = &v
+	if ua := r.UserAgent(); ua != "" {
+		userAgent = &ua
+	}
 	return
 }
 
@@ -77,6 +80,8 @@ func (a *app) handleUsersList(w http.ResponseWriter, r *http.Request) {
 		Role:      q.Get("role"),
 		Clearance: clearance,
 		Search:    strings.TrimSpace(q.Get("search")),
+		SortBy:    q.Get("sort_by"),
+		SortDir:   q.Get("sort_dir"),
 	})
 	if err != nil {
 		log.Printf("users list: %v", err)
@@ -225,11 +230,12 @@ func (a *app) handleUserCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	aid, sid, ip := a.actorInfo(r)
+	aid, sid, ip, ua := a.actorInfo(r)
 	_ = a.audit.Log(r.Context(), audit.Entry{
 		ActorUserID:    aid,
 		ActorSessionID: sid,
 		ActorIP:        ip,
+		ActorUserAgent: ua,
 		Action:         "user.create",
 		ResourceType:   audit.Ptr("user"),
 		ResourceID:     audit.Ptr(u.ID),
@@ -292,7 +298,7 @@ func (a *app) handleUserDeactivate(w http.ResponseWriter, r *http.Request) {
 		log.Printf("desativação: %d sessão(ões) revogada(s) de %s", n, id)
 	}
 
-	aid, sid, ip := a.actorInfo(r)
+	aid, sid, ip, ua := a.actorInfo(r)
 	reason := strings.TrimSpace(req.Reason)
 	var reasonPtr *string
 	if reason != "" {
@@ -302,6 +308,7 @@ func (a *app) handleUserDeactivate(w http.ResponseWriter, r *http.Request) {
 		ActorUserID:    aid,
 		ActorSessionID: sid,
 		ActorIP:        ip,
+		ActorUserAgent: ua,
 		Action:         "user.deactivate",
 		ResourceType:   audit.Ptr("user"),
 		ResourceID:     audit.Ptr(id),
@@ -365,11 +372,12 @@ func (a *app) handleUserUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	aid, sid, ip := a.actorInfo(r)
+	aid, sid, ip, ua := a.actorInfo(r)
 	_ = a.audit.Log(r.Context(), audit.Entry{
 		ActorUserID:    aid,
 		ActorSessionID: sid,
 		ActorIP:        ip,
+		ActorUserAgent: ua,
 		Action:         "user.update.self",
 		ResourceType:   audit.Ptr("user"),
 		ResourceID:     audit.Ptr(me.ID),

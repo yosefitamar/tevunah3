@@ -186,12 +186,22 @@ func (r *Repo) Cancel(ctx context.Context, id, by string, reason string) (*Appro
 
 // ListOpts controla a listagem.
 type ListOpts struct {
-	Status        Status // vazio = todos
-	RequestedBy   string // filtra solicitante
+	Status        Status   // vazio = todos
+	RequestedBy   string   // filtra solicitante
 	ApproverRoles []string // se preenchido, lista apenas onde required_approver_role ∈ esses papéis
-	ExcludeUserID string // se preenchido, exclui aprovações desse user_id (para não mostrar próprias)
+	ExcludeUserID string   // se preenchido, exclui aprovações desse user_id (para não mostrar próprias)
 	Limit         int
 	Offset        int
+	SortBy        string // "requested_at"|"action"|"status"|"expires_at"; default "requested_at"
+	SortDir       string // "asc"|"desc"; default "desc"
+}
+
+// approvalsSortable: whitelist de campos sortáveis.
+var approvalsSortable = map[string]string{
+	"requested_at": "requested_at",
+	"action":       "action",
+	"status":       "status",
+	"expires_at":   "expires_at",
 }
 
 type ListResult struct {
@@ -227,6 +237,15 @@ func (r *Repo) List(ctx context.Context, opts ListOpts) (*ListResult, error) {
 		return nil, err
 	}
 
+	col, ok := approvalsSortable[opts.SortBy]
+	if !ok {
+		col = "requested_at"
+	}
+	dir := "DESC"
+	if strings.ToLower(opts.SortDir) == "asc" {
+		dir = "ASC"
+	}
+
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT id, action, resource_type, resource_id, payload, requested_by,
 		       requested_at, required_approver_role, status, decided_by,
@@ -236,7 +255,7 @@ func (r *Repo) List(ctx context.Context, opts ListOpts) (*ListResult, error) {
 		   AND ($2 = '' OR requested_by = $2::uuid)
 		   AND ($3 = '{}' OR required_approver_role = ANY($3::text[]))
 		   AND ($4 = '' OR requested_by <> $4::uuid)
-		 ORDER BY requested_at DESC
+		 ORDER BY `+col+` `+dir+`, requested_at DESC
 		 LIMIT $5 OFFSET $6`,
 		append(args, opts.Limit, opts.Offset)...,
 	)

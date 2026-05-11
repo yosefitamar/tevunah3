@@ -18,6 +18,7 @@ type Entry struct {
 	ActorSessionID         *string
 	ActorIP                *string // formato inet aceito por Postgres (ex.: "192.168.1.1")
 	ActorTerminal          *string
+	ActorUserAgent         *string // header User-Agent da requisição HTTP
 	Action                 string  // ex.: "user.create", "auth.login", "auth.login_denied"
 	ResourceType           *string // ex.: "user", "operation"
 	ResourceID             *string
@@ -48,11 +49,12 @@ func (l *Logger) Log(ctx context.Context, e Entry) error {
 	}
 	_, err = l.db.ExecContext(ctx, `
 		INSERT INTO audit.audit_log
-		  (actor_user_id, actor_session_id, actor_ip, actor_terminal,
+		  (actor_user_id, actor_session_id, actor_ip, actor_terminal, actor_user_agent,
 		   action, resource_type, resource_id, resource_classification,
 		   before, after, reason)
-		VALUES ($1, $2, $3::inet, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11)`,
-		nilUUID(e.ActorUserID), nilStr(e.ActorSessionID), nilStr(e.ActorIP), nilStr(e.ActorTerminal),
+		VALUES ($1, $2, $3::inet, $4, $5, $6, $7, $8, $9, $10::jsonb, $11::jsonb, $12)`,
+		nilUUID(e.ActorUserID), nilStr(e.ActorSessionID), nilStr(e.ActorIP),
+		nilStr(e.ActorTerminal), nilStr(e.ActorUserAgent),
 		e.Action, nilStr(e.ResourceType), nilStr(e.ResourceID), nilInt(e.ResourceClassification),
 		beforeJSON, afterJSON, nilStr(e.Reason),
 	)

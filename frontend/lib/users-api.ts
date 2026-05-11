@@ -15,6 +15,8 @@ export type ListUsersOpts = {
   role?: RoleCode | "";
   status?: "" | "active" | "suspended" | "deactivated";
   clearance?: number; // 0 = todos
+  sort_by?: "code" | "display_name" | "email" | "clearance_level" | "status" | "last_login_at";
+  sort_dir?: "asc" | "desc";
 };
 
 export type NewUserInput = {
@@ -39,6 +41,8 @@ function qs(opts: ListUsersOpts): string {
   if (opts.role) p.set("role", opts.role);
   if (opts.status) p.set("status", opts.status);
   if (opts.clearance) p.set("clearance", String(opts.clearance));
+  if (opts.sort_by) p.set("sort_by", opts.sort_by);
+  if (opts.sort_dir) p.set("sort_dir", opts.sort_dir);
   const s = p.toString();
   return s ? "?" + s : "";
 }

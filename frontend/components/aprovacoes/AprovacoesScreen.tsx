@@ -19,6 +19,7 @@ import { hasRole } from "@/lib/permissions";
 import { ROLE_LABEL, clearanceLabel, type RoleCode, type User } from "@/lib/types";
 import { formatBR } from "@/lib/format";
 import type { ApiError } from "@/lib/api";
+import SortHeader, { type SortState } from "../shared/SortHeader";
 
 type TabId = "pending_for_me" | "mine" | "all";
 
@@ -39,6 +40,7 @@ export default function AprovacoesScreen() {
   const [userCache, setUserCache] = useState<Record<string, User>>({});
   const [selected, setSelected] = useState<Approval | null>(null);
   const [reloadTick, setReloadTick] = useState(0);
+  const [sort, setSort] = useState<SortState>({ field: "requested_at", dir: "desc" });
 
   const canSeeAll = hasRole(me, "administrador", "gestor");
   const visibleTabs = useMemo(
@@ -51,7 +53,12 @@ export default function AprovacoesScreen() {
     setLoading(true);
     setError(null);
     try {
-      const res = await listApprovals({ mode: t.mode, status: statusFilter || undefined });
+      const res = await listApprovals({
+        mode: t.mode,
+        status: statusFilter || undefined,
+        sort_by: (sort?.field as "requested_at" | "action" | "status" | "expires_at") || undefined,
+        sort_dir: sort?.dir,
+      });
       setItems(res.items);
       setTotal(res.total);
     } catch (e) {
@@ -59,7 +66,7 @@ export default function AprovacoesScreen() {
     } finally {
       setLoading(false);
     }
-  }, [tab, statusFilter]);
+  }, [tab, statusFilter, sort]);
 
   useEffect(() => {
     reload();
@@ -150,13 +157,13 @@ export default function AprovacoesScreen() {
           <table className="tbl">
             <thead>
               <tr>
-                <th style={{ width: 130 }}>SOLICITADO</th>
-                <th style={{ width: 180 }}>AÇÃO</th>
+                <SortHeader field="requested_at" label="SOLICITADO" sort={sort} onChange={setSort} width={130} />
+                <SortHeader field="action" label="AÇÃO" sort={sort} onChange={setSort} width={180} />
                 <th>ALVO</th>
                 <th>DETALHES</th>
                 <th style={{ width: 220 }}>SOLICITANTE</th>
-                <th style={{ width: 120 }}>STATUS</th>
-                <th style={{ width: 130 }}>EXPIRA</th>
+                <SortHeader field="status" label="STATUS" sort={sort} onChange={setSort} width={120} />
+                <SortHeader field="expires_at" label="EXPIRA" sort={sort} onChange={setSort} width={130} />
               </tr>
             </thead>
             <tbody>

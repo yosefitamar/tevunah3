@@ -62,6 +62,19 @@ type ListOpts struct {
 	Role      string // codename, vazio = todos
 	Clearance int    // 0 = todos, 1..5 filtra exato
 	Search    string // substring em código/email/nome (ILIKE)
+	SortBy    string // "code"|"display_name"|"email"|"clearance_level"|"status"|"last_login_at"; default "code"
+	SortDir   string // "asc"|"desc"; default "asc"
+}
+
+// usersSortable mapeia campos públicos para colunas SQL. Whitelist
+// obrigatória para evitar injection no ORDER BY.
+var usersSortable = map[string]string{
+	"code":            "u.code",
+	"display_name":    "u.display_name",
+	"email":           "u.email",
+	"clearance_level": "u.clearance_level",
+	"status":          "u.status",
+	"last_login_at":   "u.last_login_at",
 }
 
 // ListResult agrupa página + total.
@@ -370,6 +383,24 @@ func (r *Repo) List(ctx context.Context, opts ListOpts) (*ListResult, error) {
 		return nil, err
 	}
 
+	col, ok := usersSortable[opts.SortBy]
+	if !ok {
+		col = "u.code"
+	}
+	dir := "ASC"
+	if strings.ToLower(opts.SortDir) == "desc" {
+		dir = "DESC"
+	}
+	// last_login_at é nullable; estabilizamos a posição dos NULLs.
+	nulls := ""
+	if col == "u.last_login_at" {
+		if dir == "ASC" {
+			nulls = " NULLS LAST"
+		} else {
+			nulls = " NULLS LAST"
+		}
+	}
+
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT u.id, u.code, u.email, u.display_name, u.clearance_level, u.status,
 		       u.last_login_at, u.created_at,
@@ -382,7 +413,7 @@ func (r *Repo) List(ctx context.Context, opts ListOpts) (*ListResult, error) {
 		   AND ($3 = 0  OR u.clearance_level = $3)
 		   AND ($4 = '' OR u.email ILIKE $5 OR u.display_name ILIKE $5 OR u.code ILIKE $5)
 		 GROUP BY u.id
-		 ORDER BY u.code
+		 ORDER BY `+col+` `+dir+nulls+`, u.code ASC
 		 LIMIT $6 OFFSET $7`,
 		opts.Status, opts.Role, opts.Clearance, opts.Search, search, opts.Limit, opts.Offset,
 	)

@@ -196,9 +196,9 @@ func (a *app) handleUserSetRoles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	after, _ := a.users.FindByID(r.Context(), targetID)
-	aid, sid, ip := a.actorInfo(r)
+	aid, sid, ip, ua := a.actorInfo(r)
 	_ = a.audit.Log(r.Context(), audit.Entry{
-		ActorUserID: aid, ActorSessionID: sid, ActorIP: ip,
+		ActorUserID: aid, ActorSessionID: sid, ActorIP: ip, ActorUserAgent: ua,
 		Action:       "user.role.assign",
 		ResourceType: audit.Ptr("user"), ResourceID: &targetID,
 		After: map[string]any{"roles": req.Roles},
@@ -279,9 +279,9 @@ func (a *app) handleUserSetClearance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	after, _ := a.users.FindByID(r.Context(), targetID)
-	aid, sid, ip := a.actorInfo(r)
+	aid, sid, ip, ua := a.actorInfo(r)
 	_ = a.audit.Log(r.Context(), audit.Entry{
-		ActorUserID: aid, ActorSessionID: sid, ActorIP: ip,
+		ActorUserID: aid, ActorSessionID: sid, ActorIP: ip, ActorUserAgent: ua,
 		Action:       "user.clearance.set",
 		ResourceType: audit.Ptr("user"), ResourceID: &targetID,
 		After: map[string]any{"clearance_level": req.ClearanceLevel},
@@ -297,7 +297,9 @@ func (a *app) handleApprovalsList(w http.ResponseWriter, r *http.Request) {
 
 	mode := q.Get("mode") // "" | "pending_for_me" | "mine"
 	opts := approvals.ListOpts{
-		Status: approvals.Status(q.Get("status")),
+		Status:  approvals.Status(q.Get("status")),
+		SortBy:  strings.TrimSpace(q.Get("sort_by")),
+		SortDir: strings.TrimSpace(q.Get("sort_dir")),
 	}
 
 	canSeeAll := hasRole(me.Roles, "administrador") || hasRole(me.Roles, "gestor")
@@ -413,7 +415,7 @@ func (a *app) handleApprovalDecision(w http.ResponseWriter, r *http.Request, dec
 	}
 
 	// Audit do ato de decisão
-	aid, sid, ip := a.actorInfo(r)
+	aid, sid, ip, ua := a.actorInfo(r)
 	auditAction := decided.Action + ".approved"
 	if decision == approvals.StatusRejected {
 		auditAction = decided.Action + ".rejected"
@@ -426,6 +428,7 @@ func (a *app) handleApprovalDecision(w http.ResponseWriter, r *http.Request, dec
 		ActorUserID:    aid,
 		ActorSessionID: sid,
 		ActorIP:        ip,
+		ActorUserAgent: ua,
 		Action:         auditAction,
 		ResourceType:   audit.Ptr("approval"),
 		ResourceID:     &decided.ID,
@@ -482,13 +485,13 @@ func (a *app) handleApprovalCancel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	aid, sid, ip := a.actorInfo(r)
+	aid, sid, ip, ua := a.actorInfo(r)
 	var reasonPtr *string
 	if s := strings.TrimSpace(req.Reason); s != "" {
 		reasonPtr = &s
 	}
 	_ = a.audit.Log(r.Context(), audit.Entry{
-		ActorUserID: aid, ActorSessionID: sid, ActorIP: ip,
+		ActorUserID: aid, ActorSessionID: sid, ActorIP: ip, ActorUserAgent: ua,
 		Action:       cancelled.Action + ".cancelled",
 		ResourceType: audit.Ptr("approval"),
 		ResourceID:   &cancelled.ID,
@@ -501,9 +504,9 @@ func (a *app) handleApprovalCancel(w http.ResponseWriter, r *http.Request) {
 // ─────────── helpers ───────────
 
 func (a *app) logRequested(r *http.Request, requesterID string, ap *approvals.Approval, payload map[string]any) {
-	aid, sid, ip := a.actorInfo(r)
+	aid, sid, ip, ua := a.actorInfo(r)
 	_ = a.audit.Log(r.Context(), audit.Entry{
-		ActorUserID: aid, ActorSessionID: sid, ActorIP: ip,
+		ActorUserID: aid, ActorSessionID: sid, ActorIP: ip, ActorUserAgent: ua,
 		Action:       ap.Action + ".requested",
 		ResourceType: audit.Ptr("approval"),
 		ResourceID:   &ap.ID,

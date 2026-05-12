@@ -3,6 +3,7 @@ import type {
   Entity,
   EntityClassification,
   EntityKind,
+  GalleryPhoto,
   OrganizationAttrs,
   PersonAttrs,
   PlaceAttrs,
@@ -136,6 +137,71 @@ export function deleteEntityPhoto(id: string) {
   return api<void>(`/api/entities/${encodeURIComponent(id)}/photo`, {
     method: "DELETE",
   });
+}
+
+// ─────────── Gallery (fotos adicionais) ───────────
+//
+// URL pra exibir uma foto da galeria. `v` força bust quando metadados mudam
+// (caption/ord). O binário em si é imutável, então o updated_at do registro
+// é suficiente como busting.
+export function galleryPhotoURL(entityID: string, photoID: string, v?: string): string {
+  const bust = v ? `?v=${encodeURIComponent(v)}` : "";
+  return `/api/entities/${encodeURIComponent(entityID)}/photos/${encodeURIComponent(photoID)}${bust}`;
+}
+
+export async function uploadGalleryPhoto(
+  entityID: string,
+  file: File,
+  caption: string,
+  ord?: number,
+): Promise<GalleryPhoto> {
+  const fd = new FormData();
+  fd.append("photo", file);
+  fd.append("caption", caption);
+  if (ord != null) fd.append("ord", String(ord));
+  const res = await fetch(`/api/entities/${encodeURIComponent(entityID)}/photos`, {
+    method: "POST",
+    credentials: "include",
+    body: fd,
+  });
+  let body: { success: boolean; data?: { photo: GalleryPhoto }; message?: string } = {
+    success: false,
+  };
+  try {
+    body = await res.json();
+  } catch {
+    // sem corpo
+  }
+  if (!res.ok) {
+    const err = new Error(body.message ?? `HTTP ${res.status}`) as Error & {
+      status: number;
+    };
+    err.status = res.status;
+    throw err;
+  }
+  return (body.data as { photo: GalleryPhoto }).photo;
+}
+
+export function updateGalleryPhoto(
+  entityID: string,
+  photoID: string,
+  caption: string,
+  ord?: number,
+) {
+  return api<{ photo: GalleryPhoto }>(
+    `/api/entities/${encodeURIComponent(entityID)}/photos/${encodeURIComponent(photoID)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ caption, ord }),
+    },
+  );
+}
+
+export function deleteGalleryPhoto(entityID: string, photoID: string) {
+  return api<void>(
+    `/api/entities/${encodeURIComponent(entityID)}/photos/${encodeURIComponent(photoID)}`,
+    { method: "DELETE" },
+  );
 }
 
 // ─────────── Duplicates (pessoas) ───────────

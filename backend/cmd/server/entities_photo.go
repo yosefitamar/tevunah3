@@ -55,8 +55,8 @@ func (a *app) handleEntityPhotoUpload(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusInternalServerError, "erro ao buscar")
 		return
 	}
-	if current.Kind != entities.KindPerson {
-		httpx.Error(w, http.StatusBadRequest, "fotos só se aplicam a entidades do tipo pessoa")
+	if current.Kind != entities.KindPerson && current.Kind != entities.KindPlace {
+		httpx.Error(w, http.StatusBadRequest, "foto primária só se aplica a pessoa ou lugar")
 		return
 	}
 	if current.Classification > me.ClearanceLevel || current.DeletedAt != nil {
@@ -178,12 +178,12 @@ func (a *app) handleEntityPhotoGet(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusNotFound, "entidade não encontrada")
 		return
 	}
-	if e.Kind != entities.KindPerson || e.Person == nil ||
-		e.Person.PhotoPath == nil || *e.Person.PhotoPath == "" {
+	pp := primaryPhotoPath(e)
+	if pp == "" {
 		httpx.Error(w, http.StatusNotFound, "sem foto registrada")
 		return
 	}
-	path := filepath.Join(photoDir(), *e.Person.PhotoPath)
+	path := filepath.Join(photoDir(), pp)
 	// Defesa contra path traversal: o filename armazenado deve ser exatamente
 	// o que confiamos. Verifica que o caminho resolvido está sob photoDir().
 	abs, err := filepath.Abs(path)
@@ -223,8 +223,7 @@ func (a *app) handleEntityPhotoDelete(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusNotFound, "entidade não encontrada")
 		return
 	}
-	if e.Kind != entities.KindPerson || e.Person == nil ||
-		e.Person.PhotoPath == nil || *e.Person.PhotoPath == "" {
+	if primaryPhotoPath(e) == "" {
 		httpx.NoContent(w)
 		return
 	}
@@ -263,6 +262,22 @@ func extForMime(mime string) string {
 		return ".jpg"
 	case "image/png":
 		return ".png"
+	}
+	return ""
+}
+
+// primaryPhotoPath devolve o filename da foto primária da entidade (pessoa
+// ou lugar) ou "" se não houver/não se aplicar.
+func primaryPhotoPath(e *entities.Entity) string {
+	switch e.Kind {
+	case entities.KindPerson:
+		if e.Person != nil && e.Person.PhotoPath != nil {
+			return *e.Person.PhotoPath
+		}
+	case entities.KindPlace:
+		if e.Place != nil && e.Place.PhotoPath != nil {
+			return *e.Place.PhotoPath
+		}
 	}
 	return ""
 }

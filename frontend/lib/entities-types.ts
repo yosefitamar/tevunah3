@@ -79,9 +79,23 @@ export type PlaceAttrs = {
   region?: string;
   latitude?: number;
   longitude?: number;
+  has_photo?: boolean;
 };
 
 export type EntityAttrs = PersonAttrs | OrganizationAttrs | PlaceAttrs;
+
+// GalleryPhoto = foto adicional anexada à entidade (distinta da foto primária).
+// O binário é servido em /api/entities/{id}/photos/{photo.id}.
+export type GalleryPhoto = {
+  id: string;
+  caption: string;
+  mime: string;
+  ord: number;
+  created_at: string;
+  created_by: string;
+  updated_at: string;
+  updated_by: string;
+};
 
 export type Entity = {
   id: string;
@@ -97,6 +111,7 @@ export type Entity = {
   updated_by: string;
   deleted_at?: string | null;
   attrs?: EntityAttrs;
+  photos?: GalleryPhoto[];
 };
 
 export function isPerson(e: Entity): e is Entity & { attrs?: PersonAttrs } {

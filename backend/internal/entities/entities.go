@@ -77,6 +77,11 @@ type Entity struct {
 	Person       *PersonAttrs
 	Organization *OrganizationAttrs
 	Place        *PlaceAttrs
+
+	// Photos é a galeria de fotos adicionais. Populada apenas por FindByID
+	// (e portanto por Create/Update/Restore que recarregam). List não popula
+	// para evitar N+1 — listagens não precisam da galeria.
+	Photos []GalleryPhoto
 }
 
 // PersonAttrs são os atributos da tabela app.entity_persons.
@@ -110,6 +115,7 @@ type PlaceAttrs struct {
 	Region    *string
 	Latitude  *float64
 	Longitude *float64
+	PhotoPath *string
 }
 
 // NewEntity é o input do Create.
@@ -252,6 +258,11 @@ func (r *Repo) FindByID(ctx context.Context, id string) (*Entity, error) {
 	if err := r.loadTags(ctx, e); err != nil {
 		return nil, err
 	}
+	photos, err := r.ListGalleryPhotos(ctx, e.ID)
+	if err != nil {
+		return nil, err
+	}
+	e.Photos = photos
 	return e, nil
 }
 
@@ -473,9 +484,10 @@ func (r *Repo) Update(ctx context.Context, id string, expectedVersion int, p Pat
 
 // ─────────────────────────── Photo path ────────────────────────────
 
-// SetPhotoPath grava o filename da foto associada a uma pessoa e bumpa a
-// versão da entidade. Retorna o photo_path anterior (para o caller remover
-// o arquivo antigo do disco, se houver) ou string vazia se não havia.
+// SetPhotoPath grava o filename da foto primária associada a uma pessoa ou
+// lugar (dispatch pela coluna kind) e bumpa a versão da entidade. Retorna o
+// photo_path anterior para o caller remover o arquivo antigo do disco, se
+// houver, ou string vazia se não havia. Organizações não têm foto primária.
 func (r *Repo) SetPhotoPath(ctx context.Context, entityID, filename, updatedBy string) (oldPath string, err error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -488,9 +500,29 @@ func (r *Repo) SetPhotoPath(ctx context.Context, entityID, filename, updatedBy s
 		}
 	}()
 
+	var kind string
+	if err := tx.QueryRowContext(ctx,
+		`SELECT kind FROM app.entities WHERE id = $1 AND deleted_at IS NULL`, entityID,
+	).Scan(&kind); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", ErrNotFound
+		}
+		return "", err
+	}
+
+	var childTable string
+	switch Kind(kind) {
+	case KindPerson:
+		childTable = "app.entity_persons"
+	case KindPlace:
+		childTable = "app.entity_places"
+	default:
+		return "", fmt.Errorf("foto primária não suportada para kind %q", kind)
+	}
+
 	var current sql.NullString
 	if err := tx.QueryRowContext(ctx,
-		`SELECT photo_path FROM app.entity_persons WHERE entity_id = $1`, entityID,
+		`SELECT photo_path FROM `+childTable+` WHERE entity_id = $1`, entityID,
 	).Scan(&current); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return "", ErrNotFound
@@ -499,7 +531,7 @@ func (r *Repo) SetPhotoPath(ctx context.Context, entityID, filename, updatedBy s
 	}
 
 	if _, err := tx.ExecContext(ctx,
-		`UPDATE app.entity_persons SET photo_path = $1 WHERE entity_id = $2`,
+		`UPDATE `+childTable+` SET photo_path = $1 WHERE entity_id = $2`,
 		nullableString(filename), entityID,
 	); err != nil {
 		return "", err
@@ -852,12 +884,12 @@ func (r *Repo) loadChild(ctx context.Context, e *Entity) error {
 		e.Organization = &a
 	case KindPlace:
 		var a PlaceAttrs
-		var address, country, region sql.NullString
+		var address, country, region, photoPath sql.NullString
 		var lat, lng sql.NullFloat64
 		err := r.db.QueryRowContext(ctx, `
-			SELECT address, country, region, latitude, longitude
+			SELECT address, country, region, latitude, longitude, photo_path
 			  FROM app.entity_places WHERE entity_id = $1`, e.ID,
-		).Scan(&address, &country, &region, &lat, &lng)
+		).Scan(&address, &country, &region, &lat, &lng, &photoPath)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				e.Place = &PlaceAttrs{}
@@ -876,6 +908,7 @@ func (r *Repo) loadChild(ctx context.Context, e *Entity) error {
 			v := lng.Float64
 			a.Longitude = &v
 		}
+		a.PhotoPath = nullStr(photoPath)
 		e.Place = &a
 	}
 	return nil

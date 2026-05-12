@@ -1,14 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type DragEvent, type FormEvent } from "react";
-import { AlertTriangle, Camera, Trash2, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { AlertTriangle, X } from "lucide-react";
 import TagInput from "../shared/TagInput";
 import { useModal } from "@/contexts/ModalContext";
+import PrimaryPhotoPicker from "./PrimaryPhotoPicker";
+import { PendingGalleryEditor, type PendingPhoto } from "./GalleryEditor";
 import {
   createEntity,
   findPersonDuplicates,
   listEntities,
   uploadEntityPhoto,
+  uploadGalleryPhoto,
   type DuplicatesResult,
 } from "@/lib/entities-api";
 import {
@@ -35,6 +38,11 @@ export default function CreateEntidadeModal({ onClose, onCreated }: Props) {
   const [description, setDescription] = useState("");
   const [tags, setTags] = useState<string[]>([]);
 
+  // Foto primária — aplicável a Pessoa e Lugar.
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  // Galeria — pendentes em memória, enviadas após createEntity.
+  const [galleryPending, setGalleryPending] = useState<PendingPhoto[]>([]);
+
   // Person
   const [aliases, setAliases] = useState<string[]>([]);
   const [motherName, setMotherName] = useState("");
@@ -42,7 +50,6 @@ export default function CreateEntidadeModal({ onClose, onCreated }: Props) {
   const [dob, setDob] = useState("");
   const [cpf, setCpf] = useState("");
   const [orcrimId, setOrcrimId] = useState("");
-  const [photoFile, setPhotoFile] = useState<File | null>(null);
 
   // Organization
   const [orgSigla, setOrgSigla] = useState("");
@@ -137,7 +144,8 @@ export default function CreateEntidadeModal({ onClose, onCreated }: Props) {
       setErr("Nome é obrigatório");
       return;
     }
-    if (kind === "person" && photoFile && photoFile.size > 5 * 1024 * 1024) {
+    const supportsPrimaryPhoto = kind === "person" || kind === "place";
+    if (supportsPrimaryPhoto && photoFile && photoFile.size > 5 * 1024 * 1024) {
       setErr("A foto excede 5 MiB");
       return;
     }
@@ -237,13 +245,30 @@ export default function CreateEntidadeModal({ onClose, onCreated }: Props) {
             : undefined,
       });
 
-      if (kind === "person" && photoFile) {
+      if (supportsPrimaryPhoto && photoFile) {
         try {
           await uploadEntityPhoto(res.entity.id, photoFile);
         } catch (e) {
           setErr(
-            "Entidade criada, mas o upload da foto falhou: " +
+            "Entidade criada, mas o upload da foto principal falhou: " +
               ((e as ApiError).message ?? "erro desconhecido"),
+          );
+        }
+      }
+      // Galeria: upload sequencial; mantemos a ordem do array em ord 0..N.
+      if (galleryPending.length > 0) {
+        const failures: string[] = [];
+        for (let i = 0; i < galleryPending.length; i++) {
+          const p = galleryPending[i];
+          try {
+            await uploadGalleryPhoto(res.entity.id, p.file, p.caption.trim(), i);
+          } catch (e) {
+            failures.push(`#${i + 1}: ${(e as ApiError).message ?? "erro"}`);
+          }
+        }
+        if (failures.length > 0) {
+          setErr(
+            "Entidade criada, mas falharam fotos da galeria: " + failures.join("; "),
           );
         }
       }
@@ -287,6 +312,14 @@ export default function CreateEntidadeModal({ onClose, onCreated }: Props) {
             </div>
           </fieldset>
 
+          {(kind === "person" || kind === "place") && (
+            <PrimaryPhotoPicker
+              file={photoFile}
+              onFileChange={setPhotoFile}
+              label={kind === "person" ? "FOTO PRINCIPAL · 3X4" : "FOTO PRINCIPAL"}
+            />
+          )}
+
           <label className="form-field">
             <span>{kind === "person" ? "NOME COMPLETO" : "NOME"}</span>
             <input
@@ -328,8 +361,6 @@ export default function CreateEntidadeModal({ onClose, onCreated }: Props) {
               setCpf={setCpf}
               orcrimId={orcrimId}
               setOrcrimId={setOrcrimId}
-              photoFile={photoFile}
-              setPhotoFile={setPhotoFile}
             />
           )}
           {kind === "organization" && (
@@ -358,6 +389,11 @@ export default function CreateEntidadeModal({ onClose, onCreated }: Props) {
               setLongitude={setLongitude}
             />
           )}
+
+          <PendingGalleryEditor
+            photos={galleryPending}
+            onChange={setGalleryPending}
+          />
 
           {kind === "person" && homonyms.length > 0 && !cpfTaken && (
             <div
@@ -430,64 +466,56 @@ function PersonFields(props: {
   setCpf: (v: string) => void;
   orcrimId: string;
   setOrcrimId: (v: string) => void;
-  photoFile: File | null;
-  setPhotoFile: (f: File | null) => void;
 }) {
   return (
     <fieldset className="form-fieldset">
       <legend>DADOS · PESSOA</legend>
 
-      <div className="person-form-row">
-        <PhotoPicker file={props.photoFile} onChange={props.setPhotoFile} />
+      <label className="form-field">
+        <span>NOME DA MÃE</span>
+        <input
+          type="text"
+          value={props.motherName}
+          onChange={(e) => props.setMotherName(e.target.value)}
+          maxLength={200}
+        />
+      </label>
 
-        <div className="person-form-main">
-          <label className="form-field">
-            <span>NOME DA MÃE</span>
-            <input
-              type="text"
-              value={props.motherName}
-              onChange={(e) => props.setMotherName(e.target.value)}
-              maxLength={200}
-            />
-          </label>
-
-          <div className="form-grid-2">
-            <label className="form-field">
-              <span>GÊNERO</span>
-              <select
-                value={props.gender}
-                onChange={(e) => props.setGender(e.target.value as Gender | "")}
-              >
-                <option value="">—</option>
-                {GENDERS.map((g) => (
-                  <option key={g} value={g}>
-                    {GENDER_LABEL[g]}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="form-field">
-              <span>DATA DE NASCIMENTO</span>
-              <input
-                type="date"
-                value={props.dob}
-                onChange={(e) => props.setDob(e.target.value)}
-              />
-            </label>
-          </div>
-
-          <label className="form-field">
-            <span>CPF</span>
-            <input
-              type="text"
-              value={formatCpf(props.cpf)}
-              onChange={(e) => props.setCpf(e.target.value)}
-              inputMode="numeric"
-              maxLength={14}
-            />
-          </label>
-        </div>
+      <div className="form-grid-2">
+        <label className="form-field">
+          <span>GÊNERO</span>
+          <select
+            value={props.gender}
+            onChange={(e) => props.setGender(e.target.value as Gender | "")}
+          >
+            <option value="">—</option>
+            {GENDERS.map((g) => (
+              <option key={g} value={g}>
+                {GENDER_LABEL[g]}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="form-field">
+          <span>DATA DE NASCIMENTO</span>
+          <input
+            type="date"
+            value={props.dob}
+            onChange={(e) => props.setDob(e.target.value)}
+          />
+        </label>
       </div>
+
+      <label className="form-field">
+        <span>CPF</span>
+        <input
+          type="text"
+          value={formatCpf(props.cpf)}
+          onChange={(e) => props.setCpf(e.target.value)}
+          inputMode="numeric"
+          maxLength={14}
+        />
+      </label>
 
       <label className="form-field">
         <span>APELIDOS</span>
@@ -496,106 +524,6 @@ function PersonFields(props: {
 
       <OrcrimSelect value={props.orcrimId} onChange={props.setOrcrimId} />
     </fieldset>
-  );
-}
-
-// ────────────── Photo picker (3x4) ──────────────
-
-function PhotoPicker({
-  file,
-  onChange,
-}: {
-  file: File | null;
-  onChange: (f: File | null) => void;
-}) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [previewURL, setPreviewURL] = useState<string | null>(null);
-  const [dragOver, setDragOver] = useState(false);
-
-  useEffect(() => {
-    if (!file) {
-      setPreviewURL(null);
-      return;
-    }
-    const url = URL.createObjectURL(file);
-    setPreviewURL(url);
-    return () => URL.revokeObjectURL(url);
-  }, [file]);
-
-  function pick() {
-    inputRef.current?.click();
-  }
-
-  function handleFile(f: File | undefined) {
-    if (!f) return;
-    if (!/^image\/(jpeg|png)$/.test(f.type)) {
-      alert("Envie uma imagem JPEG ou PNG");
-      return;
-    }
-    if (f.size > 5 * 1024 * 1024) {
-      alert("A foto excede 5 MiB");
-      return;
-    }
-    onChange(f);
-  }
-
-  function onDragOver(e: DragEvent<HTMLDivElement>) {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "copy";
-    if (!dragOver) setDragOver(true);
-  }
-  function onDragLeave(e: DragEvent<HTMLDivElement>) {
-    e.preventDefault();
-    setDragOver(false);
-  }
-  function onDrop(e: DragEvent<HTMLDivElement>) {
-    e.preventDefault();
-    setDragOver(false);
-    handleFile(e.dataTransfer.files?.[0]);
-  }
-
-  return (
-    <div className="photo-picker">
-      <div
-        className={"photo-frame" + (dragOver ? " photo-frame--drop" : "")}
-        onClick={pick}
-        onDragEnter={onDragOver}
-        onDragOver={onDragOver}
-        onDragLeave={onDragLeave}
-        onDrop={onDrop}
-        role="button"
-        aria-label="Escolher foto 3x4 (clique ou arraste)"
-      >
-        {previewURL ? (
-          <img src={previewURL} alt="prévia da foto" />
-        ) : (
-          <div className="photo-placeholder">
-            <Camera size={22} strokeWidth={1.4} />
-            <span>FOTO 3X4</span>
-            <span className="muted">CLIQUE OU ARRASTE</span>
-          </div>
-        )}
-      </div>
-      <input
-        ref={inputRef}
-        type="file"
-        accept="image/jpeg,image/png"
-        style={{ display: "none" }}
-        onChange={(e) => handleFile(e.target.files?.[0])}
-      />
-      {file && (
-        <button
-          type="button"
-          className="btn btn-ghost photo-clear"
-          onClick={() => {
-            onChange(null);
-            if (inputRef.current) inputRef.current.value = "";
-          }}
-        >
-          <Trash2 size={11} /> REMOVER
-        </button>
-      )}
-    </div>
   );
 }
 

@@ -106,6 +106,10 @@ func main() {
 	mux.Handle("GET /api/entities/{id}/photo", auth(http.HandlerFunc(a.handleEntityPhotoGet)))
 	mux.Handle("POST /api/entities/{id}/photo", auth(http.HandlerFunc(a.handleEntityPhotoUpload)))
 	mux.Handle("DELETE /api/entities/{id}/photo", auth(http.HandlerFunc(a.handleEntityPhotoDelete)))
+	mux.Handle("POST /api/entities/{id}/photos", auth(http.HandlerFunc(a.handleEntityGalleryUpload)))
+	mux.Handle("GET /api/entities/{id}/photos/{pid}", auth(http.HandlerFunc(a.handleEntityGalleryGet)))
+	mux.Handle("PATCH /api/entities/{id}/photos/{pid}", auth(http.HandlerFunc(a.handleEntityGalleryPatch)))
+	mux.Handle("DELETE /api/entities/{id}/photos/{pid}", auth(http.HandlerFunc(a.handleEntityGalleryDelete)))
 
 	mux.Handle("GET /api/approvals", auth(http.HandlerFunc(a.handleApprovalsList)))
 	mux.Handle("GET /api/approvals/{id}", auth(http.HandlerFunc(a.handleApprovalDetail)))

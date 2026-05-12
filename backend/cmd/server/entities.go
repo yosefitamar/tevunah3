@@ -16,19 +16,33 @@ import (
 
 // publicEntity é o envelope JSON enviado ao frontend.
 type publicEntity struct {
-	ID             string     `json:"id"`
-	Kind           string     `json:"kind"`
-	Name           string     `json:"name"`
-	Description    string     `json:"description,omitempty"`
-	Classification int        `json:"classification"`
-	Version        int        `json:"version"`
-	Tags           []string   `json:"tags"`
-	CreatedAt      time.Time  `json:"created_at"`
-	CreatedBy      string     `json:"created_by"`
-	UpdatedAt      time.Time  `json:"updated_at"`
-	UpdatedBy      string     `json:"updated_by"`
-	DeletedAt      *time.Time `json:"deleted_at,omitempty"`
-	Attrs          any        `json:"attrs,omitempty"`
+	ID             string         `json:"id"`
+	Kind           string         `json:"kind"`
+	Name           string         `json:"name"`
+	Description    string         `json:"description,omitempty"`
+	Classification int            `json:"classification"`
+	Version        int            `json:"version"`
+	Tags           []string       `json:"tags"`
+	CreatedAt      time.Time      `json:"created_at"`
+	CreatedBy      string         `json:"created_by"`
+	UpdatedAt      time.Time      `json:"updated_at"`
+	UpdatedBy      string         `json:"updated_by"`
+	DeletedAt      *time.Time     `json:"deleted_at,omitempty"`
+	Attrs          any            `json:"attrs,omitempty"`
+	Photos         []publicPhoto  `json:"photos,omitempty"`
+}
+
+// publicPhoto é a representação JSON de uma foto da galeria. URL real é
+// derivada no front via galleryPhotoURL(entityID, id). Caption livre.
+type publicPhoto struct {
+	ID        string    `json:"id"`
+	Caption   string    `json:"caption"`
+	MIME      string    `json:"mime"`
+	Ord       int       `json:"ord"`
+	CreatedAt time.Time `json:"created_at"`
+	CreatedBy string    `json:"created_by"`
+	UpdatedAt time.Time `json:"updated_at"`
+	UpdatedBy string    `json:"updated_by"`
 }
 
 type personAttrsJSON struct {
@@ -56,6 +70,7 @@ type placeAttrsJSON struct {
 	Region    *string  `json:"region,omitempty"`
 	Latitude  *float64 `json:"latitude,omitempty"`
 	Longitude *float64 `json:"longitude,omitempty"`
+	HasPhoto  bool     `json:"has_photo"`
 }
 
 func toPublicEntity(e *entities.Entity) publicEntity {
@@ -117,7 +132,23 @@ func toPublicEntity(e *entities.Entity) publicEntity {
 				Region:    e.Place.Region,
 				Latitude:  e.Place.Latitude,
 				Longitude: e.Place.Longitude,
+				HasPhoto:  e.Place.PhotoPath != nil && *e.Place.PhotoPath != "",
 			}
+		}
+	}
+	if len(e.Photos) > 0 {
+		pe.Photos = make([]publicPhoto, 0, len(e.Photos))
+		for _, p := range e.Photos {
+			pe.Photos = append(pe.Photos, publicPhoto{
+				ID:        p.ID,
+				Caption:   p.Caption,
+				MIME:      p.MIME,
+				Ord:       p.Ord,
+				CreatedAt: p.CreatedAt,
+				CreatedBy: p.CreatedBy,
+				UpdatedAt: p.UpdatedAt,
+				UpdatedBy: p.UpdatedBy,
+			})
 		}
 	}
 	return pe

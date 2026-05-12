@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState, type DragEvent } from "react";
-import { Camera, Pencil, Trash2, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Pencil, Trash2, X } from "lucide-react";
 import TagInput from "../shared/TagInput";
 import { useAuth } from "@/contexts/AuthContext";
 import { useModal } from "@/contexts/ModalContext";
@@ -22,12 +22,15 @@ import {
 import {
   deleteEntity,
   deleteEntityPhoto,
+  galleryPhotoURL,
   getEntity,
   listEntities,
   photoURL,
   updateEntity,
   uploadEntityPhoto,
 } from "@/lib/entities-api";
+import PrimaryPhotoPicker from "./PrimaryPhotoPicker";
+import { PersistedGalleryEditor } from "./GalleryEditor";
 import { canDeleteEntities, canEditEntities } from "@/lib/permissions";
 import { formatBR } from "@/lib/format";
 import type { ApiError } from "@/lib/api";
@@ -121,6 +124,10 @@ export default function EntidadeDrawer({ entityId, onClose, onChanged }: Props) 
             <EditMode
               data={data}
               onCancel={() => setEditing(false)}
+              onPhotoChanged={() => {
+                reload();
+                onChanged();
+              }}
               onSaved={(updated) => {
                 setData(updated);
                 setEditing(false);
@@ -159,10 +166,14 @@ function ViewMode({
   onEdit: () => void;
   onDelete: () => void;
 }) {
+  const hasPrimaryPhoto =
+    (isPerson(data) && data.attrs?.has_photo) ||
+    (isPlace(data) && data.attrs?.has_photo);
+
   return (
     <>
       <div className="dossier-head dossier-head--with-photo">
-        {isPerson(data) && data.attrs?.has_photo && (
+        {hasPrimaryPhoto && (
           <div className="dossier-photo">
             <img
               src={photoURL(data.id, data.version)}
@@ -203,6 +214,37 @@ function ViewMode({
         {isOrganization(data) && <OrganizationView attrs={data.attrs} />}
         {isPlace(data) && <PlaceView attrs={data.attrs} />}
       </div>
+
+      {data.photos && data.photos.length > 0 && (
+        <div className="drawer-section">
+          <div className="drawer-section-title">OUTRAS FOTOS</div>
+          <div className="gallery-grid">
+            {data.photos.map((p) => (
+              <div key={p.id} className="gallery-card">
+                <a
+                  className="gallery-thumb"
+                  href={galleryPhotoURL(data.id, p.id, p.updated_at)}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <img
+                    src={galleryPhotoURL(data.id, p.id, p.updated_at)}
+                    alt={p.caption || "foto"}
+                  />
+                </a>
+                {p.caption && (
+                  <div
+                    className="gallery-caption"
+                    style={{ borderBottom: "none", textTransform: "uppercase" }}
+                  >
+                    {p.caption}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="drawer-section">
         <div className="drawer-section-title">REGISTRO</div>
@@ -320,11 +362,13 @@ function EditMode({
   onCancel,
   onSaved,
   onConflict,
+  onPhotoChanged,
 }: {
   data: Entity;
   onCancel: () => void;
   onSaved: (updated: Entity) => void;
   onConflict: () => void;
+  onPhotoChanged: () => void;
 }) {
   const [name, setName] = useState(data.name);
   const [description, setDescription] = useState(data.description ?? "");
@@ -421,8 +465,32 @@ function EditMode({
     }
   }
 
+  const supportsPrimaryPhoto = data.kind === "person" || data.kind === "place";
+
+  const hasPrimaryPhoto =
+    (isPerson(data) && data.attrs?.has_photo) ||
+    (isPlace(data) && data.attrs?.has_photo);
+
+  async function uploadPrimary(file: File) {
+    await uploadEntityPhoto(data.id, file);
+    onPhotoChanged();
+  }
+  async function removePrimary() {
+    await deleteEntityPhoto(data.id);
+    onPhotoChanged();
+  }
+
   return (
     <form className="entity-form" onSubmit={onSubmit} autoComplete="off">
+      {supportsPrimaryPhoto && (
+        <PrimaryPhotoPicker
+          currentURL={hasPrimaryPhoto ? photoURL(data.id, data.version) : null}
+          onUpload={uploadPrimary}
+          onRemove={hasPrimaryPhoto ? removePrimary : undefined}
+          label={data.kind === "person" ? "FOTO PRINCIPAL · 3X4" : "FOTO PRINCIPAL"}
+        />
+      )}
+
       <label className="form-field">
         <span>NOME</span>
         <input
@@ -499,7 +567,6 @@ function EditMode({
             <TagInput value={aliases} onChange={setAliases} />
           </label>
           <DrawerOrcrimSelect value={orcrimId} onChange={setOrcrimId} />
-          <DrawerPhotoSection entity={data} onChanged={onSaved} />
         </fieldset>
       )}
 
@@ -594,6 +661,12 @@ function EditMode({
         </fieldset>
       )}
 
+      <PersistedGalleryEditor
+        entityID={data.id}
+        photos={data.photos ?? []}
+        onChanged={onPhotoChanged}
+      />
+
       {err && <div className="banner banner-error">⚠ {err}</div>}
 
       <div className="drawer-actions">
@@ -667,141 +740,3 @@ function DrawerOrcrimSelect({
   );
 }
 
-// ─────────────────────────── DrawerPhotoSection ────────────────────────────
-
-function DrawerPhotoSection({
-  entity,
-  onChanged,
-}: {
-  entity: Entity;
-  onChanged: (updated: Entity) => void;
-}) {
-  const modal = useModal();
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [busy, setBusy] = useState(false);
-  const [dragOver, setDragOver] = useState(false);
-  const hasPhoto = isPerson(entity) && Boolean(entity.attrs?.has_photo);
-
-  async function pick(f?: File) {
-    if (!f) return;
-    if (!/^image\/(jpeg|png)$/.test(f.type)) {
-      modal.alert({ variant: "error", message: "Envie uma imagem JPEG ou PNG." });
-      return;
-    }
-    if (f.size > 5 * 1024 * 1024) {
-      modal.alert({ variant: "error", message: "Foto excede 5 MiB." });
-      return;
-    }
-    setBusy(true);
-    try {
-      const updated = await uploadEntityPhoto(entity.id, f);
-      onChanged(updated);
-    } catch (e) {
-      modal.alert({
-        variant: "error",
-        message: (e as ApiError).message || "Falha no upload",
-      });
-    } finally {
-      setBusy(false);
-      if (inputRef.current) inputRef.current.value = "";
-    }
-  }
-
-  function onDragOver(e: DragEvent<HTMLDivElement>) {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "copy";
-    if (!dragOver) setDragOver(true);
-  }
-  function onDragLeave(e: DragEvent<HTMLDivElement>) {
-    e.preventDefault();
-    setDragOver(false);
-  }
-  function onDrop(e: DragEvent<HTMLDivElement>) {
-    e.preventDefault();
-    setDragOver(false);
-    pick(e.dataTransfer.files?.[0]);
-  }
-
-  async function remove() {
-    const ok = await modal.confirm({
-      variant: "warning",
-      title: "REMOVER FOTO",
-      message: "A foto atual será apagada do storage.",
-      confirm: "REMOVER",
-      danger: true,
-    });
-    if (!ok) return;
-    setBusy(true);
-    try {
-      await deleteEntityPhoto(entity.id);
-      // Recarrega a entidade via callback (o caller chama reload).
-      onChanged({ ...entity, attrs: { ...(entity.attrs ?? {}), has_photo: false } });
-    } catch (e) {
-      modal.alert({
-        variant: "error",
-        message: (e as ApiError).message || "Falha ao remover foto",
-      });
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="photo-section">
-      <span className="photo-section-lbl">FOTO 3X4</span>
-      <div className="photo-section-row">
-        <div
-          className={
-            "photo-frame photo-frame--sm" + (dragOver ? " photo-frame--drop" : "")
-          }
-          onClick={() => inputRef.current?.click()}
-          onDragEnter={onDragOver}
-          onDragOver={onDragOver}
-          onDragLeave={onDragLeave}
-          onDrop={onDrop}
-          role="button"
-          aria-label="Foto (clique ou arraste)"
-        >
-          {hasPhoto ? (
-            <img
-              src={photoURL(entity.id, entity.version)}
-              alt={`foto de ${entity.name}`}
-            />
-          ) : (
-            <div className="photo-placeholder">
-              <Camera size={18} strokeWidth={1.4} />
-              <span className="muted">SEM FOTO</span>
-            </div>
-          )}
-        </div>
-        <div className="photo-section-actions">
-          <button
-            type="button"
-            className="btn btn-ghost"
-            onClick={() => inputRef.current?.click()}
-            disabled={busy}
-          >
-            {hasPhoto ? "SUBSTITUIR" : "ENVIAR FOTO"}
-          </button>
-          {hasPhoto && (
-            <button
-              type="button"
-              className="btn btn-ghost"
-              onClick={remove}
-              disabled={busy}
-            >
-              <Trash2 size={11} /> REMOVER
-            </button>
-          )}
-        </div>
-        <input
-          ref={inputRef}
-          type="file"
-          accept="image/jpeg,image/png"
-          style={{ display: "none" }}
-          onChange={(e) => pick(e.target.files?.[0])}
-        />
-      </div>
-    </div>
-  );
-}

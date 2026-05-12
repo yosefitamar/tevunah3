@@ -1,7 +1,21 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { api, type ApiError } from "@/lib/api";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import {
+  api,
+  setSessionExpiresHandler,
+  setUnauthorizedHandler,
+  type ApiError,
+} from "@/lib/api";
 import type { User } from "@/lib/types";
 
 type LoginInput = { email: string; password: string; totp_code: string };
@@ -10,6 +24,10 @@ type AuthState = {
   user: User | null;
   loading: boolean;
   error: string | null;
+  /** True quando a sessão expirou mid-uso e o overlay de re-auth está ativo. */
+  sessionExpired: boolean;
+  /** Quando a sessão atual expira por inatividade (atualizado a cada call). */
+  sessionExpiresAt: Date | null;
   login: (input: LoginInput) => Promise<void>;
   logout: () => Promise<void>;
 };
@@ -20,6 +38,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [sessionExpired, setSessionExpired] = useState(false);
+  const [sessionExpiresAt, setSessionExpiresAt] = useState<Date | null>(null);
+
+  // Ref pra ler o estado atual dentro do handler global (evita rebind).
+  const userRef = useRef<User | null>(null);
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
 
   const refresh = useCallback(async () => {
     try {
@@ -41,6 +67,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     refresh();
   }, [refresh]);
 
+  // Registra handler global de 401. Só dispara o overlay se já havia um
+  // usuário logado (i.e., sessão expirou mid-uso, não estado inicial).
+  useEffect(() => {
+    setUnauthorizedHandler(() => {
+      if (userRef.current) {
+        setSessionExpired(true);
+        setSessionExpiresAt(null);
+      }
+    });
+    return () => setUnauthorizedHandler(null);
+  }, []);
+
+  // Recebe a expiração de cada resposta autenticada (Touch refresh).
+  useEffect(() => {
+    setSessionExpiresHandler((d) => setSessionExpiresAt(d));
+    return () => setSessionExpiresHandler(null);
+  }, []);
+
+  // Quando o relógio bate na expiração, dispara o overlay sem esperar um 401.
+  // Sem isso, um usuário inativo veria o timer chegar a 00:00 e nada
+  // aconteceria até a próxima chamada manual. Aqui agendamos o gatilho.
+  useEffect(() => {
+    if (!sessionExpiresAt || !userRef.current) return;
+    const ms = sessionExpiresAt.getTime() - Date.now();
+    if (ms <= 0) {
+      setSessionExpired(true);
+      return;
+    }
+    const id = window.setTimeout(() => setSessionExpired(true), ms);
+    return () => window.clearTimeout(id);
+  }, [sessionExpiresAt]);
+
   const login = useCallback(async (input: LoginInput) => {
     setError(null);
     const data = await api<{ user: User; token: string; expires_in: number }>("/api/auth/login", {
@@ -48,6 +106,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       body: JSON.stringify(input),
     });
     setUser(data.user);
+    setSessionExpired(false);
+    // Estima a expiração a partir do expires_in retornado pelo login. Será
+    // sobrescrita pela próxima chamada autenticada via header.
+    setSessionExpiresAt(new Date(Date.now() + data.expires_in * 1000));
   }, []);
 
   const logout = useCallback(async () => {
@@ -57,11 +119,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // se a sessão já expirou no servidor, segue
     }
     setUser(null);
+    setSessionExpired(false);
+    setSessionExpiresAt(null);
   }, []);
 
   const value = useMemo<AuthState>(
-    () => ({ user, loading, error, login, logout }),
-    [user, loading, error, login, logout],
+    () => ({
+      user,
+      loading,
+      error,
+      sessionExpired,
+      sessionExpiresAt,
+      login,
+      logout,
+    }),
+    [user, loading, error, sessionExpired, sessionExpiresAt, login, logout],
   );
 
   return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>;

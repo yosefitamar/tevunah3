@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/belia/tevunah/backend/internal/httpx"
 	"github.com/belia/tevunah/backend/internal/session"
@@ -76,6 +77,10 @@ func RequireAuth(store *session.Store, repo *users.Repo) func(http.Handler) http
 				httpx.Error(w, http.StatusInternalServerError, "erro ao renovar sessão")
 				return
 			}
+			// Expõe a nova expiração ao cliente para o timer de sessão na UI.
+			// Calculada a partir do LastSeenAt recém-atualizado por Touch.
+			expiresAt := sess.LastSeenAt.Add(store.TTL())
+			w.Header().Set("X-Session-Expires-At", expiresAt.UTC().Format(time.RFC3339))
 			ctx := WithUser(WithSession(r.Context(), sess), u)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})

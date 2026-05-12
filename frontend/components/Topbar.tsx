@@ -5,6 +5,7 @@ import { Bell, LogOut, Maximize2, Minimize2, Settings2 } from "lucide-react";
 import { MODULE_TITLES, type ModuleId } from "@/lib/nav";
 import { useAuth } from "@/contexts/AuthContext";
 import { clearanceLabel, primaryRole } from "@/lib/types";
+import SessionTimer from "./SessionTimer";
 
 // Relógio em horário de Fortaleza (BRT, UTC-3, sem DST).
 const FORTALEZA_FMT = new Intl.DateTimeFormat("pt-BR", {
@@ -65,11 +66,12 @@ export default function Topbar({ active, onToggleSettings, notifications = 0 }: 
         <span className="kbd">⌘ K</span>
       </div>
       <div className="stat">
-        <span className="lbl">BRT · FORTALEZA</span>
+        <span className="lbl">FORTALEZA</span>
         <span className="val" style={{ fontFeatureSettings: '"tnum"' }}>
           {clock}
         </span>
       </div>
+      <SessionTimer />
       <div className="stat">
         <span className="lbl">UPLINK</span>
         <span className="val">

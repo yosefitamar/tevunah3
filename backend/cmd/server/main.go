@@ -14,6 +14,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/belia/tevunah/backend/internal/approvals"
@@ -21,6 +22,7 @@ import (
 	"github.com/belia/tevunah/backend/internal/authz"
 	"github.com/belia/tevunah/backend/internal/crypt"
 	idb "github.com/belia/tevunah/backend/internal/db"
+	"github.com/belia/tevunah/backend/internal/entities"
 	"github.com/belia/tevunah/backend/internal/httpx"
 	"github.com/belia/tevunah/backend/internal/middleware"
 	"github.com/belia/tevunah/backend/internal/permissions"
@@ -40,6 +42,7 @@ type app struct {
 	policy      *authz.Policy
 	approvals   *approvals.Repo
 	perms       *permissions.Repo
+	entities    *entities.Repo
 }
 
 func main() {
@@ -52,7 +55,9 @@ func main() {
 	auditDB := mustOpen("AUDIT_DATABASE_URL")
 	defer auditDB.Close()
 
-	store, err := session.New(idb.Env("REDIS_URL", "redis://redis:6379/0"), 30*time.Minute)
+	idleTTL := sessionIdleTTL()
+	log.Printf("session idle timeout: %v", idleTTL)
+	store, err := session.New(idb.Env("REDIS_URL", "redis://redis:6379/0"), idleTTL)
 	if err != nil {
 		log.Fatalf("session store: %v", err)
 	}
@@ -66,6 +71,7 @@ func main() {
 		policy:      authz.New(appDB),
 		approvals:   approvals.New(appDB),
 		perms:       permissions.New(appDB),
+		entities:    entities.New(appDB),
 	}
 
 	mux := http.NewServeMux()
@@ -90,6 +96,17 @@ func main() {
 	mux.Handle("GET /api/admin/permissions", auth(http.HandlerFunc(a.handleAdminPermissionsList)))
 	mux.Handle("PATCH /api/admin/permissions/{role_code}/{action}", auth(http.HandlerFunc(a.handleAdminPermissionsUpdate)))
 
+	mux.Handle("GET /api/entities/persons/duplicates", auth(http.HandlerFunc(a.handleEntityPersonDuplicates)))
+	mux.Handle("GET /api/entities", auth(http.HandlerFunc(a.handleEntitiesList)))
+	mux.Handle("POST /api/entities", auth(http.HandlerFunc(a.handleEntityCreate)))
+	mux.Handle("GET /api/entities/{id}", auth(http.HandlerFunc(a.handleEntityDetail)))
+	mux.Handle("PATCH /api/entities/{id}", auth(http.HandlerFunc(a.handleEntityUpdate)))
+	mux.Handle("DELETE /api/entities/{id}", auth(http.HandlerFunc(a.handleEntityDelete)))
+	mux.Handle("POST /api/entities/{id}/restore", auth(http.HandlerFunc(a.handleEntityRestore)))
+	mux.Handle("GET /api/entities/{id}/photo", auth(http.HandlerFunc(a.handleEntityPhotoGet)))
+	mux.Handle("POST /api/entities/{id}/photo", auth(http.HandlerFunc(a.handleEntityPhotoUpload)))
+	mux.Handle("DELETE /api/entities/{id}/photo", auth(http.HandlerFunc(a.handleEntityPhotoDelete)))
+
 	mux.Handle("GET /api/approvals", auth(http.HandlerFunc(a.handleApprovalsList)))
 	mux.Handle("GET /api/approvals/{id}", auth(http.HandlerFunc(a.handleApprovalDetail)))
 	mux.Handle("POST /api/approvals/{id}/approve", auth(http.HandlerFunc(a.handleApprovalApprove)))
@@ -109,6 +126,30 @@ func main() {
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal(err)
 	}
+}
+
+// sessionIdleTTL lê SESSION_IDLE_MINUTES do ambiente e devolve a duração
+// correspondente. Default: 15 minutos (alinhado com NIST 800-63B AAL2, que
+// permite até 30 min; OWASP recomenda 2-5 min para apps de alto valor e
+// 15-30 min para baixo risco — 15 é o sweet-spot para um sistema de
+// inteligência com MFA + audit chain, dado o workflow prolongado de análise).
+// Clamp em [1, 60] para evitar configuração acidental insegura.
+func sessionIdleTTL() time.Duration {
+	const defaultMin = 15
+	v := os.Getenv("SESSION_IDLE_MINUTES")
+	if v == "" {
+		return time.Duration(defaultMin) * time.Minute
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 1 {
+		log.Printf("SESSION_IDLE_MINUTES inválido (%q) — usando default %dm", v, defaultMin)
+		return time.Duration(defaultMin) * time.Minute
+	}
+	if n > 60 {
+		log.Printf("SESSION_IDLE_MINUTES %d > 60 acima do recomendado por NIST AAL2 — clampando para 60m", n)
+		n = 60
+	}
+	return time.Duration(n) * time.Minute
 }
 
 func mustOpen(envVar string) *sql.DB {

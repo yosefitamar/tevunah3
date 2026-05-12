@@ -8,7 +8,7 @@ import {
   Info,
 } from "lucide-react";
 import type { ReactNode } from "react";
-import TevunahLogo from "@/components/TevunahLogo";
+import TevunahLoader from "@/components/TevunahLoader";
 
 // ─────────────────────────── Types ────────────────────────────
 
@@ -93,10 +93,7 @@ const VARIANT_HEADER: Record<string, string> = {
 };
 
 function VariantIcon({ variant }: { variant: string }) {
-  if (variant === "loading") {
-    return <TevunahLogo className="modal-loading-logo" />;
-  }
-  const props = { size: 28, strokeWidth: 1.6 };
+  const props = { size: 40, strokeWidth: 1.5 };
   switch (variant) {
     case "success":
       return <CheckCircle2 {...props} />;
@@ -157,17 +154,26 @@ function ModalView({
           <span>{VARIANT_HEADER[variant] ?? "// AVISO"}</span>
         </div>
 
-        <div className="modal-bd">
-          <div className={"modal-icon modal-icon--" + variant}>
-            <VariantIcon variant={variant} />
-          </div>
-          <div className="modal-content">
-            {instance.type !== "loading" && instance.title && (
-              <div className="modal-title">{instance.title}</div>
+        {isLoading ? (
+          <div className="modal-bd modal-bd--loading">
+            <TevunahLoader className="modal-loading-anim" />
+            {instance.message && (
+              <div className="modal-loading-message">{instance.message}</div>
             )}
-            <div className="modal-message">{instance.message}</div>
           </div>
-        </div>
+        ) : (
+          <div className="modal-bd">
+            <div className={"modal-icon modal-icon--" + variant}>
+              <VariantIcon variant={variant} />
+            </div>
+            <div className="modal-content">
+              {instance.title && (
+                <div className="modal-title">{instance.title}</div>
+              )}
+              <div className="modal-message">{instance.message}</div>
+            </div>
+          </div>
+        )}
 
         {!isLoading && (
           <div className="modal-ft">

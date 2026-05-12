@@ -65,6 +65,36 @@
 
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; height: 100%; }
+
+/* ───────── Scrollbars (tactical) ─────────
+   Coerente com a paleta. Firefox usa scrollbar-width/scrollbar-color;
+   WebKit/Chromium/Safari precisam de pseudo-elementos. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-2) transparent;
+}
+*:hover {
+  scrollbar-color: var(--accent-dim) transparent;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+  background: transparent;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+  border-left: 1px solid var(--line);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--line-2);
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--accent-dim);
+  background-clip: content-box;
+}
+::-webkit-scrollbar-corner { background: transparent; }
 body {
   background: var(--bg-0);
   color: var(--fg-1);
@@ -185,9 +215,46 @@ body::after {
   0%, 100% { opacity: 0.85; }
   50%      { opacity: 1; }
 }
+/* Letras hebraicas (תבונה) — digitação sequencial. Cada letra fica invisível
+   até o instante em que o cursor "chega" naquela posição. */
+.tv-letter { opacity: 0; }
+.tv-letter-1 { animation: tv-letter-1 3.1s steps(1, end) infinite; }
+.tv-letter-2 { animation: tv-letter-2 3.1s steps(1, end) infinite; }
+.tv-letter-3 { animation: tv-letter-3 3.1s steps(1, end) infinite; }
+.tv-letter-4 { animation: tv-letter-4 3.1s steps(1, end) infinite; }
+.tv-letter-5 { animation: tv-letter-5 3.1s steps(1, end) infinite; }
+@keyframes tv-letter-1 { 0%, -0.010% { opacity: 0; } 0.000%, 100% { opacity: 1; } }
+@keyframes tv-letter-2 { 0%, 7.087%  { opacity: 0; } 7.097%,  100% { opacity: 1; } }
+@keyframes tv-letter-3 { 0%, 14.184% { opacity: 0; } 14.194%, 100% { opacity: 1; } }
+@keyframes tv-letter-4 { 0%, 21.280% { opacity: 0; } 21.290%, 100% { opacity: 1; } }
+@keyframes tv-letter-5 { 0%, 28.377% { opacity: 0; } 28.387%, 100% { opacity: 1; } }
+
+/* Cursor — percorre as posições x das letras (em unidades do viewBox 400×200)
+   e pisca em 0.8s. Os steps são sincronizados com tv-letter-*. */
+.tv-cursor {
+  animation:
+    tv-cursor-move 3.1s steps(1, end) infinite,
+    tv-cursor-blink 0.8s steps(1, end) infinite;
+}
+@keyframes tv-cursor-move {
+  0%      { transform: translateX(279.74px); }
+  0.000%  { transform: translateX(237.48px); }
+  7.097%  { transform: translateX(203.33px); }
+  14.194% { transform: translateX(184.11px); }
+  21.290% { transform: translateX(158.73px); }
+  28.387% { transform: translateX(120.26px); }
+  100%    { transform: translateX(120.26px); }
+}
+@keyframes tv-cursor-blink {
+  0%, 49%   { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .tv-edge, .tv-core { animation: none; }
+  .tv-edge, .tv-core, .tv-letter, .tv-cursor { animation: none; }
   .tv-edge { stroke-dasharray: none; }
+  .tv-letter { opacity: 1; }
+  .tv-cursor { display: none; }
 }
 .brand-text { display: flex; flex-direction: column; line-height: 1.1; min-width: 0; overflow: hidden; }
 .brand-heb {
@@ -374,6 +441,17 @@ body::after {
 }
 .stat .lbl { font-size: 8.5px; letter-spacing: 0.18em; color: var(--fg-3); text-transform: uppercase; }
 .stat .val { font-size: 12px; color: var(--fg-0); font-weight: 600; display: flex; align-items: center; gap: 6px; }
+
+/* Timer de sessão — destaca quando o tempo está acabando. crit pulsa. */
+.session-timer--warn .val { color: var(--warn); }
+.session-timer--crit .val {
+  color: var(--crit);
+  animation: session-pulse 1s steps(2, end) infinite;
+}
+@keyframes session-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.55; }
+}
 .dot {
   width: 7px; height: 7px;
   background: var(--accent);
@@ -719,6 +797,26 @@ body::after {
   grid-template-rows: 22px 1fr 22px;
   background: var(--bg-0);
 }
+
+/* Overlay de sessão expirada — cobre o shell autenticado inteiro. O backdrop
+   é escuro com blur leve para que o conteúdo atrás vire ilegível mas ainda
+   sugira o estado preservado. z-index acima de modais comuns (1200) para
+   impedir que qualquer modal aberto fique acessível durante a re-auth. */
+.session-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  background: rgba(0, 0, 0, 0.78);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  animation: modal-fade-in 160ms ease-out;
+}
+.session-overlay-card {
+  animation: modal-pop-in 180ms ease-out;
+}
 .login-body {
   display: grid;
   place-items: center;
@@ -944,6 +1042,18 @@ body::after {
   color: var(--accent);
   background: rgba(0,0,0,0.3);
 }
+.banner-warn {
+  border-color: var(--warn);
+  color: var(--warn);
+  background: rgba(0,0,0,0.3);
+}
+/* Garante que o ícone fique alinhado verticalmente quando o banner tem
+   um SVG seguido de texto (ex.: alertas de duplicate). */
+.banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 
 /* ───────── Role checks ───────── */
 .role-checks {
@@ -1032,7 +1142,8 @@ body::after {
   color: var(--fg-2);
   text-transform: uppercase;
 }
-.filter-field select {
+.filter-field select,
+.filter-field input {
   background: var(--bg-2);
   border: 1px solid var(--line-2);
   color: var(--fg-0);
@@ -1043,8 +1154,10 @@ body::after {
   letter-spacing: 0.02em;
   height: 32px;
 }
-.filter-field select:focus {
+.filter-field select:focus,
+.filter-field input:focus {
   border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent-glow);
 }
 .filter-actions {
   display: flex;
@@ -1182,6 +1295,275 @@ body::after {
   font-feature-settings: "tnum";
 }
 
+/* ───────── Entidades / formulários polimórficos ───────── */
+
+/* Convenção visual: tudo o que o usuário digita em formulários de entidades
+   aparece em CAIXA ALTA (alinha com o "uppercase convention" do projeto).
+   text-transform é visual; storage permanece como digitado. Campos numéricos
+   (date, lat/long, CPF) não são afetados perceptivelmente. Tags continuam
+   normalizadas em minúsculas no backend — o chip exibe em uppercase via CSS. */
+.entity-form input,
+.entity-form textarea,
+.entity-form select,
+.entity-form .tag-input-text,
+.entity-form .tag-input-chip-lbl {
+  text-transform: uppercase;
+}
+.entity-form input::placeholder,
+.entity-form textarea::placeholder {
+  text-transform: uppercase;
+}
+
+/* Compacta o form do modal de nova entidade pra evitar scroll vertical em
+   viewports de 800-900 px de altura. */
+.entity-form { gap: 10px; }
+.entity-form .form-fieldset {
+  gap: 8px;
+  padding: 8px 10px 10px;
+}
+.entity-form .form-grid-2 { row-gap: 10px; }
+.entity-form textarea { min-height: 48px; }
+.entity-form .seg-btn { padding: 6px 10px; font-size: 10px; }
+
+/* Grid 2-col responsivo para blocos de campos curtos. Row-gap maior que
+   column-gap para dar respiro vertical entre rótulo e campo da linha anterior. */
+.form-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 10px;
+  row-gap: 14px;
+}
+@media (max-width: 520px) {
+  .form-grid-2 { grid-template-columns: 1fr; }
+}
+
+/* Segmented control para escolher kind no Create */
+.seg-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+.seg-btn {
+  flex: 1;
+  appearance: none;
+  background: var(--bg-1);
+  border: 1px solid var(--line-2);
+  color: var(--fg-2);
+  padding: 8px 10px;
+  font-size: 10.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  cursor: pointer;
+  font-weight: 600;
+}
+.seg-btn:hover { color: var(--fg-0); border-color: var(--accent); }
+.seg-btn--on {
+  background: var(--accent);
+  color: var(--bg-0);
+  border-color: var(--accent);
+}
+
+/* TagInput — chips dentro do campo de digitação */
+.tag-input {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+  min-height: 34px;
+  background: var(--bg-2);
+  border: 1px solid var(--line-2);
+  padding: 4px 6px;
+  cursor: text;
+}
+.tag-input:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent-glow);
+}
+.tag-input-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: color-mix(in srgb, var(--accent) 20%, var(--bg-1));
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line-2));
+  color: var(--fg-0);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  padding: 2px 4px 2px 7px;
+  line-height: 1.4;
+}
+.tag-input-chip-lbl { white-space: nowrap; }
+.tag-input-chip-x {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: var(--fg-2);
+  cursor: pointer;
+  padding: 0 2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.tag-input-chip-x:hover { color: var(--crit); }
+.tag-input-text {
+  flex: 1;
+  min-width: 80px;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--fg-0);
+  font: inherit;
+  font-size: 12.5px;
+  letter-spacing: 0.02em;
+  padding: 4px 4px;
+}
+
+/* Chips de tag — usados no drawer (view mode) */
+.tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.tag-chip {
+  background: var(--bg-2);
+  border: 1px solid var(--line-2);
+  color: var(--fg-1);
+  font-size: 10.5px;
+  padding: 3px 8px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+/* Variante clicável (usada em tabelas): vira filtro ao clicar. */
+.tag-chip--button {
+  appearance: none;
+  font: inherit;
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: border-color 100ms ease, color 100ms ease, background 100ms ease;
+}
+.tag-chip--button:hover {
+  border-color: var(--accent);
+  color: var(--fg-0);
+}
+.tag-chip--active {
+  background: color-mix(in srgb, var(--accent) 22%, var(--bg-1));
+  border-color: var(--accent);
+  color: var(--fg-0);
+}
+
+/* Foto picker (3x4) — usado no Create e em uma versão menor no Drawer */
+.person-form-row {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+.person-form-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.photo-picker {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.photo-frame {
+  width: 96px;
+  aspect-ratio: 3 / 4;
+  background: var(--bg-1);
+  border: 1px dashed var(--line-2);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  position: relative;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+.photo-frame:hover { border-color: var(--accent); }
+.photo-frame--drop {
+  border-style: solid;
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 15%, var(--bg-1));
+}
+.photo-frame img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.photo-frame--sm { width: 72px; }
+.photo-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  color: var(--fg-3);
+  font-size: 9.5px;
+  letter-spacing: 0.16em;
+  text-align: center;
+  padding: 6px;
+}
+.photo-clear { font-size: 9.5px; padding: 4px 8px; }
+
+/* Drawer: foto à esquerda do header (when present) */
+.dossier-head--with-photo {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+.dossier-photo {
+  flex-shrink: 0;
+  width: 92px;
+  aspect-ratio: 3 / 4;
+  border: 1px solid var(--line-2);
+  background: var(--bg-1);
+  overflow: hidden;
+}
+.dossier-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* Seção dedicada de foto dentro do form de edição */
+.photo-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.photo-section-lbl {
+  font-size: 9.5px;
+  letter-spacing: 0.18em;
+  color: var(--fg-2);
+  text-transform: uppercase;
+}
+.photo-section-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.photo-section-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Linha de botões de ação no rodapé do drawer/edit */
+.drawer-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
 /* Drawer section + action list */
 .drawer-section {
   display: flex;
@@ -1297,6 +1679,8 @@ body::after {
   flex-direction: column;
   box-shadow: 0 0 0 1px var(--bg-0), 0 12px 60px rgba(0,0,0,0.75);
 }
+/* Variante larga para formulários com muitos campos (ex.: nova entidade). */
+.modal--wide { max-width: 680px; }
 .modal-hd {
   padding: 10px 14px;
   border-bottom: 1px solid var(--line);
@@ -1334,7 +1718,8 @@ body::after {
   text-transform: uppercase;
 }
 .form-field input,
-.form-field select {
+.form-field select,
+.form-field textarea {
   background: var(--bg-2);
   border: 1px solid var(--line-2);
   color: var(--fg-0);
@@ -1344,15 +1729,25 @@ body::after {
   outline: none;
   letter-spacing: 0.02em;
 }
+.form-field textarea {
+  resize: vertical;
+  min-height: 64px;
+  line-height: 1.45;
+  font-family: inherit;
+}
 .form-field input:focus,
-.form-field select:focus {
+.form-field select:focus,
+.form-field textarea:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 1px var(--accent-glow);
 }
 
 .form-fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
   border: 1px solid var(--line-2);
-  padding: 6px 12px 10px;
+  padding: 10px 12px 12px;
   background: var(--bg-2);
   margin: 0;
 }
@@ -1804,18 +2199,22 @@ body::after {
 .modal-card--error   .modal-hd { color: var(--crit); }
 .modal-card--loading .modal-hd { color: var(--fg-3); }
 
-.modal-bd {
+/* Escopado ao .modal-card (sistema de alert/confirm/loading). O .modal-bd
+   do modal legado (.modal) mantém flex-direction: column da regra anterior. */
+.modal-card .modal-bd {
   display: flex;
+  flex-direction: row;
+  align-items: flex-start;
   gap: 16px;
   padding: 20px;
 }
 
 .modal-icon {
   flex-shrink: 0;
-  width: 36px;
-  height: 36px;
+  width: 48px;
+  height: 48px;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: center;
   color: var(--fg-3);
 }
@@ -1823,15 +2222,6 @@ body::after {
 .modal-icon--success { color: var(--accent); }
 .modal-icon--warning { color: var(--warn); }
 .modal-icon--error   { color: var(--crit); }
-.modal-icon--loading {
-  color: var(--accent);
-  width: 56px;
-  height: 56px;
-}
-.modal-loading-logo {
-  width: 100%;
-  height: 100%;
-}
 
 .modal-content {
   flex: 1;
@@ -1863,9 +2253,27 @@ body::after {
   background: var(--bg-2);
 }
 
-/* Loading não tem footer; reduz padding-bottom do body */
-.modal-card--loading .modal-bd {
-  padding-bottom: 24px;
+/* Loading: layout centralizado com a animação do Tevunah no centro
+   e a mensagem logo abaixo. Substitui o layout side-by-side dos demais. */
+.modal-bd--loading {
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 28px 20px 32px;
+}
+.modal-loading-anim {
+  width: 240px;
+  height: 120px;
+  color: var(--accent);
+}
+.modal-loading-message {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  color: var(--fg-2);
+  text-align: center;
+  text-transform: uppercase;
+  word-break: break-word;
 }
 
 /* Mobile: ocupa quase tudo */

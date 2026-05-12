@@ -9,12 +9,20 @@ import Sidebar from "./Sidebar";
 import Topbar from "./Topbar";
 import PaletteSwitcher from "./PaletteSwitcher";
 import LoginScreen from "./LoginScreen";
+import SessionExpiredOverlay from "./SessionExpiredOverlay";
 import Dashboard from "./dashboard/Dashboard";
-import { ScreenAgentes, ScreenAprovacoes, ScreenAuditoria, ScreenAdmin } from "./screens";
+import {
+  ScreenAdmin,
+  ScreenAgentes,
+  ScreenAprovacoes,
+  ScreenAuditoria,
+  ScreenEntidades,
+} from "./screens";
 import SandboxModais from "./sandbox/SandboxModais";
 
 const VIEWS: Record<ModuleId, React.ComponentType> = {
   dashboard: Dashboard,
+  entidades: ScreenEntidades,
   agentes: ScreenAgentes,
   aprovacoes: ScreenAprovacoes,
   auditoria: ScreenAuditoria,
@@ -23,6 +31,7 @@ const VIEWS: Record<ModuleId, React.ComponentType> = {
 };
 
 function AuthenticatedShell() {
+  const { sessionExpired } = useAuth();
   const [active, setActive] = useState<ModuleId>("dashboard");
   const [collapsed, setCollapsed] = useState(false);
   const [palette, setPalette] = useState<PaletteId>("phosphor");
@@ -67,6 +76,7 @@ function AuthenticatedShell() {
       </div>
 
       {settingsOpen && <PaletteSwitcher palette={palette} setPalette={setPalette} />}
+      {sessionExpired && <SessionExpiredOverlay />}
     </div>
   );
 }

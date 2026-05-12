@@ -20,3 +20,14 @@ export const canManagePermissions = (u: User | null) => hasRole(u, "administrado
 // UI mostra os botões para admin; servidor é a fonte de verdade.
 export const canRequestRoleChange = (u: User | null) => hasRole(u, "administrador");
 export const canRequestClearanceChange = (u: User | null) => hasRole(u, "administrador");
+
+// Entidades — espelha a matriz da migration 00010_entities_permissions.
+// Agente só lê; analista/gestor/admin criam e editam; só gestor/admin excluem.
+export const canListEntities = (u: User | null) =>
+  hasRole(u, "agente", "analista", "gestor", "administrador");
+export const canCreateEntities = (u: User | null) =>
+  hasRole(u, "analista", "gestor", "administrador");
+export const canEditEntities = canCreateEntities;
+export const canDeleteEntities = (u: User | null) =>
+  hasRole(u, "gestor", "administrador");
+export const canRestoreEntities = canDeleteEntities;

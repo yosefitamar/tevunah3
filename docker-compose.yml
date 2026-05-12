@@ -56,15 +56,20 @@ services:
       - ./backend:/app
       - go-mod-cache:/go/pkg/mod
       - go-build-cache:/root/.cache/go-build
+      - tevunah-photos:/var/lib/tevunah/photos
     environment:
       APP_ENV: ${APP_ENV:-development}
       ADDR: ":8080"
+      PHOTO_DIR: "/var/lib/tevunah/photos"
       # Migrations rodam como superuser; CRUD do app usa tevunah_app;
       # writer de audit usa tevunah_audit_writer.
       MIGRATIONS_DATABASE_URL: "postgres://${POSTGRES_USER:-tevunah}:${POSTGRES_PASSWORD:-tevunah}@postgres:5432/${POSTGRES_DB:-tevunah}?sslmode=disable"
       APP_DATABASE_URL:        "postgres://${APP_DB_USER:-tevunah_app}:${APP_DB_PASSWORD:-tevunah_app}@postgres:5432/${POSTGRES_DB:-tevunah}?sslmode=disable"
       AUDIT_DATABASE_URL:      "postgres://${AUDIT_DB_USER:-tevunah_audit_writer}:${AUDIT_DB_PASSWORD:-tevunah_audit_writer}@postgres:5432/${POSTGRES_DB:-tevunah}?sslmode=disable"
       REDIS_URL:               "redis://redis:6379/0"
+      # Timeout idle de sessão em minutos. Default 15 (alinhado a NIST AAL2 /
+      # OWASP para apps com dados sensíveis). Clamp [1, 60] no servidor.
+      SESSION_IDLE_MINUTES:    "${SESSION_IDLE_MINUTES:-15}"
       # Seed dev — só usado pelo `admin seed-dev` quando APP_ENV=development
       DEV_ADMIN_EMAIL:    ${DEV_ADMIN_EMAIL:-admin@tevunah.local}
       DEV_ADMIN_NAME:     ${DEV_ADMIN_NAME:-Administrador Dev}
@@ -106,6 +111,7 @@ volumes:
   go-build-cache:
   frontend-node-modules:
   frontend-next-cache:
+  tevunah-photos:
 
 networks:
   tevunah:

@@ -953,6 +953,16 @@ body::after {
   flex: 1;
 }
 .toolbar-search input::placeholder { color: var(--fg-3); }
+/* Botão de submit dentro do search: deve ficar flush com a borda direita do
+   container e atuar como divisor (border-left apenas), sem desenhar uma
+   "caixa" deslocada por causa do padding lateral do .toolbar-search. */
+.toolbar-search > .btn {
+  margin-right: -10px;
+  border-top: none;
+  border-right: none;
+  border-bottom: none;
+  border-left-color: var(--line);
+}
 
 /* ───────── Buttons ───────── */
 .btn {
@@ -1362,6 +1372,117 @@ body::after {
   background: var(--accent);
   color: var(--bg-0);
   border-color: var(--accent);
+}
+
+/* Kind picker — etapa 1 do Create: tiles grandes com ícone para escolher o
+   tipo de entidade. Reutilizado em qualquer fluxo polimórfico. */
+.kind-picker-bd {
+  gap: 16px;
+}
+.kind-picker-hint {
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  color: var(--fg-3);
+  text-transform: uppercase;
+  text-align: center;
+}
+.kind-picker {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+@media (max-width: 520px) {
+  .kind-picker { grid-template-columns: 1fr; }
+}
+.kind-tile {
+  appearance: none;
+  background: var(--bg-2);
+  border: 1px solid var(--line-2);
+  color: var(--fg-1);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 28px 12px 22px;
+  cursor: pointer;
+  font: inherit;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-size: 12px;
+  font-weight: 600;
+  transition: border-color 120ms, color 120ms, background 120ms;
+}
+.kind-tile:hover {
+  color: var(--fg-0);
+  border-color: var(--accent);
+  background: var(--bg-1);
+}
+.kind-tile:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent-glow);
+}
+.kind-tile-icon {
+  color: var(--accent);
+}
+.kind-tile-sub {
+  font-size: 9.5px;
+  letter-spacing: 0.16em;
+  color: var(--fg-3);
+  font-weight: 500;
+}
+
+/* Ação textual no header do modal (ex.: "← TROCAR TIPO"). Posicionada ao
+   lado do botão de fechar. */
+.modal-hd-action {
+  appearance: none;
+  background: none;
+  border: none;
+  color: var(--fg-3);
+  font: inherit;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  cursor: pointer;
+  padding: 4px 6px;
+}
+.modal-hd-action:hover { color: var(--accent); }
+.modal-hd-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Tabs no modal — strip horizontal logo abaixo do header. Usadas para
+   particionar formulários longos e evitar scroll vertical. */
+.modal-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-2);
+  padding: 0 14px;
+}
+.modal-tab {
+  appearance: none;
+  background: none;
+  border: none;
+  color: var(--fg-3);
+  font: inherit;
+  font-size: 10.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-weight: 600;
+  padding: 10px 14px 11px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: color 120ms, border-color 120ms;
+}
+.modal-tab:hover { color: var(--fg-0); }
+.modal-tab--on {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
 }
 
 /* TagInput — chips dentro do campo de digitação */

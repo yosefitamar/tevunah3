@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { AlertTriangle, X } from "lucide-react";
+import { AlertTriangle, Building2, MapPin, User, X } from "lucide-react";
 import TagInput from "../shared/TagInput";
 import { useModal } from "@/contexts/ModalContext";
 import PrimaryPhotoPicker from "./PrimaryPhotoPicker";
@@ -16,7 +16,6 @@ import {
 } from "@/lib/entities-api";
 import {
   ENTITY_KIND_LABEL,
-  ENTITY_KINDS,
   GENDERS,
   GENDER_LABEL,
   isOrganization,
@@ -33,7 +32,13 @@ type Props = {
 };
 
 export default function CreateEntidadeModal({ onClose, onCreated }: Props) {
-  const [kind, setKind] = useState<EntityKind>("person");
+  // Fluxo em duas etapas: na etapa 1 (kind === null) o modal mostra apenas o
+  // seletor de tipo; ao escolher, kind passa a ter valor e o formulário
+  // específico do tipo é renderizado. O botão "trocar tipo" devolve para a
+  // etapa 1 preservando campos comuns já preenchidos.
+  const [kind, setKind] = useState<EntityKind | null>(null);
+  type Tab = "identity" | "data" | "media";
+  const [activeTab, setActiveTab] = useState<Tab>("identity");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [tags, setTags] = useState<string[]>([]);
@@ -140,8 +145,23 @@ export default function CreateEntidadeModal({ onClose, onCreated }: Props) {
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setErr(null);
+    if (kind === null) return; // não há form para submeter na etapa 1
+    // Nas tabs IDENTIFICAÇÃO e DADOS o submit avança para a próxima tab; só na
+    // MÍDIA (última) é que de fato cria a entidade. Isso casa com o botão
+    // contextual do footer e com o Enter dentro dos inputs.
+    if (activeTab !== "media") {
+      if (activeTab === "identity" && !name.trim()) {
+        setErr("Nome completo é obrigatório");
+        return;
+      }
+      setActiveTab(activeTab === "identity" ? "data" : "media");
+      return;
+    }
     if (!name.trim()) {
-      setErr("Nome é obrigatório");
+      // Defesa em profundidade: name sempre é validado em IDENTIFICAÇÃO antes
+      // de avançar, mas se algo escapar volta o usuário para a tab certa.
+      setActiveTab("identity");
+      setErr("Nome completo é obrigatório");
       return;
     }
     const supportsPrimaryPhoto = kind === "person" || kind === "place";
@@ -282,154 +302,260 @@ export default function CreateEntidadeModal({ onClose, onCreated }: Props) {
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal modal--wide" onClick={(e) => e.stopPropagation()}>
+      <div
+        className={"modal" + (kind === null ? "" : " modal--wide")}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="modal-hd">
-          <span>NOVA ENTIDADE</span>
-          <button
-            type="button"
-            className="action-btn"
-            onClick={onClose}
-            aria-label="Fechar"
-          >
-            <X size={14} />
-          </button>
-        </div>
-
-        <form className="modal-bd entity-form" onSubmit={onSubmit} autoComplete="off">
-          <fieldset className="form-fieldset">
-            <legend>TIPO</legend>
-            <div className="seg-row">
-              {ENTITY_KINDS.map((k) => (
-                <button
-                  key={k}
-                  type="button"
-                  className={"seg-btn" + (kind === k ? " seg-btn--on" : "")}
-                  onClick={() => setKind(k)}
-                >
-                  {ENTITY_KIND_LABEL[k]}
-                </button>
-              ))}
-            </div>
-          </fieldset>
-
-          {(kind === "person" || kind === "place") && (
-            <PrimaryPhotoPicker
-              file={photoFile}
-              onFileChange={setPhotoFile}
-              label={kind === "person" ? "FOTO PRINCIPAL · 3X4" : "FOTO PRINCIPAL"}
-            />
-          )}
-
-          <label className="form-field">
-            <span>{kind === "person" ? "NOME COMPLETO" : "NOME"}</span>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              required
-              autoFocus
-              maxLength={200}
-            />
-          </label>
-
-          <label className="form-field">
-            <span>DESCRIÇÃO</span>
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              rows={2}
-              maxLength={2000}
-            />
-          </label>
-
-          <label className="form-field">
-            <span>TAGS</span>
-            <TagInput value={tags} onChange={setTags} normalize="lower" />
-          </label>
-
-          {kind === "person" && (
-            <PersonFields
-              aliases={aliases}
-              setAliases={setAliases}
-              motherName={motherName}
-              setMotherName={setMotherName}
-              gender={gender}
-              setGender={setGender}
-              dob={dob}
-              setDob={setDob}
-              cpf={cpf}
-              setCpf={setCpf}
-              orcrimId={orcrimId}
-              setOrcrimId={setOrcrimId}
-            />
-          )}
-          {kind === "organization" && (
-            <OrganizationFields
-              sigla={orgSigla}
-              setSigla={setOrgSigla}
-              legalName={legalName}
-              setLegalName={setLegalName}
-              taxID={taxID}
-              setTaxID={setTaxID}
-              foundedAt={foundedAt}
-              setFoundedAt={setFoundedAt}
-            />
-          )}
-          {kind === "place" && (
-            <PlaceFields
-              address={address}
-              setAddress={setAddress}
-              country={country}
-              setCountry={setCountry}
-              region={region}
-              setRegion={setRegion}
-              latitude={latitude}
-              setLatitude={setLatitude}
-              longitude={longitude}
-              setLongitude={setLongitude}
-            />
-          )}
-
-          <PendingGalleryEditor
-            photos={galleryPending}
-            onChange={setGalleryPending}
-          />
-
-          {kind === "person" && homonyms.length > 0 && !cpfTaken && (
-            <div
-              className={
-                "banner " + (topScore >= 3 ? "banner-error" : "banner-warn")
-              }
+          <span>
+            NOVA ENTIDADE
+            {kind !== null && ` · ${ENTITY_KIND_LABEL[kind]}`}
+          </span>
+          <div className="modal-hd-actions">
+            {kind !== null && (
+              <button
+                type="button"
+                className="modal-hd-action"
+                onClick={() => setKind(null)}
+                title="Voltar para a escolha do tipo"
+              >
+                ← TROCAR TIPO
+              </button>
+            )}
+            <button
+              type="button"
+              className="action-btn"
+              onClick={onClose}
+              aria-label="Fechar"
             >
-              <AlertTriangle size={12} strokeWidth={2} />
-              <span>
-                {topScore >= 3
-                  ? "MUITO PROVÁVEL DUPLICATA"
-                  : topScore === 2
-                    ? "PROVÁVEL DUPLICATA"
-                    : `${homonyms.length} HOMÔNIMO${homonyms.length > 1 ? "S" : ""}`}{" "}
-                · {homonyms.slice(0, 3).map((h) => h.name.toUpperCase()).join(" · ")}
-                {homonyms.length > 3 ? ` +${homonyms.length - 3}` : ""}
-              </span>
-            </div>
-          )}
-          {dupesLoading && kind === "person" && (
-            <div className="muted" style={{ fontSize: 10 }}>
-              // verificando duplicates…
-            </div>
-          )}
-
-          {err && <div className="banner banner-error">⚠ {err}</div>}
-
-          <div className="modal-ft">
-            <button type="button" className="btn btn-ghost" onClick={onClose}>
-              CANCELAR
-            </button>
-            <button type="submit" className="btn btn-primary" disabled={busy}>
-              {busy ? "CRIANDO…" : "CRIAR ENTIDADE"}
+              <X size={14} />
             </button>
           </div>
-        </form>
+        </div>
+
+        {kind === null ? (
+          <KindPicker onPick={setKind} />
+        ) : (
+        <>
+          <div className="modal-tabs" role="tablist">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === "identity"}
+              className={"modal-tab" + (activeTab === "identity" ? " modal-tab--on" : "")}
+              onClick={() => setActiveTab("identity")}
+            >
+              IDENTIFICAÇÃO
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === "data"}
+              className={"modal-tab" + (activeTab === "data" ? " modal-tab--on" : "")}
+              onClick={() => setActiveTab("data")}
+            >
+              DADOS
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === "media"}
+              className={"modal-tab" + (activeTab === "media" ? " modal-tab--on" : "")}
+              onClick={() => setActiveTab("media")}
+            >
+              MÍDIA
+            </button>
+          </div>
+
+          <form className="modal-bd entity-form" onSubmit={onSubmit} autoComplete="off">
+            {activeTab === "identity" && (
+              <>
+                <label className="form-field">
+                  <span>{kind === "person" ? "NOME COMPLETO" : "NOME"}</span>
+                  <input
+                    type="text"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    required
+                    autoFocus
+                    maxLength={200}
+                  />
+                </label>
+
+                <label className="form-field">
+                  <span>DESCRIÇÃO</span>
+                  <textarea
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    rows={3}
+                    maxLength={2000}
+                  />
+                </label>
+
+                <label className="form-field">
+                  <span>TAGS</span>
+                  <TagInput value={tags} onChange={setTags} normalize="lower" />
+                </label>
+              </>
+            )}
+
+            {activeTab === "data" && (
+              <>
+                {kind === "person" && (
+                  <PersonFields
+                    aliases={aliases}
+                    setAliases={setAliases}
+                    motherName={motherName}
+                    setMotherName={setMotherName}
+                    gender={gender}
+                    setGender={setGender}
+                    dob={dob}
+                    setDob={setDob}
+                    cpf={cpf}
+                    setCpf={setCpf}
+                    orcrimId={orcrimId}
+                    setOrcrimId={setOrcrimId}
+                  />
+                )}
+                {kind === "organization" && (
+                  <OrganizationFields
+                    sigla={orgSigla}
+                    setSigla={setOrgSigla}
+                    legalName={legalName}
+                    setLegalName={setLegalName}
+                    taxID={taxID}
+                    setTaxID={setTaxID}
+                    foundedAt={foundedAt}
+                    setFoundedAt={setFoundedAt}
+                  />
+                )}
+                {kind === "place" && (
+                  <PlaceFields
+                    address={address}
+                    setAddress={setAddress}
+                    country={country}
+                    setCountry={setCountry}
+                    region={region}
+                    setRegion={setRegion}
+                    latitude={latitude}
+                    setLatitude={setLatitude}
+                    longitude={longitude}
+                    setLongitude={setLongitude}
+                  />
+                )}
+              </>
+            )}
+
+            {activeTab === "media" && (
+              <>
+                {(kind === "person" || kind === "place") && (
+                  <PrimaryPhotoPicker
+                    file={photoFile}
+                    onFileChange={setPhotoFile}
+                    label={kind === "person" ? "FOTO PRINCIPAL · 3X4" : "FOTO PRINCIPAL"}
+                  />
+                )}
+                <PendingGalleryEditor
+                  photos={galleryPending}
+                  onChange={setGalleryPending}
+                />
+              </>
+            )}
+
+            {kind === "person" && homonyms.length > 0 && !cpfTaken && (
+              <div
+                className={
+                  "banner " + (topScore >= 3 ? "banner-error" : "banner-warn")
+                }
+              >
+                <AlertTriangle size={12} strokeWidth={2} />
+                <span>
+                  {topScore >= 3
+                    ? "MUITO PROVÁVEL DUPLICATA"
+                    : topScore === 2
+                      ? "PROVÁVEL DUPLICATA"
+                      : `${homonyms.length} HOMÔNIMO${homonyms.length > 1 ? "S" : ""}`}{" "}
+                  · {homonyms.slice(0, 3).map((h) => h.name.toUpperCase()).join(" · ")}
+                  {homonyms.length > 3 ? ` +${homonyms.length - 3}` : ""}
+                </span>
+              </div>
+            )}
+            {dupesLoading && kind === "person" && (
+              <div className="muted" style={{ fontSize: 10 }}>
+                // verificando duplicates…
+              </div>
+            )}
+
+            {err && <div className="banner banner-error">⚠ {err}</div>}
+
+            <div className="modal-ft">
+              <button type="button" className="btn btn-ghost" onClick={onClose}>
+                CANCELAR
+              </button>
+              {activeTab !== "identity" && (
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={() =>
+                    setActiveTab(activeTab === "media" ? "data" : "identity")
+                  }
+                >
+                  ← VOLTAR
+                </button>
+              )}
+              <button type="submit" className="btn btn-primary" disabled={busy}>
+                {activeTab === "media"
+                  ? busy
+                    ? "CRIANDO…"
+                    : "CRIAR ENTIDADE"
+                  : "PRÓXIMO →"}
+              </button>
+            </div>
+          </form>
+        </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ────────────── KindPicker (etapa 1) ──────────────
+
+function KindPicker({ onPick }: { onPick: (k: EntityKind) => void }) {
+  return (
+    <div className="modal-bd kind-picker-bd">
+      <div className="kind-picker-hint">
+        SELECIONE O TIPO DE ENTIDADE A CRIAR
+      </div>
+      <div className="kind-picker">
+        <button
+          type="button"
+          className="kind-tile"
+          onClick={() => onPick("person")}
+          autoFocus
+        >
+          <User size={44} strokeWidth={1.4} className="kind-tile-icon" />
+          <span>PESSOA</span>
+          <span className="kind-tile-sub">INDIVÍDUO</span>
+        </button>
+        <button
+          type="button"
+          className="kind-tile"
+          onClick={() => onPick("organization")}
+        >
+          <Building2 size={44} strokeWidth={1.4} className="kind-tile-icon" />
+          <span>ORGANIZAÇÃO</span>
+          <span className="kind-tile-sub">EMPRESA · ORCRIM</span>
+        </button>
+        <button
+          type="button"
+          className="kind-tile"
+          onClick={() => onPick("place")}
+        >
+          <MapPin size={44} strokeWidth={1.4} className="kind-tile-icon" />
+          <span>LUGAR</span>
+          <span className="kind-tile-sub">ENDEREÇO · LOCAL</span>
+        </button>
       </div>
     </div>
   );

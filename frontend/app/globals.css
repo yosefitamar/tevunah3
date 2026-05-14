@@ -178,6 +178,30 @@ body::after {
   gap: 12px;
   min-height: 72px;
 }
+/* Brand renderizado como <button> que leva ao dashboard. Reseta os defaults
+   de botão e adiciona affordance de clique (cursor + hover do glyph). */
+.sidebar .brand--clickable {
+  appearance: none;
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  width: 100%;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition: background 120ms;
+}
+.sidebar .brand--clickable:hover {
+  background: var(--bg-1);
+}
+.sidebar .brand--clickable:hover .brand-glyph {
+  filter: drop-shadow(0 0 10px var(--accent-glow));
+}
+.sidebar .brand--clickable:focus-visible {
+  outline: none;
+  background: var(--bg-1);
+}
 .brand-glyph {
   width: 48px; height: 48px;
   display: grid; place-items: center;
@@ -1388,11 +1412,8 @@ body::after {
 }
 .kind-picker {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
   gap: 10px;
-}
-@media (max-width: 520px) {
-  .kind-picker { grid-template-columns: 1fr; }
 }
 .kind-tile {
   appearance: none;
@@ -1483,6 +1504,269 @@ body::after {
 .modal-tab--on {
   color: var(--accent);
   border-bottom-color: var(--accent);
+}
+
+/* Seção de vínculos no dossiê. Lista compacta com seta direcional, badge
+   do tipo de relação e o nome da entidade do outro lado. */
+.link-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.link-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: var(--bg-2);
+  border: 1px solid var(--line-2);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+.link-arrow {
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 13px;
+  cursor: help;
+}
+.link-relation {
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  font-weight: 700;
+  color: var(--fg-3);
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border: 1px solid var(--line);
+  background: var(--bg-1);
+}
+.link-other {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--fg-1);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.link-other-kind {
+  color: var(--fg-3);
+  font-size: 9.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+.link-other-name {
+  color: var(--fg-0);
+  font-weight: 600;
+}
+.link-note {
+  color: var(--fg-3);
+  font-size: 10.5px;
+  font-style: italic;
+}
+.link-remove {
+  appearance: none;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--fg-3);
+  cursor: pointer;
+  padding: 2px 6px;
+  display: inline-flex;
+  align-items: center;
+}
+.link-remove:hover:not(:disabled) {
+  color: var(--crit);
+  border-color: var(--crit);
+}
+.link-remove:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* Resultados da busca de entidade no modal de novo vínculo. */
+.link-search-results {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--line-2);
+  background: var(--bg-2);
+}
+.link-search-item {
+  appearance: none;
+  background: none;
+  border: none;
+  text-align: left;
+  padding: 8px 10px;
+  cursor: pointer;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  color: var(--fg-1);
+  font: inherit;
+  font-size: 11.5px;
+  border-bottom: 1px solid var(--line);
+}
+.link-search-item:last-child { border-bottom: none; }
+.link-search-item:hover {
+  background: var(--bg-1);
+  color: var(--fg-0);
+}
+.link-search-kind {
+  font-size: 9.5px;
+  letter-spacing: 0.18em;
+  color: var(--fg-3);
+  text-transform: uppercase;
+  min-width: 90px;
+}
+.link-search-name {
+  color: var(--fg-0);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+.link-picked {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--fg-1);
+  padding: 8px 10px;
+  background: var(--bg-2);
+  border: 1px solid var(--accent);
+}
+
+/* Address rows — wizard de pessoa. Cada bloco tem cabeçalho (label livre +
+   remover) e grid 2-col com os campos do endereço propriamente dito. */
+.address-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  background: var(--bg-1);
+  border: 1px solid var(--line-2);
+}
+.address-row-hd {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.address-row-label {
+  flex: 1;
+  background: var(--bg-2);
+  border: 1px solid var(--line-2);
+  color: var(--fg-0);
+  font: inherit;
+  font-size: 12.5px;
+  padding: 6px 10px;
+  outline: none;
+  letter-spacing: 0.02em;
+}
+.address-row-label:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent-glow);
+}
+.address-row-remove {
+  appearance: none;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--fg-3);
+  cursor: pointer;
+  padding: 4px 6px;
+  display: inline-flex;
+  align-items: center;
+}
+.address-row-remove:hover:not(:disabled) {
+  color: var(--crit);
+  border-color: var(--crit);
+}
+
+/* Vehicle link picker — linhas de veículos vinculados no wizard de pessoa. */
+.vehicle-link-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: var(--bg-2);
+  border: 1px solid var(--line-2);
+}
+.vehicle-link-label {
+  flex: 1;
+  color: var(--fg-0);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.vehicle-link-row select {
+  appearance: none;
+  -webkit-appearance: none;
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+  color: var(--fg-1);
+  font: inherit;
+  font-size: 10.5px;
+  letter-spacing: 0.16em;
+  padding: 4px 22px 4px 8px;
+  cursor: pointer;
+  text-transform: uppercase;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6' fill='none'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%2378828c' stroke-width='1.4' stroke-linecap='square'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+}
+.vehicle-link-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+/* Lista de endereços persistidos no dossiê (modo view + edit inline). */
+.address-list {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.address-list li { display: block; }
+.address-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  background: var(--bg-2);
+  border: 1px solid var(--line-2);
+}
+.address-card-hd {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.address-card-label {
+  font-size: 9.5px;
+  letter-spacing: 0.18em;
+  color: var(--accent);
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.address-card-actions {
+  display: flex;
+  gap: 2px;
+}
+.address-card-body {
+  color: var(--fg-1);
+  font-size: 11.5px;
+  letter-spacing: 0.02em;
+}
+.address-editor-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
 }
 
 /* TagInput — chips dentro do campo de digitação */
@@ -1645,7 +1929,12 @@ body::after {
   border: 1px solid var(--line-2);
   background: var(--bg-1);
   overflow: hidden;
+  display: block;
+  cursor: zoom-in;
+  text-decoration: none;
+  transition: border-color 120ms;
 }
+.dossier-photo:hover { border-color: var(--accent); }
 .dossier-photo img {
   width: 100%;
   height: 100%;
@@ -1969,6 +2258,125 @@ body::after {
 .form-field textarea:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 1px var(--accent-glow);
+}
+
+/* Select: chevron customizado coerente com a estética Belia. Remove o
+   chevron nativo do navegador e desenha um SVG via background. */
+.form-field select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  padding-right: 30px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6' fill='none'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%2378828c' stroke-width='1.4' stroke-linecap='square'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  cursor: pointer;
+}
+.form-field select:focus {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6' fill='none'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%239aa3ad' stroke-width='1.4' stroke-linecap='square'/%3E%3C/svg%3E");
+}
+/* Em select com option, removemos o styling de cada item (controlado pelo SO),
+   mas reforçamos o bg do select fechado. */
+.form-field select option {
+  background: var(--bg-2);
+  color: var(--fg-0);
+}
+
+/* Input de data: força o indicador de calendário a herdar a cor accent e
+   ficar visualmente alinhado com o restante. */
+.form-field input[type="date"] {
+  cursor: text;
+  color-scheme: dark;
+}
+.form-field input[type="date"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  opacity: 0.6;
+  filter: invert(60%) sepia(7%) saturate(220%) hue-rotate(168deg);
+  transition: opacity 120ms;
+}
+.form-field input[type="date"]:hover::-webkit-calendar-picker-indicator,
+.form-field input[type="date"]:focus::-webkit-calendar-picker-indicator {
+  opacity: 1;
+}
+
+/* ───────── Combobox ─────────
+   Híbrido de input + dropdown filtrável. O wrapper carrega a borda; o input
+   interno é transparente. Mesma estética dos demais form-fields. */
+.combobox {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  background: var(--bg-2);
+  border: 1px solid var(--line-2);
+}
+.combobox:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent-glow);
+}
+.combobox-input {
+  flex: 1;
+  appearance: none;
+  background: transparent;
+  border: none;
+  color: var(--fg-0);
+  font: inherit;
+  font-size: 12.5px;
+  padding: 8px 10px;
+  outline: none;
+  letter-spacing: 0.02em;
+  min-width: 0;
+}
+.combobox-input::placeholder { color: var(--fg-3); }
+.combobox-chevron {
+  appearance: none;
+  background: transparent;
+  border: none;
+  border-left: 1px solid var(--line);
+  color: var(--fg-3);
+  cursor: pointer;
+  padding: 0 8px;
+  display: flex;
+  align-items: center;
+}
+.combobox-chevron:hover:not(:disabled) { color: var(--accent); }
+.combobox-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  position: absolute;
+  top: calc(100% + 2px);
+  left: -1px;
+  right: -1px;
+  z-index: 1300;
+  background: var(--bg-1);
+  border: 1px solid var(--line-2);
+  max-height: 240px;
+  overflow-y: auto;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+.combobox-item {
+  padding: 7px 12px;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: var(--fg-1);
+  cursor: pointer;
+}
+.combobox-item--on,
+.combobox-item:hover {
+  background: var(--bg-2);
+  color: var(--accent);
+}
+.combobox-empty {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: -1px;
+  right: -1px;
+  z-index: 1300;
+  padding: 8px 12px;
+  font-size: 10.5px;
+  color: var(--fg-3);
+  background: var(--bg-1);
+  border: 1px solid var(--line-2);
 }
 
 .form-fieldset {

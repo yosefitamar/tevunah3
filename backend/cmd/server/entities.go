@@ -46,15 +46,16 @@ type publicPhoto struct {
 }
 
 type personAttrsJSON struct {
-	Aliases     []string `json:"aliases"`
-	Gender      *string  `json:"gender,omitempty"`
-	DateOfBirth *string  `json:"date_of_birth,omitempty"`
-	MotherName  *string  `json:"mother_name,omitempty"`
-	CPF         *string  `json:"cpf,omitempty"`
-	HasPhoto    bool     `json:"has_photo"`
-	OrcrimID    *string  `json:"orcrim_id,omitempty"`
-	OrcrimName  *string  `json:"orcrim_name,omitempty"`
-	OrcrimAlias *string  `json:"orcrim_alias,omitempty"`
+	Aliases     []string        `json:"aliases"`
+	Gender      *string         `json:"gender,omitempty"`
+	DateOfBirth *string         `json:"date_of_birth,omitempty"`
+	MotherName  *string         `json:"mother_name,omitempty"`
+	CPF         *string         `json:"cpf,omitempty"`
+	HasPhoto    bool            `json:"has_photo"`
+	OrcrimID    *string         `json:"orcrim_id,omitempty"`
+	OrcrimName  *string         `json:"orcrim_name,omitempty"`
+	OrcrimAlias *string         `json:"orcrim_alias,omitempty"`
+	Addresses   []publicAddress `json:"addresses,omitempty"`
 }
 
 type organizationAttrsJSON struct {
@@ -71,6 +72,16 @@ type placeAttrsJSON struct {
 	Latitude  *float64 `json:"latitude,omitempty"`
 	Longitude *float64 `json:"longitude,omitempty"`
 	HasPhoto  bool     `json:"has_photo"`
+}
+
+type vehicleAttrsJSON struct {
+	Plate   *string `json:"plate,omitempty"`
+	Brand   *string `json:"brand,omitempty"`
+	Model   *string `json:"model,omitempty"`
+	Color   *string `json:"color,omitempty"`
+	Year    *int    `json:"year,omitempty"`
+	Chassis *string `json:"chassis,omitempty"`
+	Renavam *string `json:"renavam,omitempty"`
 }
 
 func toPublicEntity(e *entities.Entity) publicEntity {
@@ -105,6 +116,12 @@ func toPublicEntity(e *entities.Entity) publicEntity {
 			if a.Aliases == nil {
 				a.Aliases = []string{}
 			}
+			if len(e.Person.Addresses) > 0 {
+				a.Addresses = make([]publicAddress, 0, len(e.Person.Addresses))
+				for i := range e.Person.Addresses {
+					a.Addresses = append(a.Addresses, toPublicAddress(&e.Person.Addresses[i]))
+				}
+			}
 			pe.Attrs = a
 		}
 	case entities.KindOrganization:
@@ -133,6 +150,18 @@ func toPublicEntity(e *entities.Entity) publicEntity {
 				Latitude:  e.Place.Latitude,
 				Longitude: e.Place.Longitude,
 				HasPhoto:  e.Place.PhotoPath != nil && *e.Place.PhotoPath != "",
+			}
+		}
+	case entities.KindVehicle:
+		if e.Vehicle != nil {
+			pe.Attrs = vehicleAttrsJSON{
+				Plate:   e.Vehicle.Plate,
+				Brand:   e.Vehicle.Brand,
+				Model:   e.Vehicle.Model,
+				Color:   e.Vehicle.Color,
+				Year:    e.Vehicle.Year,
+				Chassis: e.Vehicle.Chassis,
+				Renavam: e.Vehicle.Renavam,
 			}
 		}
 	}
@@ -256,6 +285,7 @@ type createEntityRequest struct {
 	Person         *personAttrsJSON       `json:"person,omitempty"`
 	Organization   *organizationAttrsJSON `json:"organization,omitempty"`
 	Place          *placeAttrsJSON        `json:"place,omitempty"`
+	Vehicle        *vehicleAttrsJSON      `json:"vehicle,omitempty"`
 }
 
 func (a *app) handleEntityCreate(w http.ResponseWriter, r *http.Request) {
@@ -271,7 +301,7 @@ func (a *app) handleEntityCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	kind := entities.Kind(strings.TrimSpace(req.Kind))
 	if !kind.IsValid() {
-		httpx.Error(w, http.StatusBadRequest, "kind inválido (person|organization|place)")
+		httpx.Error(w, http.StatusBadRequest, "kind inválido (person|organization|place|vehicle)")
 		return
 	}
 	if strings.TrimSpace(req.Name) == "" {
@@ -290,7 +320,7 @@ func (a *app) handleEntityCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	person, organization, place, err := decodeAttrs(kind, req.Person, req.Organization, req.Place)
+	person, organization, place, vehicle, err := decodeAttrs(kind, req.Person, req.Organization, req.Place, req.Vehicle)
 	if err != nil {
 		httpx.Error(w, http.StatusBadRequest, err.Error())
 		return
@@ -305,6 +335,7 @@ func (a *app) handleEntityCreate(w http.ResponseWriter, r *http.Request) {
 		Person:         person,
 		Organization:   organization,
 		Place:          place,
+		Vehicle:        vehicle,
 	}, me.ID)
 	if err != nil {
 		switch {
@@ -314,6 +345,8 @@ func (a *app) handleEntityCreate(w http.ResponseWriter, r *http.Request) {
 			httpx.Error(w, http.StatusConflict, "organização com este nome já cadastrada")
 		case errors.Is(err, entities.ErrCPFDuplicate):
 			httpx.Error(w, http.StatusConflict, "CPF já cadastrado")
+		case errors.Is(err, entities.ErrPlateDuplicate):
+			httpx.Error(w, http.StatusConflict, "placa já cadastrada")
 		default:
 			log.Printf("entities create: %v", err)
 			httpx.Error(w, http.StatusInternalServerError, "erro ao criar entidade")
@@ -349,6 +382,7 @@ type updateEntityRequest struct {
 	Person         *personAttrsJSON       `json:"person,omitempty"`
 	Organization   *organizationAttrsJSON `json:"organization,omitempty"`
 	Place          *placeAttrsJSON        `json:"place,omitempty"`
+	Vehicle        *vehicleAttrsJSON      `json:"vehicle,omitempty"`
 }
 
 func (a *app) handleEntityUpdate(w http.ResponseWriter, r *http.Request) {
@@ -396,7 +430,7 @@ func (a *app) handleEntityUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	person, organization, place, err := decodeAttrsForKind(current.Kind, req.Person, req.Organization, req.Place)
+	person, organization, place, vehicle, err := decodeAttrsForKind(current.Kind, req.Person, req.Organization, req.Place, req.Vehicle)
 	if err != nil {
 		httpx.Error(w, http.StatusBadRequest, err.Error())
 		return
@@ -410,6 +444,7 @@ func (a *app) handleEntityUpdate(w http.ResponseWriter, r *http.Request) {
 		Person:         person,
 		Organization:   organization,
 		Place:          place,
+		Vehicle:        vehicle,
 	}, me.ID)
 	if err != nil {
 		switch {
@@ -423,6 +458,8 @@ func (a *app) handleEntityUpdate(w http.ResponseWriter, r *http.Request) {
 			httpx.Error(w, http.StatusConflict, "organização com este nome já cadastrada")
 		case errors.Is(err, entities.ErrCPFDuplicate):
 			httpx.Error(w, http.StatusConflict, "CPF já cadastrado")
+		case errors.Is(err, entities.ErrPlateDuplicate):
+			httpx.Error(w, http.StatusConflict, "placa já cadastrada")
 		default:
 			log.Printf("entities update: %v", err)
 			httpx.Error(w, http.StatusInternalServerError, "erro ao atualizar")
@@ -608,51 +645,61 @@ func (a *app) handleEntityRestore(w http.ResponseWriter, r *http.Request) {
 
 // decodeAttrs valida e converte os blocos de attrs do request para os
 // equivalentes do pacote entities. Garante coerência com o kind escolhido.
-func decodeAttrs(k entities.Kind, p *personAttrsJSON, o *organizationAttrsJSON, pl *placeAttrsJSON) (*entities.PersonAttrs, *entities.OrganizationAttrs, *entities.PlaceAttrs, error) {
+func decodeAttrs(k entities.Kind, p *personAttrsJSON, o *organizationAttrsJSON, pl *placeAttrsJSON, v *vehicleAttrsJSON) (*entities.PersonAttrs, *entities.OrganizationAttrs, *entities.PlaceAttrs, *entities.VehicleAttrs, error) {
 	switch k {
 	case entities.KindPerson:
-		if o != nil || pl != nil {
-			return nil, nil, nil, errors.New("envie apenas o bloco 'person' para kind=person")
+		if o != nil || pl != nil || v != nil {
+			return nil, nil, nil, nil, errors.New("envie apenas o bloco 'person' para kind=person")
 		}
-		return personFromJSON(p), nil, nil, nil
+		return personFromJSON(p), nil, nil, nil, nil
 	case entities.KindOrganization:
-		if p != nil || pl != nil {
-			return nil, nil, nil, errors.New("envie apenas o bloco 'organization' para kind=organization")
+		if p != nil || pl != nil || v != nil {
+			return nil, nil, nil, nil, errors.New("envie apenas o bloco 'organization' para kind=organization")
 		}
-		return nil, orgFromJSON(o), nil, nil
+		return nil, orgFromJSON(o), nil, nil, nil
 	case entities.KindPlace:
-		if p != nil || o != nil {
-			return nil, nil, nil, errors.New("envie apenas o bloco 'place' para kind=place")
+		if p != nil || o != nil || v != nil {
+			return nil, nil, nil, nil, errors.New("envie apenas o bloco 'place' para kind=place")
 		}
-		return nil, nil, placeFromJSON(pl), nil
+		return nil, nil, placeFromJSON(pl), nil, nil
+	case entities.KindVehicle:
+		if p != nil || o != nil || pl != nil {
+			return nil, nil, nil, nil, errors.New("envie apenas o bloco 'vehicle' para kind=vehicle")
+		}
+		return nil, nil, nil, vehicleFromJSON(v), nil
 	}
-	return nil, nil, nil, errors.New("kind inválido")
+	return nil, nil, nil, nil, errors.New("kind inválido")
 }
 
 // decodeAttrsForKind aceita nil (sem alteração) e nunca falha por ausência;
 // só valida que o bloco enviado corresponde ao kind.
-func decodeAttrsForKind(k entities.Kind, p *personAttrsJSON, o *organizationAttrsJSON, pl *placeAttrsJSON) (*entities.PersonAttrs, *entities.OrganizationAttrs, *entities.PlaceAttrs, error) {
-	if p == nil && o == nil && pl == nil {
-		return nil, nil, nil, nil
+func decodeAttrsForKind(k entities.Kind, p *personAttrsJSON, o *organizationAttrsJSON, pl *placeAttrsJSON, v *vehicleAttrsJSON) (*entities.PersonAttrs, *entities.OrganizationAttrs, *entities.PlaceAttrs, *entities.VehicleAttrs, error) {
+	if p == nil && o == nil && pl == nil && v == nil {
+		return nil, nil, nil, nil, nil
 	}
 	switch k {
 	case entities.KindPerson:
-		if o != nil || pl != nil {
-			return nil, nil, nil, errors.New("attrs incompatíveis com kind person")
+		if o != nil || pl != nil || v != nil {
+			return nil, nil, nil, nil, errors.New("attrs incompatíveis com kind person")
 		}
-		return personFromJSON(p), nil, nil, nil
+		return personFromJSON(p), nil, nil, nil, nil
 	case entities.KindOrganization:
-		if p != nil || pl != nil {
-			return nil, nil, nil, errors.New("attrs incompatíveis com kind organization")
+		if p != nil || pl != nil || v != nil {
+			return nil, nil, nil, nil, errors.New("attrs incompatíveis com kind organization")
 		}
-		return nil, orgFromJSON(o), nil, nil
+		return nil, orgFromJSON(o), nil, nil, nil
 	case entities.KindPlace:
-		if p != nil || o != nil {
-			return nil, nil, nil, errors.New("attrs incompatíveis com kind place")
+		if p != nil || o != nil || v != nil {
+			return nil, nil, nil, nil, errors.New("attrs incompatíveis com kind place")
 		}
-		return nil, nil, placeFromJSON(pl), nil
+		return nil, nil, placeFromJSON(pl), nil, nil
+	case entities.KindVehicle:
+		if p != nil || o != nil || pl != nil {
+			return nil, nil, nil, nil, errors.New("attrs incompatíveis com kind vehicle")
+		}
+		return nil, nil, nil, vehicleFromJSON(v), nil
 	}
-	return nil, nil, nil, errors.New("kind inválido")
+	return nil, nil, nil, nil, errors.New("kind inválido")
 }
 
 func personFromJSON(p *personAttrsJSON) *entities.PersonAttrs {
@@ -701,6 +748,21 @@ func placeFromJSON(p *placeAttrsJSON) *entities.PlaceAttrs {
 		Region:    p.Region,
 		Latitude:  p.Latitude,
 		Longitude: p.Longitude,
+	}
+}
+
+func vehicleFromJSON(v *vehicleAttrsJSON) *entities.VehicleAttrs {
+	if v == nil {
+		return nil
+	}
+	return &entities.VehicleAttrs{
+		Plate:   trimPtr(v.Plate),
+		Brand:   trimPtr(v.Brand),
+		Model:   trimPtr(v.Model),
+		Color:   trimPtr(v.Color),
+		Year:    v.Year,
+		Chassis: trimPtr(v.Chassis),
+		Renavam: trimPtr(v.Renavam),
 	}
 }
 

@@ -3,10 +3,22 @@
 import { NAV, type ModuleId } from "@/lib/nav";
 import TevunahLogo from "./TevunahLogo";
 
-function Brand({ collapsed }: { collapsed: boolean }) {
+function Brand({
+  collapsed,
+  onGoHome,
+}: {
+  collapsed: boolean;
+  onGoHome: () => void;
+}) {
   return (
-    <div className="brand">
-      <div className="brand-glyph" title="Tevunah · תבונה">
+    <button
+      type="button"
+      className="brand brand--clickable"
+      onClick={onGoHome}
+      title="Ir para o dashboard"
+      aria-label="Ir para o dashboard"
+    >
+      <div className="brand-glyph">
         <TevunahLogo />
       </div>
       {!collapsed && (
@@ -14,7 +26,7 @@ function Brand({ collapsed }: { collapsed: boolean }) {
           <span className="brand-heb">תבונה</span>
         </div>
       )}
-    </div>
+    </button>
   );
 }
 
@@ -28,7 +40,7 @@ type Props = {
 export default function Sidebar({ active, setActive, collapsed, setCollapsed }: Props) {
   return (
     <aside className={"sidebar" + (collapsed ? " collapsed" : "")}>
-      <Brand collapsed={collapsed} />
+      <Brand collapsed={collapsed} onGoHome={() => setActive("dashboard")} />
       <div className="nav">
         {NAV.map((n, i) =>
           "group" in n ? (

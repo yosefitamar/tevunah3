@@ -13,6 +13,8 @@ import {
 import {
   ENTITY_KIND_LABEL,
   ENTITY_KINDS,
+  isVehicle,
+  vehiclePrimaryLabel,
   type EntityKind,
 } from "@/lib/entities-types";
 import { formatBR } from "@/lib/format";
@@ -254,7 +256,9 @@ export default function EntidadesScreen() {
                   >
                     <td className="muted">{ENTITY_KIND_LABEL[e.kind]}</td>
                     <td style={{ color: "var(--fg-0)", fontWeight: 600 }}>
-                      {e.name.toUpperCase()}
+                      {isVehicle(e)
+                        ? vehiclePrimaryLabel(e.name, e.attrs?.plate).toUpperCase()
+                        : e.name.toUpperCase()}
                     </td>
                     <td>
                       {e.tags.length === 0 ? (

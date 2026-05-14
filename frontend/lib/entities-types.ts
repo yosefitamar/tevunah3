@@ -5,15 +5,21 @@
 // (create/update), envia-se o bloco com a chave do kind (`person`, `organization`,
 // `place`). Na resposta, sempre vem em `attrs`.
 
-export type EntityKind = "person" | "organization" | "place";
+export type EntityKind = "person" | "organization" | "place" | "vehicle";
 
 export const ENTITY_KIND_LABEL: Record<EntityKind, string> = {
   person: "PESSOA",
   organization: "ORGANIZAÇÃO",
   place: "LUGAR",
+  vehicle: "VEÍCULO",
 };
 
-export const ENTITY_KINDS: EntityKind[] = ["person", "organization", "place"];
+export const ENTITY_KINDS: EntityKind[] = [
+  "person",
+  "organization",
+  "place",
+  "vehicle",
+];
 
 // Classificação 1..4 (alinhada com clearance_level 1..5 do usuário).
 export type EntityClassification = 1 | 2 | 3 | 4;
@@ -47,6 +53,22 @@ export const GENDER_LABEL: Record<Gender, string> = {
 };
 export const GENDERS: Gender[] = ["M", "F"];
 
+export type PersonAddress = {
+  id: string;
+  label?: string;
+  cep?: string;
+  street?: string;
+  number?: string;
+  complement?: string;
+  neighborhood?: string;
+  city?: string;
+  state?: string;
+  created_at: string;
+  created_by: string;
+  updated_at: string;
+  updated_by: string;
+};
+
 export type PersonAttrs = {
   aliases?: string[];
   gender?: Gender | string; // string permite tolerar valores antigos
@@ -57,6 +79,7 @@ export type PersonAttrs = {
   orcrim_id?: string;
   orcrim_name?: string;
   orcrim_alias?: string;
+  addresses?: PersonAddress[];
 };
 
 export type OrganizationAttrs = {
@@ -82,7 +105,74 @@ export type PlaceAttrs = {
   has_photo?: boolean;
 };
 
-export type EntityAttrs = PersonAttrs | OrganizationAttrs | PlaceAttrs;
+export type VehicleAttrs = {
+  plate?: string;
+  brand?: string;
+  model?: string;
+  color?: string;
+  year?: number;
+  chassis?: string;
+  renavam?: string;
+};
+
+export type EntityAttrs =
+  | PersonAttrs
+  | OrganizationAttrs
+  | PlaceAttrs
+  | VehicleAttrs;
+
+// Rótulo prioritário de um veículo: placa quando existe, senão o nome livre.
+// Usado em listagens e em selects de "alvo do vínculo".
+export function vehiclePrimaryLabel(name: string, plate?: string): string {
+  if (plate && plate.trim()) {
+    if (name && name !== plate) return `${plate} · ${name}`;
+    return plate;
+  }
+  return name;
+}
+
+// ────── Vínculos entre entidades ──────
+
+export type RelationType = "owns" | "associated_with";
+
+export const RELATION_LABEL: Record<RelationType, string> = {
+  owns: "PROPRIETÁRIO",
+  associated_with: "ASSOCIADO",
+};
+
+export const RELATION_TYPES: RelationType[] = ["owns", "associated_with"];
+
+export type LinkDirection = "out" | "in";
+
+export type EntityLink = {
+  id: string;
+  direction: LinkDirection;
+  from_entity_id: string;
+  from_kind: EntityKind;
+  from_name: string;
+  to_entity_id: string;
+  to_kind: EntityKind;
+  to_name: string;
+  relation_type: RelationType;
+  valid_from?: string;
+  valid_to?: string;
+  note?: string;
+  created_at: string;
+  created_by: string;
+};
+
+// Devolve { id, kind, name } da entidade do "outro lado" do link na
+// perspectiva da entidade consultada.
+export function linkOtherSide(l: EntityLink): {
+  id: string;
+  kind: EntityKind;
+  name: string;
+} {
+  if (l.direction === "out") {
+    return { id: l.to_entity_id, kind: l.to_kind, name: l.to_name };
+  }
+  return { id: l.from_entity_id, kind: l.from_kind, name: l.from_name };
+}
 
 // GalleryPhoto = foto adicional anexada à entidade (distinta da foto primária).
 // O binário é servido em /api/entities/{id}/photos/{photo.id}.
@@ -124,4 +214,7 @@ export function isOrganization(
 }
 export function isPlace(e: Entity): e is Entity & { attrs?: PlaceAttrs } {
   return e.kind === "place";
+}
+export function isVehicle(e: Entity): e is Entity & { attrs?: VehicleAttrs } {
+  return e.kind === "vehicle";
 }

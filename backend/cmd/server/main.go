@@ -110,6 +110,13 @@ func main() {
 	mux.Handle("GET /api/entities/{id}/photos/{pid}", auth(http.HandlerFunc(a.handleEntityGalleryGet)))
 	mux.Handle("PATCH /api/entities/{id}/photos/{pid}", auth(http.HandlerFunc(a.handleEntityGalleryPatch)))
 	mux.Handle("DELETE /api/entities/{id}/photos/{pid}", auth(http.HandlerFunc(a.handleEntityGalleryDelete)))
+	mux.Handle("GET /api/entities/{id}/links", auth(http.HandlerFunc(a.handleEntityLinksList)))
+	mux.Handle("POST /api/entities/{id}/links", auth(http.HandlerFunc(a.handleEntityLinkCreate)))
+	mux.Handle("DELETE /api/entities/{id}/links/{lid}", auth(http.HandlerFunc(a.handleEntityLinkDelete)))
+	mux.Handle("GET /api/entities/{id}/addresses", auth(http.HandlerFunc(a.handlePersonAddressList)))
+	mux.Handle("POST /api/entities/{id}/addresses", auth(http.HandlerFunc(a.handlePersonAddressCreate)))
+	mux.Handle("PATCH /api/entities/{id}/addresses/{aid}", auth(http.HandlerFunc(a.handlePersonAddressUpdate)))
+	mux.Handle("DELETE /api/entities/{id}/addresses/{aid}", auth(http.HandlerFunc(a.handlePersonAddressDelete)))
 
 	mux.Handle("GET /api/approvals", auth(http.HandlerFunc(a.handleApprovalsList)))
 	mux.Handle("GET /api/approvals/{id}", auth(http.HandlerFunc(a.handleApprovalDetail)))

@@ -202,7 +202,25 @@ func (a *app) handleEntityGalleryGet(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusNotFound, "foto não encontrada")
 		return
 	}
-	w.Header().Set("Cache-Control", "private, max-age=300")
+
+	// Auditoria de visualização da galeria: registra qual foto específica
+	// (photo_id em After) foi servida. Cada GET conta como uma view, então
+	// abrir o dossiê com galeria de N fotos gera N linhas de audit.
+	aid, sid, ip, ua := a.actorInfo(r)
+	classPtr := e.Classification
+	_ = a.audit.Log(r.Context(), audit.Entry{
+		ActorUserID:            aid,
+		ActorSessionID:         sid,
+		ActorIP:                ip,
+		ActorUserAgent:         ua,
+		Action:                 "entity.gallery.view",
+		ResourceType:           audit.Ptr("entity"),
+		ResourceID:             audit.Ptr(id),
+		ResourceClassification: &classPtr,
+		After:                  map[string]any{"photo_id": pid},
+	})
+
+	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	http.ServeFile(w, r, path)
 }

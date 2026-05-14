@@ -29,12 +29,13 @@ const (
 	KindPerson       Kind = "person"
 	KindOrganization Kind = "organization"
 	KindPlace        Kind = "place"
+	KindVehicle      Kind = "vehicle"
 )
 
 // IsValid devolve true para um Kind suportado.
 func (k Kind) IsValid() bool {
 	switch k {
-	case KindPerson, KindOrganization, KindPlace:
+	case KindPerson, KindOrganization, KindPlace, KindVehicle:
 		return true
 	}
 	return false
@@ -54,6 +55,9 @@ var (
 	// ErrCPFDuplicate vem do índice único parcial sobre cpf (não-nulo) em
 	// entity_persons. Captura tentativas de re-cadastrar o mesmo CPF.
 	ErrCPFDuplicate = errors.New("CPF já cadastrado")
+	// ErrPlateDuplicate vem do índice único parcial sobre plate (não-nulo)
+	// em entity_vehicles. Captura tentativas de re-cadastrar a mesma placa.
+	ErrPlateDuplicate = errors.New("placa já cadastrada")
 )
 
 // Entity representa o objeto consolidado (base + atributos polimórficos + tags).
@@ -77,6 +81,7 @@ type Entity struct {
 	Person       *PersonAttrs
 	Organization *OrganizationAttrs
 	Place        *PlaceAttrs
+	Vehicle      *VehicleAttrs
 
 	// Photos é a galeria de fotos adicionais. Populada apenas por FindByID
 	// (e portanto por Create/Update/Restore que recarregam). List não popula
@@ -86,6 +91,7 @@ type Entity struct {
 
 // PersonAttrs são os atributos da tabela app.entity_persons.
 // OrcrimName e OrcrimAlias são populados por join na leitura (não persistem).
+// Addresses vem da tabela 1-N app.person_addresses; populada por FindByID.
 type PersonAttrs struct {
 	Aliases     []string
 	Gender      *string
@@ -96,6 +102,7 @@ type PersonAttrs struct {
 	OrcrimID    *string
 	OrcrimName  *string
 	OrcrimAlias *string
+	Addresses   []PersonAddress
 }
 
 // OrganizationAttrs são os atributos da tabela app.entity_organizations.
@@ -118,6 +125,19 @@ type PlaceAttrs struct {
 	PhotoPath *string
 }
 
+// VehicleAttrs são os atributos da tabela app.entity_vehicles. Placa é o
+// identificador prático no Brasil — normalizada em uppercase, sem hífen ou
+// espaços, e única quando preenchida (unique index parcial).
+type VehicleAttrs struct {
+	Plate   *string
+	Brand   *string
+	Model   *string
+	Color   *string
+	Year    *int
+	Chassis *string
+	Renavam *string
+}
+
 // NewEntity é o input do Create.
 type NewEntity struct {
 	Kind           Kind
@@ -128,6 +148,7 @@ type NewEntity struct {
 	Person         *PersonAttrs
 	Organization   *OrganizationAttrs
 	Place          *PlaceAttrs
+	Vehicle        *VehicleAttrs
 }
 
 // Patch é o input do Update. Campos nil = não tocar. Tags nil = não tocar;
@@ -140,6 +161,7 @@ type Patch struct {
 	Person         *PersonAttrs
 	Organization   *OrganizationAttrs
 	Place          *PlaceAttrs
+	Vehicle        *VehicleAttrs
 }
 
 // ListOpts controla a listagem.
@@ -187,13 +209,20 @@ func (r *Repo) Create(ctx context.Context, in NewEntity, createdBy string) (*Ent
 	if !in.Kind.IsValid() {
 		return nil, ErrInvalidKind
 	}
+	// Veículo deriva nome automaticamente quando o client não informa um:
+	// usa "MARCA MODELO" se ambos existem, senão placa, senão um placeholder.
+	// Decisão de design: name fica NOT NULL na base; veículos têm rótulo
+	// natural via attrs (placa/marca/modelo) e o name é só interno pra busca.
+	if in.Kind == KindVehicle && strings.TrimSpace(in.Name) == "" && in.Vehicle != nil {
+		in.Name = deriveVehicleName(in.Vehicle)
+	}
 	if strings.TrimSpace(in.Name) == "" {
 		return nil, errors.New("name é obrigatório")
 	}
 	if in.Classification < 1 || in.Classification > 4 {
 		return nil, errors.New("classification deve estar entre 1 e 4")
 	}
-	if err := requireMatchingAttrs(in.Kind, in.Person, in.Organization, in.Place); err != nil {
+	if err := requireMatchingAttrs(in.Kind, in.Person, in.Organization, in.Place, in.Vehicle); err != nil {
 		return nil, err
 	}
 
@@ -221,7 +250,7 @@ func (r *Repo) Create(ctx context.Context, in NewEntity, createdBy string) (*Ent
 		return nil, classifyUniqueErr(err, in.Kind, in.Person)
 	}
 
-	if err := insertChild(ctx, tx, id, in.Kind, in.Person, in.Organization, in.Place); err != nil {
+	if err := insertChild(ctx, tx, id, in.Kind, in.Person, in.Organization, in.Place, in.Vehicle); err != nil {
 		return nil, classifyUniqueErr(err, in.Kind, in.Person)
 	}
 
@@ -318,8 +347,8 @@ func (r *Repo) List(ctx context.Context, opts ListOpts) (*ListResult, error) {
 		dir = "DESC"
 	}
 
-	// LEFT JOIN com entity_organizations traz aliases (JSON) só para linhas de
-	// kind=organization — permite a UI mostrar a sigla sem N+1.
+	// LEFT JOINs trazem o mínimo de attrs específicos pra rotular linhas sem
+	// N+1: aliases da organização (sigla) e placa do veículo.
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT e.id, e.kind, e.name, COALESCE(e.description,''), e.classification, e.version,
 		       e.created_at, e.created_by, e.updated_at, e.updated_by,
@@ -329,9 +358,11 @@ func (r *Repo) List(ctx context.Context, opts ListOpts) (*ListResult, error) {
 		            FROM app.entity_tags t WHERE t.entity_id = e.id),
 		         ''
 		       ) AS tags_csv,
-		       COALESCE(to_jsonb(o.aliases), 'null'::jsonb) AS org_aliases_json
+		       COALESCE(to_jsonb(o.aliases), 'null'::jsonb) AS org_aliases_json,
+		       v.plate AS vehicle_plate
 		  FROM app.entities e
 		  LEFT JOIN app.entity_organizations o ON o.entity_id = e.id
+		  LEFT JOIN app.entity_vehicles v ON v.entity_id = e.id
 		 WHERE `+deletedClause+`
 		   AND e.classification <= $1
 		   AND ($2 = '' OR e.kind = $2)
@@ -358,10 +389,11 @@ func (r *Repo) List(ctx context.Context, opts ListOpts) (*ListResult, error) {
 		var deletedAt sql.NullTime
 		var deletedBy sql.NullString
 		var orgAliasesJSON []byte
+		var vehiclePlate sql.NullString
 		if err := rows.Scan(
 			&e.ID, &kind, &e.Name, &description, &e.Classification, &e.Version,
 			&e.CreatedAt, &createdBy, &e.UpdatedAt, &updatedBy,
-			&deletedAt, &deletedBy, &tagsCSV, &orgAliasesJSON,
+			&deletedAt, &deletedBy, &tagsCSV, &orgAliasesJSON, &vehiclePlate,
 		); err != nil {
 			return nil, err
 		}
@@ -389,6 +421,11 @@ func (r *Repo) List(ctx context.Context, opts ListOpts) (*ListResult, error) {
 			if err := json.Unmarshal(orgAliasesJSON, &aliases); err == nil {
 				e.Organization = &OrganizationAttrs{Aliases: aliases}
 			}
+		}
+		// Para veículo, popula attrs.plate (rótulo prioritário do veículo).
+		if e.Kind == KindVehicle && vehiclePlate.Valid {
+			s := vehiclePlate.String
+			e.Vehicle = &VehicleAttrs{Plate: &s}
 		}
 		items = append(items, e)
 	}
@@ -419,8 +456,17 @@ func (r *Repo) Update(ctx context.Context, id string, expectedVersion int, p Pat
 	// Valida attrs polimórficos: se vier patch para attrs, deve casar com kind.
 	if (p.Person != nil && before.Kind != KindPerson) ||
 		(p.Organization != nil && before.Kind != KindOrganization) ||
-		(p.Place != nil && before.Kind != KindPlace) {
+		(p.Place != nil && before.Kind != KindPlace) ||
+		(p.Vehicle != nil && before.Kind != KindVehicle) {
 		return nil, nil, fmt.Errorf("attrs incompatíveis com kind %s", before.Kind)
+	}
+
+	// Veículo: re-deriva o nome quando o client edita os attrs sem fornecer
+	// um name explícito. Mantém o rótulo sincronizado com marca/modelo/placa.
+	if before.Kind == KindVehicle && p.Name == nil && p.Vehicle != nil {
+		merged := mergeVehicleAttrs(before.Vehicle, p.Vehicle)
+		nm := deriveVehicleName(&merged)
+		p.Name = &nm
 	}
 
 	if p.Classification != nil && (*p.Classification < 1 || *p.Classification > 4) {
@@ -633,6 +679,8 @@ func classifyUniqueErr(err error, k Kind, _ *PersonAttrs) error {
 			return ErrOrgNameDuplicate
 		case strings.Contains(msg, "entity_persons_cpf_uniq"):
 			return ErrCPFDuplicate
+		case strings.Contains(msg, "entity_vehicles_plate_uniq"):
+			return ErrPlateDuplicate
 		}
 		// Outras violações: mantém o erro original com sinal claro.
 		if k == KindOrganization {
@@ -830,7 +878,7 @@ func (r *Repo) loadChild(ctx context.Context, e *Entity) error {
 			&orcrimID, &orcrimName, &orcrimAlias)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
-				e.Person = &PersonAttrs{Aliases: []string{}}
+				e.Person = &PersonAttrs{Aliases: []string{}, Addresses: []PersonAddress{}}
 				return nil
 			}
 			return err
@@ -852,6 +900,11 @@ func (r *Repo) loadChild(ctx context.Context, e *Entity) error {
 		a.OrcrimID = nullStr(orcrimID)
 		a.OrcrimName = nullStr(orcrimName)
 		a.OrcrimAlias = nullStr(orcrimAlias)
+		addrs, err := r.ListAddresses(ctx, e.ID)
+		if err != nil {
+			return err
+		}
+		a.Addresses = addrs
 		e.Person = &a
 	case KindOrganization:
 		var a OrganizationAttrs
@@ -910,6 +963,32 @@ func (r *Repo) loadChild(ctx context.Context, e *Entity) error {
 		}
 		a.PhotoPath = nullStr(photoPath)
 		e.Place = &a
+	case KindVehicle:
+		var a VehicleAttrs
+		var plate, brand, model, color, chassis, renavam sql.NullString
+		var year sql.NullInt64
+		err := r.db.QueryRowContext(ctx, `
+			SELECT plate, brand, model, color, year, chassis, renavam
+			  FROM app.entity_vehicles WHERE entity_id = $1`, e.ID,
+		).Scan(&plate, &brand, &model, &color, &year, &chassis, &renavam)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				e.Vehicle = &VehicleAttrs{}
+				return nil
+			}
+			return err
+		}
+		a.Plate = nullStr(plate)
+		a.Brand = nullStr(brand)
+		a.Model = nullStr(model)
+		a.Color = nullStr(color)
+		if year.Valid {
+			v := int(year.Int64)
+			a.Year = &v
+		}
+		a.Chassis = nullStr(chassis)
+		a.Renavam = nullStr(renavam)
+		e.Vehicle = &a
 	}
 	return nil
 }
@@ -932,7 +1011,7 @@ func (r *Repo) loadTags(ctx context.Context, e *Entity) error {
 	return rows.Err()
 }
 
-func requireMatchingAttrs(k Kind, p *PersonAttrs, o *OrganizationAttrs, pl *PlaceAttrs) error {
+func requireMatchingAttrs(k Kind, p *PersonAttrs, o *OrganizationAttrs, pl *PlaceAttrs, v *VehicleAttrs) error {
 	count := 0
 	if p != nil {
 		count++
@@ -943,27 +1022,34 @@ func requireMatchingAttrs(k Kind, p *PersonAttrs, o *OrganizationAttrs, pl *Plac
 	if pl != nil {
 		count++
 	}
+	if v != nil {
+		count++
+	}
 	if count > 1 {
 		return errors.New("envie apenas o bloco de attrs do kind escolhido")
 	}
 	switch k {
 	case KindPerson:
-		if o != nil || pl != nil {
+		if o != nil || pl != nil || v != nil {
 			return fmt.Errorf("attrs incompatíveis com kind %s", k)
 		}
 	case KindOrganization:
-		if p != nil || pl != nil {
+		if p != nil || pl != nil || v != nil {
 			return fmt.Errorf("attrs incompatíveis com kind %s", k)
 		}
 	case KindPlace:
-		if p != nil || o != nil {
+		if p != nil || o != nil || v != nil {
+			return fmt.Errorf("attrs incompatíveis com kind %s", k)
+		}
+	case KindVehicle:
+		if p != nil || o != nil || pl != nil {
 			return fmt.Errorf("attrs incompatíveis com kind %s", k)
 		}
 	}
 	return nil
 }
 
-func insertChild(ctx context.Context, tx *sql.Tx, id string, k Kind, p *PersonAttrs, o *OrganizationAttrs, pl *PlaceAttrs) error {
+func insertChild(ctx context.Context, tx *sql.Tx, id string, k Kind, p *PersonAttrs, o *OrganizationAttrs, pl *PlaceAttrs, v *VehicleAttrs) error {
 	switch k {
 	case KindPerson:
 		if p == nil {
@@ -1007,8 +1093,112 @@ func insertChild(ctx context.Context, tx *sql.Tx, id string, k Kind, p *PersonAt
 			nilFloat(pl.Latitude), nilFloat(pl.Longitude),
 		)
 		return err
+	case KindVehicle:
+		if v == nil {
+			v = &VehicleAttrs{}
+		}
+		// Placa normalizada em uppercase sem hífen/espaço — facilita lookup,
+		// dedup e o unique index parcial.
+		var plate any
+		if v.Plate != nil {
+			s := normalizePlate(*v.Plate)
+			if s != "" {
+				plate = s
+			}
+		}
+		_, err := tx.ExecContext(ctx, `
+			INSERT INTO app.entity_vehicles
+			  (entity_id, plate, brand, model, color, year, chassis, renavam)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+			id, plate, nilStr(v.Brand), nilStr(v.Model), nilStr(v.Color),
+			nullableInt(v.Year), nilStr(v.Chassis), nilStr(v.Renavam),
+		)
+		return err
 	}
 	return ErrInvalidKind
+}
+
+// deriveVehicleName monta um rótulo legível a partir dos attrs do veículo,
+// usado como name na base quando o client não envia explicitamente.
+// Ordem de fallback: "MARCA MODELO" → "MARCA" → "MODELO" → placa → placeholder.
+func deriveVehicleName(v *VehicleAttrs) string {
+	brand := ""
+	if v.Brand != nil {
+		brand = strings.TrimSpace(*v.Brand)
+	}
+	model := ""
+	if v.Model != nil {
+		model = strings.TrimSpace(*v.Model)
+	}
+	plate := ""
+	if v.Plate != nil {
+		plate = normalizePlate(*v.Plate)
+	}
+	switch {
+	case brand != "" && model != "":
+		return brand + " " + model
+	case brand != "":
+		return brand
+	case model != "":
+		return model
+	case plate != "":
+		return plate
+	default:
+		return "VEÍCULO SEM IDENTIFICAÇÃO"
+	}
+}
+
+// mergeVehicleAttrs aplica um patch sobre os attrs atuais, devolvendo um
+// snapshot do estado resultante. Campos do patch que são nil mantêm o valor
+// atual. Usado para derivar o name correto pós-update.
+func mergeVehicleAttrs(cur, patch *VehicleAttrs) VehicleAttrs {
+	out := VehicleAttrs{}
+	if cur != nil {
+		out = *cur
+	}
+	if patch == nil {
+		return out
+	}
+	if patch.Plate != nil {
+		out.Plate = patch.Plate
+	}
+	if patch.Brand != nil {
+		out.Brand = patch.Brand
+	}
+	if patch.Model != nil {
+		out.Model = patch.Model
+	}
+	if patch.Color != nil {
+		out.Color = patch.Color
+	}
+	if patch.Year != nil {
+		out.Year = patch.Year
+	}
+	if patch.Chassis != nil {
+		out.Chassis = patch.Chassis
+	}
+	if patch.Renavam != nil {
+		out.Renavam = patch.Renavam
+	}
+	return out
+}
+
+// normalizePlate remove hífen, espaço e força uppercase. Aceita formato
+// antigo (ABC-1234) e Mercosul (ABC1D23). Retorna string vazia se input
+// vier vazio depois de limpar.
+func normalizePlate(s string) string {
+	out := make([]byte, 0, len(s))
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c == '-' || c == ' ' || c == '.' {
+			continue
+		}
+		if c >= 'a' && c <= 'z' {
+			c = c - ('a' - 'A')
+		}
+		out = append(out, c)
+	}
+	return string(out)
 }
 
 func updateChild(ctx context.Context, tx *sql.Tx, id string, k Kind, p Patch) error {
@@ -1066,6 +1256,32 @@ func updateChild(ctx context.Context, tx *sql.Tx, id string, k Kind, p Patch) er
 			WHERE entity_id = $6`,
 			nilStr(a.Address), nilStr(a.Country), nilStr(a.Region),
 			nilFloat(a.Latitude), nilFloat(a.Longitude), id,
+		)
+		return err
+	case KindVehicle:
+		if p.Vehicle == nil {
+			return nil
+		}
+		a := p.Vehicle
+		var plate any
+		if a.Plate != nil {
+			s := normalizePlate(*a.Plate)
+			if s != "" {
+				plate = s
+			}
+		}
+		_, err := tx.ExecContext(ctx, `
+			UPDATE app.entity_vehicles SET
+			  plate   = COALESCE($1, plate),
+			  brand   = COALESCE($2, brand),
+			  model   = COALESCE($3, model),
+			  color   = COALESCE($4, color),
+			  year    = COALESCE($5, year),
+			  chassis = COALESCE($6, chassis),
+			  renavam = COALESCE($7, renavam)
+			WHERE entity_id = $8`,
+			plate, nilStr(a.Brand), nilStr(a.Model), nilStr(a.Color),
+			nullableInt(a.Year), nilStr(a.Chassis), nilStr(a.Renavam), id,
 		)
 		return err
 	}

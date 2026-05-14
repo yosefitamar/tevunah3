@@ -192,7 +192,25 @@ func (a *app) handleEntityPhotoGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Cache-Control", "private, max-age=300")
+	// Auditoria de visualização: registra antes de servir. Captura todo GET
+	// bem-sucedido para que o histórico responda "quem viu a foto de X e
+	// quando". O custo é tolerável porque o front evita refetch via state
+	// do dossiê — mas como o cache do navegador é `no-store`, page refresh
+	// e abrir-em-nova-aba contam como novas views (intencional).
+	aid, sid, ip, ua := a.actorInfo(r)
+	classPtr := e.Classification
+	_ = a.audit.Log(r.Context(), audit.Entry{
+		ActorUserID:            aid,
+		ActorSessionID:         sid,
+		ActorIP:                ip,
+		ActorUserAgent:         ua,
+		Action:                 "entity.photo.view",
+		ResourceType:           audit.Ptr("entity"),
+		ResourceID:             audit.Ptr(id),
+		ResourceClassification: &classPtr,
+	})
+
+	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	http.ServeFile(w, r, path)
 }

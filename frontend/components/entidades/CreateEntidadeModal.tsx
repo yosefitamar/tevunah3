@@ -1,44 +1,70 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { AlertTriangle, Building2, MapPin, User, X } from "lucide-react";
+import { createPortal } from "react-dom";
+import { AlertTriangle, Building2, Car, MapPin, Plus, Trash2, User, X } from "lucide-react";
 import TagInput from "../shared/TagInput";
+import Combobox from "../shared/Combobox";
+import { VEHICLE_BRANDS, modelsForBrand } from "@/lib/vehicle-catalog";
 import { useModal } from "@/contexts/ModalContext";
 import PrimaryPhotoPicker from "./PrimaryPhotoPicker";
 import { PendingGalleryEditor, type PendingPhoto } from "./GalleryEditor";
 import {
   createEntity,
+  createEntityLink,
+  createPersonAddress,
   findPersonDuplicates,
   listEntities,
   uploadEntityPhoto,
   uploadGalleryPhoto,
+  type AddressPayload,
   type DuplicatesResult,
 } from "@/lib/entities-api";
 import {
   ENTITY_KIND_LABEL,
   GENDERS,
   GENDER_LABEL,
+  RELATION_LABEL,
+  RELATION_TYPES,
   isOrganization,
+  isVehicle,
   orgPrimaryLabel,
+  vehiclePrimaryLabel,
   type Entity,
   type EntityKind,
   type Gender,
+  type RelationType,
 } from "@/lib/entities-types";
+import { fetchAddressByCEP, formatCEP } from "@/lib/viacep";
 import type { ApiError } from "@/lib/api";
 
 type Props = {
   onClose: () => void;
   onCreated: (id: string) => void;
+  /** Pula a etapa 1 (seletor de tipo) e abre direto o wizard pra esse kind.
+   *  Usado por fluxos como "novo veículo inline" no wizard de pessoa. */
+  initialKind?: EntityKind;
 };
 
-export default function CreateEntidadeModal({ onClose, onCreated }: Props) {
+export default function CreateEntidadeModal({ onClose, onCreated, initialKind }: Props) {
   // Fluxo em duas etapas: na etapa 1 (kind === null) o modal mostra apenas o
   // seletor de tipo; ao escolher, kind passa a ter valor e o formulário
   // específico do tipo é renderizado. O botão "trocar tipo" devolve para a
   // etapa 1 preservando campos comuns já preenchidos.
-  const [kind, setKind] = useState<EntityKind | null>(null);
-  type Tab = "identity" | "data" | "media";
-  const [activeTab, setActiveTab] = useState<Tab>("identity");
+  const [kind, setKind] = useState<EntityKind | null>(initialKind ?? null);
+  // Tabs do wizard. Ordem e conjunto variam por kind. Vehicle pula a tab
+  // "identity" (não tem nome) e move descrição/tags pra "observations" (última).
+  type Tab = "identity" | "data" | "media" | "observations";
+  const [activeTab, setActiveTab] = useState<Tab>(
+    initialKind ? tabsForKind(initialKind)[0] : "identity",
+  );
+  const tabs = kind ? tabsForKind(kind) : (["identity", "data", "media"] as Tab[]);
+  const tabLabels: Record<Tab, string> = {
+    identity: "IDENTIFICAÇÃO",
+    data: "DADOS",
+    media: "MÍDIA",
+    observations: "DESCRIÇÃO",
+  };
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [tags, setTags] = useState<string[]>([]);
@@ -68,6 +94,22 @@ export default function CreateEntidadeModal({ onClose, onCreated }: Props) {
   const [region, setRegion] = useState("");
   const [latitude, setLatitude] = useState("");
   const [longitude, setLongitude] = useState("");
+
+  // Vehicle
+  const [plate, setPlate] = useState("");
+  const [brand, setBrand] = useState("");
+  const [model, setModel] = useState("");
+  const [color, setColor] = useState("");
+  const [year, setYear] = useState("");
+  const [chassis, setChassis] = useState("");
+  const [renavam, setRenavam] = useState("");
+
+  // Estado exclusivo do fluxo "criar pessoa" — entradas auxiliares aplicadas
+  // após o createEntity bem-sucedido (endereços N-N, vínculos com veículos).
+  const [pendingAddresses, setPendingAddresses] = useState<AddressDraft[]>([]);
+  const [pendingVehicleLinks, setPendingVehicleLinks] = useState<
+    { vehicle: Entity; relation: RelationType }[]
+  >([]);
 
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -146,20 +188,21 @@ export default function CreateEntidadeModal({ onClose, onCreated }: Props) {
     e.preventDefault();
     setErr(null);
     if (kind === null) return; // não há form para submeter na etapa 1
-    // Nas tabs IDENTIFICAÇÃO e DADOS o submit avança para a próxima tab; só na
-    // MÍDIA (última) é que de fato cria a entidade. Isso casa com o botão
-    // contextual do footer e com o Enter dentro dos inputs.
-    if (activeTab !== "media") {
+    const orderedTabs = tabsForKind(kind);
+    const isLast = orderedTabs[orderedTabs.length - 1] === activeTab;
+    // Em tabs intermediárias, o submit (botão "PRÓXIMO" ou Enter) avança;
+    // só na última tab é que de fato cria a entidade.
+    if (!isLast) {
       if (activeTab === "identity" && !name.trim()) {
         setErr("Nome completo é obrigatório");
         return;
       }
-      setActiveTab(activeTab === "identity" ? "data" : "media");
+      const idx = orderedTabs.indexOf(activeTab);
+      setActiveTab(orderedTabs[idx + 1]);
       return;
     }
-    if (!name.trim()) {
-      // Defesa em profundidade: name sempre é validado em IDENTIFICAÇÃO antes
-      // de avançar, mas se algo escapar volta o usuário para a tab certa.
+    // Defesa em profundidade: name obrigatório para tudo exceto vehicle.
+    if (kind !== "vehicle" && !name.trim()) {
       setActiveTab("identity");
       setErr("Nome completo é obrigatório");
       return;
@@ -263,6 +306,18 @@ export default function CreateEntidadeModal({ onClose, onCreated }: Props) {
                 longitude: parseFloatOrUndef(longitude),
               }
             : undefined,
+        vehicle:
+          kind === "vehicle"
+            ? {
+                plate: plate.trim() || undefined,
+                brand: brand.trim() || undefined,
+                model: model.trim() || undefined,
+                color: color.trim() || undefined,
+                year: parseIntOrUndef(year),
+                chassis: chassis.trim() || undefined,
+                renavam: renavam.trim() || undefined,
+              }
+            : undefined,
       });
 
       if (supportsPrimaryPhoto && photoFile) {
@@ -275,6 +330,48 @@ export default function CreateEntidadeModal({ onClose, onCreated }: Props) {
           );
         }
       }
+      // Pessoa: persiste endereços pendentes (linhas vazias são ignoradas).
+      if (kind === "person" && pendingAddresses.length > 0) {
+        const failures: string[] = [];
+        for (const draft of pendingAddresses) {
+          if (addressDraftIsEmpty(draft)) continue;
+          try {
+            await createPersonAddress(res.entity.id, addressDraftToPayload(draft));
+          } catch (e) {
+            failures.push(
+              `${draft.label || "endereço"}: ${(e as ApiError).message ?? "erro"}`,
+            );
+          }
+        }
+        if (failures.length > 0) {
+          setErr(
+            "Pessoa criada, mas falharam endereços: " + failures.join("; "),
+          );
+        }
+      }
+
+      // Pessoa: persiste vínculos com veículos selecionados/criados inline.
+      if (kind === "person" && pendingVehicleLinks.length > 0) {
+        const failures: string[] = [];
+        for (const lk of pendingVehicleLinks) {
+          try {
+            await createEntityLink(res.entity.id, {
+              to_entity_id: lk.vehicle.id,
+              relation_type: lk.relation,
+            });
+          } catch (e) {
+            failures.push(
+              `${lk.vehicle.name}: ${(e as ApiError).message ?? "erro"}`,
+            );
+          }
+        }
+        if (failures.length > 0) {
+          setErr(
+            "Pessoa criada, mas falharam vínculos: " + failures.join("; "),
+          );
+        }
+      }
+
       // Galeria: upload sequencial; mantemos a ordem do array em ord 0..N.
       if (galleryPending.length > 0) {
         const failures: string[] = [];
@@ -334,56 +431,49 @@ export default function CreateEntidadeModal({ onClose, onCreated }: Props) {
         </div>
 
         {kind === null ? (
-          <KindPicker onPick={setKind} />
+          <KindPicker
+            onPick={(k) => {
+              setKind(k);
+              setActiveTab(tabsForKind(k)[0]);
+            }}
+          />
         ) : (
         <>
           <div className="modal-tabs" role="tablist">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={activeTab === "identity"}
-              className={"modal-tab" + (activeTab === "identity" ? " modal-tab--on" : "")}
-              onClick={() => setActiveTab("identity")}
-            >
-              IDENTIFICAÇÃO
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={activeTab === "data"}
-              className={"modal-tab" + (activeTab === "data" ? " modal-tab--on" : "")}
-              onClick={() => setActiveTab("data")}
-            >
-              DADOS
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={activeTab === "media"}
-              className={"modal-tab" + (activeTab === "media" ? " modal-tab--on" : "")}
-              onClick={() => setActiveTab("media")}
-            >
-              MÍDIA
-            </button>
+            {tabs.map((t) => (
+              <button
+                key={t}
+                type="button"
+                role="tab"
+                aria-selected={activeTab === t}
+                className={"modal-tab" + (activeTab === t ? " modal-tab--on" : "")}
+                onClick={() => setActiveTab(t)}
+              >
+                {tabLabels[t]}
+              </button>
+            ))}
           </div>
 
           <form className="modal-bd entity-form" onSubmit={onSubmit} autoComplete="off">
-            {activeTab === "identity" && (
+            {(activeTab === "identity" ||
+              (kind === "vehicle" && activeTab === "observations")) && (
               <>
-                <label className="form-field">
-                  <span>{kind === "person" ? "NOME COMPLETO" : "NOME"}</span>
-                  <input
-                    type="text"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    required
-                    autoFocus
-                    maxLength={200}
-                  />
-                </label>
+                {kind !== "vehicle" && (
+                  <label className="form-field">
+                    <span>{kind === "person" ? "NOME COMPLETO" : "NOME"}</span>
+                    <input
+                      type="text"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      required
+                      autoFocus
+                      maxLength={200}
+                    />
+                  </label>
+                )}
 
                 <label className="form-field">
-                  <span>DESCRIÇÃO</span>
+                  <span>DESCRIÇÃO {kind === "vehicle" && "(OPCIONAL)"}</span>
                   <textarea
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
@@ -393,7 +483,7 @@ export default function CreateEntidadeModal({ onClose, onCreated }: Props) {
                 </label>
 
                 <label className="form-field">
-                  <span>TAGS</span>
+                  <span>TAGS {kind === "vehicle" && "(OPCIONAL)"}</span>
                   <TagInput value={tags} onChange={setTags} normalize="lower" />
                 </label>
               </>
@@ -402,20 +492,30 @@ export default function CreateEntidadeModal({ onClose, onCreated }: Props) {
             {activeTab === "data" && (
               <>
                 {kind === "person" && (
-                  <PersonFields
-                    aliases={aliases}
-                    setAliases={setAliases}
-                    motherName={motherName}
-                    setMotherName={setMotherName}
-                    gender={gender}
-                    setGender={setGender}
-                    dob={dob}
-                    setDob={setDob}
-                    cpf={cpf}
-                    setCpf={setCpf}
-                    orcrimId={orcrimId}
-                    setOrcrimId={setOrcrimId}
-                  />
+                  <>
+                    <PersonFields
+                      aliases={aliases}
+                      setAliases={setAliases}
+                      motherName={motherName}
+                      setMotherName={setMotherName}
+                      gender={gender}
+                      setGender={setGender}
+                      dob={dob}
+                      setDob={setDob}
+                      cpf={cpf}
+                      setCpf={setCpf}
+                      orcrimId={orcrimId}
+                      setOrcrimId={setOrcrimId}
+                    />
+                    <AddressFields
+                      items={pendingAddresses}
+                      onChange={setPendingAddresses}
+                    />
+                    <VehicleLinkPicker
+                      items={pendingVehicleLinks}
+                      onChange={setPendingVehicleLinks}
+                    />
+                  </>
                 )}
                 {kind === "organization" && (
                   <OrganizationFields
@@ -441,6 +541,24 @@ export default function CreateEntidadeModal({ onClose, onCreated }: Props) {
                     setLatitude={setLatitude}
                     longitude={longitude}
                     setLongitude={setLongitude}
+                  />
+                )}
+                {kind === "vehicle" && (
+                  <VehicleFields
+                    plate={plate}
+                    setPlate={setPlate}
+                    brand={brand}
+                    setBrand={setBrand}
+                    model={model}
+                    setModel={setModel}
+                    color={color}
+                    setColor={setColor}
+                    year={year}
+                    setYear={setYear}
+                    chassis={chassis}
+                    setChassis={setChassis}
+                    renavam={renavam}
+                    setRenavam={setRenavam}
                   />
                 )}
               </>
@@ -492,19 +610,20 @@ export default function CreateEntidadeModal({ onClose, onCreated }: Props) {
               <button type="button" className="btn btn-ghost" onClick={onClose}>
                 CANCELAR
               </button>
-              {activeTab !== "identity" && (
+              {tabs.indexOf(activeTab) > 0 && (
                 <button
                   type="button"
                   className="btn btn-ghost"
-                  onClick={() =>
-                    setActiveTab(activeTab === "media" ? "data" : "identity")
-                  }
+                  onClick={() => {
+                    const idx = tabs.indexOf(activeTab);
+                    if (idx > 0) setActiveTab(tabs[idx - 1]);
+                  }}
                 >
                   ← VOLTAR
                 </button>
               )}
               <button type="submit" className="btn btn-primary" disabled={busy}>
-                {activeTab === "media"
+                {tabs[tabs.length - 1] === activeTab
                   ? busy
                     ? "CRIANDO…"
                     : "CRIAR ENTIDADE"
@@ -556,6 +675,15 @@ function KindPicker({ onPick }: { onPick: (k: EntityKind) => void }) {
           <span>LUGAR</span>
           <span className="kind-tile-sub">ENDEREÇO · LOCAL</span>
         </button>
+        <button
+          type="button"
+          className="kind-tile"
+          onClick={() => onPick("vehicle")}
+        >
+          <Car size={44} strokeWidth={1.4} className="kind-tile-icon" />
+          <span>VEÍCULO</span>
+          <span className="kind-tile-sub">PLACA · MODELO</span>
+        </button>
       </div>
     </div>
   );
@@ -563,9 +691,20 @@ function KindPicker({ onPick }: { onPick: (k: EntityKind) => void }) {
 
 // ────────────── helpers ──────────────
 
+function tabsForKind(k: EntityKind): ("identity" | "data" | "media" | "observations")[] {
+  if (k === "vehicle") return ["data", "media", "observations"];
+  return ["identity", "data", "media"];
+}
+
 function parseFloatOrUndef(s: string): number | undefined {
   if (s.trim() === "") return undefined;
   const n = Number(s);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+function parseIntOrUndef(s: string): number | undefined {
+  if (s.trim() === "") return undefined;
+  const n = parseInt(s, 10);
   return Number.isFinite(n) ? n : undefined;
 }
 
@@ -835,5 +974,564 @@ function PlaceFields(props: {
         </label>
       </div>
     </fieldset>
+  );
+}
+
+// ────────────── Vehicle fields ──────────────
+
+function VehicleFields(props: {
+  plate: string;
+  setPlate: (v: string) => void;
+  brand: string;
+  setBrand: (v: string) => void;
+  model: string;
+  setModel: (v: string) => void;
+  color: string;
+  setColor: (v: string) => void;
+  year: string;
+  setYear: (v: string) => void;
+  chassis: string;
+  setChassis: (v: string) => void;
+  renavam: string;
+  setRenavam: (v: string) => void;
+}) {
+  return (
+    <fieldset className="form-fieldset">
+      <legend>DADOS · VEÍCULO</legend>
+      <div className="form-grid-2">
+        <label className="form-field">
+          <span>PLACA</span>
+          <input
+            type="text"
+            value={props.plate}
+            onChange={(e) => props.setPlate(e.target.value.toUpperCase())}
+            maxLength={10}
+            placeholder="ABC1D23"
+          />
+        </label>
+        <label className="form-field">
+          <span>ANO</span>
+          <input
+            type="text"
+            inputMode="numeric"
+            value={props.year}
+            onChange={(e) => props.setYear(e.target.value)}
+            maxLength={4}
+          />
+        </label>
+        <label className="form-field">
+          <span>MARCA</span>
+          <Combobox
+            value={props.brand}
+            onChange={(v) => {
+              props.setBrand(v);
+              // Trocar a marca invalida o modelo se já não pertencer à nova
+              // lista — assim o usuário não fica com "GOL" sob marca "FIAT".
+              if (props.model && !modelsForBrand(v).includes(props.model.toUpperCase())) {
+                props.setModel("");
+              }
+            }}
+            options={VEHICLE_BRANDS}
+            uppercase
+            placeholder="ex.: VOLKSWAGEN"
+          />
+        </label>
+        <label className="form-field">
+          <span>MODELO</span>
+          <Combobox
+            value={props.model}
+            onChange={props.setModel}
+            options={modelsForBrand(props.brand)}
+            uppercase
+            placeholder={
+              props.brand
+                ? "selecione ou digite"
+                : "selecione a marca primeiro"
+            }
+          />
+        </label>
+        <label className="form-field">
+          <span>COR</span>
+          <input
+            type="text"
+            value={props.color}
+            onChange={(e) => props.setColor(e.target.value)}
+            maxLength={30}
+          />
+        </label>
+        <label className="form-field">
+          <span>RENAVAM</span>
+          <input
+            type="text"
+            inputMode="numeric"
+            value={props.renavam}
+            onChange={(e) => props.setRenavam(e.target.value)}
+            maxLength={11}
+          />
+        </label>
+        <label className="form-field" style={{ gridColumn: "1 / -1" }}>
+          <span>CHASSI</span>
+          <input
+            type="text"
+            value={props.chassis}
+            onChange={(e) => props.setChassis(e.target.value.toUpperCase())}
+            maxLength={17}
+          />
+        </label>
+      </div>
+    </fieldset>
+  );
+}
+
+// ────────────── Address fields (pessoa) ──────────────
+
+type AddressDraft = {
+  tempId: string;
+  label: string;
+  cep: string;
+  street: string;
+  number: string;
+  complement: string;
+  neighborhood: string;
+  city: string;
+  state: string;
+};
+
+function newAddressDraft(): AddressDraft {
+  return {
+    tempId: `addr-${Math.random().toString(36).slice(2, 9)}`,
+    label: "",
+    cep: "",
+    street: "",
+    number: "",
+    complement: "",
+    neighborhood: "",
+    city: "",
+    state: "",
+  };
+}
+
+function AddressFields({
+  items,
+  onChange,
+}: {
+  items: AddressDraft[];
+  onChange: (items: AddressDraft[]) => void;
+}) {
+  function update(i: number, patch: Partial<AddressDraft>) {
+    onChange(items.map((it, idx) => (idx === i ? { ...it, ...patch } : it)));
+  }
+  function remove(i: number) {
+    onChange(items.filter((_, idx) => idx !== i));
+  }
+  function add() {
+    onChange([...items, newAddressDraft()]);
+  }
+  return (
+    <fieldset className="form-fieldset">
+      <legend>ENDEREÇOS · OPCIONAL</legend>
+      {items.length === 0 && (
+        <div className="muted" style={{ fontSize: 11 }}>
+          // nenhum endereço cadastrado
+        </div>
+      )}
+      {items.map((a, i) => (
+        <AddressRow
+          key={a.tempId}
+          draft={a}
+          onChange={(patch) => update(i, patch)}
+          onRemove={() => remove(i)}
+        />
+      ))}
+      <button
+        type="button"
+        className="btn btn-ghost"
+        style={{ alignSelf: "flex-start", marginTop: 4 }}
+        onClick={add}
+      >
+        <Plus size={12} strokeWidth={2} /> ADICIONAR ENDEREÇO
+      </button>
+    </fieldset>
+  );
+}
+
+function AddressRow({
+  draft,
+  onChange,
+  onRemove,
+}: {
+  draft: AddressDraft;
+  onChange: (patch: Partial<AddressDraft>) => void;
+  onRemove: () => void;
+}) {
+  const [cepLoading, setCepLoading] = useState(false);
+  const [cepError, setCepError] = useState(false);
+  const cepDebounce = useRef<number | null>(null);
+
+  function handleCepInput(v: string) {
+    const masked = formatCEP(v);
+    onChange({ cep: masked });
+    setCepError(false);
+
+    const digits = v.replace(/\D/g, "");
+    if (cepDebounce.current) window.clearTimeout(cepDebounce.current);
+    if (digits.length !== 8) return;
+    cepDebounce.current = window.setTimeout(async () => {
+      setCepLoading(true);
+      const res = await fetchAddressByCEP(digits);
+      setCepLoading(false);
+      if (!res) {
+        setCepError(true);
+        return;
+      }
+      onChange({
+        cep: masked,
+        street: res.logradouro || draft.street,
+        neighborhood: res.bairro || draft.neighborhood,
+        city: res.localidade || draft.city,
+        state: res.uf || draft.state,
+      });
+    }, 350);
+  }
+
+  return (
+    <div className="address-row">
+      <div className="address-row-hd">
+        <input
+          type="text"
+          className="address-row-label"
+          value={draft.label}
+          onChange={(e) => onChange({ label: e.target.value })}
+          placeholder='ex.: "casa", "casa da mãe", "trabalho"'
+          maxLength={80}
+        />
+        <button
+          type="button"
+          className="address-row-remove"
+          onClick={onRemove}
+          title="Remover endereço"
+        >
+          <Trash2 size={12} strokeWidth={1.8} />
+        </button>
+      </div>
+      <div className="form-grid-2">
+        <label className="form-field">
+          <span>CEP</span>
+          <input
+            type="text"
+            inputMode="numeric"
+            value={draft.cep}
+            onChange={(e) => handleCepInput(e.target.value)}
+            maxLength={9}
+            placeholder="00000-000"
+          />
+          {cepLoading && (
+            <span className="muted" style={{ fontSize: 9.5 }}>
+              // consultando…
+            </span>
+          )}
+          {cepError && (
+            <span style={{ fontSize: 9.5, color: "var(--warn)" }}>
+              ⚠ CEP não encontrado
+            </span>
+          )}
+        </label>
+        <label className="form-field">
+          <span>NÚMERO</span>
+          <input
+            type="text"
+            value={draft.number}
+            onChange={(e) => onChange({ number: e.target.value })}
+            maxLength={20}
+          />
+        </label>
+        <label className="form-field" style={{ gridColumn: "1 / -1" }}>
+          <span>LOGRADOURO</span>
+          <input
+            type="text"
+            value={draft.street}
+            onChange={(e) => onChange({ street: e.target.value })}
+            maxLength={200}
+          />
+        </label>
+        <label className="form-field" style={{ gridColumn: "1 / -1" }}>
+          <span>COMPLEMENTO</span>
+          <input
+            type="text"
+            value={draft.complement}
+            onChange={(e) => onChange({ complement: e.target.value })}
+            maxLength={200}
+          />
+        </label>
+        <label className="form-field">
+          <span>BAIRRO</span>
+          <input
+            type="text"
+            value={draft.neighborhood}
+            onChange={(e) => onChange({ neighborhood: e.target.value })}
+            maxLength={120}
+          />
+        </label>
+        <label className="form-field">
+          <span>CIDADE</span>
+          <input
+            type="text"
+            value={draft.city}
+            onChange={(e) => onChange({ city: e.target.value })}
+            maxLength={120}
+          />
+        </label>
+        <label className="form-field">
+          <span>UF</span>
+          <input
+            type="text"
+            value={draft.state}
+            onChange={(e) => onChange({ state: e.target.value.toUpperCase() })}
+            maxLength={2}
+          />
+        </label>
+      </div>
+    </div>
+  );
+}
+
+function addressDraftToPayload(d: AddressDraft): AddressPayload {
+  return {
+    label: d.label.trim() || undefined,
+    cep: d.cep.trim() || undefined,
+    street: d.street.trim() || undefined,
+    number: d.number.trim() || undefined,
+    complement: d.complement.trim() || undefined,
+    neighborhood: d.neighborhood.trim() || undefined,
+    city: d.city.trim() || undefined,
+    state: d.state.trim() || undefined,
+  };
+}
+
+// Decide se a linha tem qualquer dado relevante para gravar. Linhas em branco
+// são silenciosamente ignoradas no submit.
+function addressDraftIsEmpty(d: AddressDraft): boolean {
+  return (
+    !d.label.trim() &&
+    !d.cep.trim() &&
+    !d.street.trim() &&
+    !d.number.trim() &&
+    !d.complement.trim() &&
+    !d.neighborhood.trim() &&
+    !d.city.trim() &&
+    !d.state.trim()
+  );
+}
+
+// ────────────── Vehicle link picker (pessoa) ──────────────
+
+function VehicleLinkPicker({
+  items,
+  onChange,
+}: {
+  items: { vehicle: Entity; relation: RelationType }[];
+  onChange: (items: { vehicle: Entity; relation: RelationType }[]) => void;
+}) {
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [newVehicleOpen, setNewVehicleOpen] = useState(false);
+
+  function add(vehicle: Entity, relation: RelationType = "owns") {
+    if (items.some((it) => it.vehicle.id === vehicle.id)) return;
+    onChange([...items, { vehicle, relation }]);
+  }
+  function remove(i: number) {
+    onChange(items.filter((_, idx) => idx !== i));
+  }
+  function setRelation(i: number, relation: RelationType) {
+    onChange(items.map((it, idx) => (idx === i ? { ...it, relation } : it)));
+  }
+
+  return (
+    <fieldset className="form-fieldset">
+      <legend>VÍNCULOS COM VEÍCULOS · OPCIONAL</legend>
+      {items.length === 0 && (
+        <div className="muted" style={{ fontSize: 11 }}>
+          // nenhum veículo vinculado
+        </div>
+      )}
+      {items.map((it, i) => (
+        <div key={it.vehicle.id} className="vehicle-link-row">
+          <span className="vehicle-link-label">
+            {vehiclePrimaryLabel(
+              it.vehicle.name,
+              isVehicle(it.vehicle) ? it.vehicle.attrs?.plate : undefined,
+            ).toUpperCase()}
+          </span>
+          <select
+            value={it.relation}
+            onChange={(e) => setRelation(i, e.target.value as RelationType)}
+          >
+            {RELATION_TYPES.map((rt) => (
+              <option key={rt} value={rt}>
+                {RELATION_LABEL[rt]}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            className="address-row-remove"
+            onClick={() => remove(i)}
+            title="Remover vínculo"
+          >
+            <Trash2 size={12} strokeWidth={1.8} />
+          </button>
+        </div>
+      ))}
+      <div className="vehicle-link-actions">
+        <button
+          type="button"
+          className="btn btn-ghost"
+          onClick={() => setSearchOpen(true)}
+        >
+          <Plus size={12} strokeWidth={2} /> VINCULAR EXISTENTE
+        </button>
+        <button
+          type="button"
+          className="btn btn-ghost"
+          onClick={() => setNewVehicleOpen(true)}
+        >
+          <Plus size={12} strokeWidth={2} /> NOVO VEÍCULO
+        </button>
+      </div>
+
+      {searchOpen && (
+        <VehicleSearchPopover
+          onSelect={(v) => {
+            add(v);
+            setSearchOpen(false);
+          }}
+          onClose={() => setSearchOpen(false)}
+          excludeIds={items.map((it) => it.vehicle.id)}
+        />
+      )}
+      {/* Renderiza o wizard empilhado via Portal pra escapar do <form> pai.
+          Sem isso, o <form> interno do CreateEntidadeModal fica aninhado e
+          o React/Next.js falha na hidratação ("form cannot be descendant of form"). */}
+      {newVehicleOpen &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <CreateEntidadeModal
+            initialKind="vehicle"
+            onClose={() => setNewVehicleOpen(false)}
+            onCreated={async (id) => {
+              setNewVehicleOpen(false);
+              try {
+                const { getEntity } = await import("@/lib/entities-api");
+                const r = await getEntity(id);
+                add(r.entity);
+              } catch {
+                /* silencioso — usuário pode vincular depois pelo dossiê */
+              }
+            }}
+          />,
+          document.body,
+        )}
+    </fieldset>
+  );
+}
+
+function VehicleSearchPopover({
+  onSelect,
+  onClose,
+  excludeIds,
+}: {
+  onSelect: (v: Entity) => void;
+  onClose: () => void;
+  excludeIds: string[];
+}) {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<Entity[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const q = query.trim();
+    let alive = true;
+    setLoading(true);
+    const handle = window.setTimeout(() => {
+      listEntities({ kind: "vehicle", search: q || undefined, limit: 10 })
+        .then((r) => {
+          if (!alive) return;
+          setResults(r.items.filter((it) => !excludeIds.includes(it.id)));
+        })
+        .catch(() => alive && setResults([]))
+        .finally(() => alive && setLoading(false));
+    }, 250);
+    return () => {
+      alive = false;
+      window.clearTimeout(handle);
+    };
+  }, [query, excludeIds]);
+
+  return (
+    <div className="modal-backdrop" onClick={onClose} style={{ zIndex: 1400 }}>
+      <div
+        className="modal"
+        onClick={(e) => e.stopPropagation()}
+        style={{ maxWidth: 460 }}
+      >
+        <div className="modal-hd">
+          <span>VINCULAR VEÍCULO EXISTENTE</span>
+          <button
+            type="button"
+            className="action-btn"
+            onClick={onClose}
+            aria-label="Fechar"
+          >
+            <X size={14} />
+          </button>
+        </div>
+        <div className="modal-bd">
+          <label className="form-field">
+            <span>BUSCAR (PLACA, MARCA, MODELO)</span>
+            <input
+              type="text"
+              autoFocus
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="digite parte da placa ou modelo…"
+            />
+          </label>
+          <div className="link-search-results">
+            {loading && (
+              <div className="muted" style={{ fontSize: 11, padding: 8 }}>
+                // buscando…
+              </div>
+            )}
+            {!loading && results.length === 0 && (
+              <div className="muted" style={{ fontSize: 11, padding: 8 }}>
+                // nenhum veículo encontrado
+              </div>
+            )}
+            {!loading &&
+              results.map((v) => (
+                <button
+                  key={v.id}
+                  type="button"
+                  className="link-search-item"
+                  onClick={() => onSelect(v)}
+                >
+                  <span className="link-search-kind">VEÍCULO</span>
+                  <span className="link-search-name">
+                    {vehiclePrimaryLabel(
+                      v.name,
+                      isVehicle(v) ? v.attrs?.plate : undefined,
+                    ).toUpperCase()}
+                  </span>
+                </button>
+              ))}
+          </div>
+          <div className="modal-ft">
+            <button type="button" className="btn btn-ghost" onClick={onClose}>
+              CANCELAR
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }

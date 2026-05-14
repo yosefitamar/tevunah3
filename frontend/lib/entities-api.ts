@@ -3,10 +3,14 @@ import type {
   Entity,
   EntityClassification,
   EntityKind,
+  EntityLink,
   GalleryPhoto,
   OrganizationAttrs,
+  PersonAddress,
   PersonAttrs,
   PlaceAttrs,
+  RelationType,
+  VehicleAttrs,
 } from "./entities-types";
 
 export type EntitiesList = {
@@ -37,6 +41,7 @@ export type NewEntityInput = {
   person?: PersonAttrs;
   organization?: OrganizationAttrs;
   place?: PlaceAttrs;
+  vehicle?: VehicleAttrs;
 };
 
 export type UpdateEntityInput = {
@@ -48,7 +53,89 @@ export type UpdateEntityInput = {
   person?: PersonAttrs;
   organization?: OrganizationAttrs;
   place?: PlaceAttrs;
+  vehicle?: VehicleAttrs;
 };
+
+// ────── Vínculos ──────
+
+export type ListLinksResult = { items: EntityLink[] };
+
+export type NewLinkInput = {
+  to_entity_id: string;
+  relation_type: RelationType;
+  valid_from?: string;
+  valid_to?: string;
+  note?: string;
+};
+
+export function listEntityLinks(entityID: string) {
+  return api<ListLinksResult>(
+    `/api/entities/${encodeURIComponent(entityID)}/links`,
+  );
+}
+
+export function createEntityLink(entityID: string, input: NewLinkInput) {
+  return api<{ link: EntityLink }>(
+    `/api/entities/${encodeURIComponent(entityID)}/links`,
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+export function deleteEntityLink(entityID: string, linkID: string) {
+  return api<void>(
+    `/api/entities/${encodeURIComponent(entityID)}/links/${encodeURIComponent(linkID)}`,
+    { method: "DELETE" },
+  );
+}
+
+// ────── Endereços de pessoa ──────
+
+export type ListAddressesResult = { items: PersonAddress[] };
+
+export type AddressPayload = {
+  label?: string;
+  cep?: string;
+  street?: string;
+  number?: string;
+  complement?: string;
+  neighborhood?: string;
+  city?: string;
+  state?: string;
+};
+
+export function listPersonAddresses(entityID: string) {
+  return api<ListAddressesResult>(
+    `/api/entities/${encodeURIComponent(entityID)}/addresses`,
+  );
+}
+
+export function createPersonAddress(entityID: string, input: AddressPayload) {
+  return api<{ address: PersonAddress }>(
+    `/api/entities/${encodeURIComponent(entityID)}/addresses`,
+    { method: "POST", body: JSON.stringify(input) },
+  );
+}
+
+export function updatePersonAddress(
+  entityID: string,
+  addressID: string,
+  input: AddressPayload,
+) {
+  return api<{ address: PersonAddress }>(
+    `/api/entities/${encodeURIComponent(entityID)}/addresses/${encodeURIComponent(addressID)}`,
+    { method: "PATCH", body: JSON.stringify(input) },
+  );
+}
+
+export function deletePersonAddress(entityID: string, addressID: string) {
+  return api<void>(
+    `/api/entities/${encodeURIComponent(entityID)}/addresses/${encodeURIComponent(addressID)}`,
+    { method: "DELETE" },
+  );
+}
 
 function qs(opts: ListEntitiesOpts): string {
   const p = new URLSearchParams();

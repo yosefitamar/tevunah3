@@ -988,6 +988,45 @@ body::after {
   border-left-color: var(--line);
 }
 
+/* Atalhos rápidos (Pessoas / Orcrim / Veículos) ao lado da busca. Pequenos
+   chips icônicos com toggle; mesma altura do toolbar pra alinhar. */
+.quick-filters {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+}
+.quick-chip {
+  appearance: none;
+  background: var(--bg-1);
+  border: 1px solid var(--line-2);
+  color: var(--fg-2);
+  font: inherit;
+  font-size: 9.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-weight: 600;
+  padding: 0 10px;
+  height: 36px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: color 120ms, border-color 120ms, background 120ms;
+}
+.quick-chip:hover {
+  color: var(--fg-0);
+  border-color: var(--accent);
+}
+.quick-chip--on {
+  background: var(--accent);
+  color: var(--bg-0);
+  border-color: var(--accent);
+}
+.quick-chip--on:hover {
+  color: var(--bg-0);
+  box-shadow: 0 0 10px var(--accent-glow);
+}
+
 /* ───────── Buttons ───────── */
 .btn {
   appearance: none;
@@ -2965,4 +3004,361 @@ body::after {
 }
 .sort-th--on svg {
   opacity: 1;
+}
+
+/* Falta da classe .pill.warn — CLASSIFICATION_PILL=3 mapeia "warn" mas o
+   conjunto histórico de pills só tinha active/hold/crit/cold/info. Adicionado
+   aqui pra renderizar entidades classification=3 sem cor caindo no default. */
+.pill.warn {
+  color: var(--warn);
+}
+
+/* ────────────────────── Graph modal (vínculos em grafo) ──────────────────── */
+
+.drawer-hd__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.graph-modal {
+  position: fixed;
+  inset: 0;
+  background: var(--bg-0);
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  animation: graph-fade-in 140ms ease-out;
+}
+@keyframes graph-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.graph-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 16px;
+  height: 54px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-1);
+}
+.graph-modal__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10.5px;
+  letter-spacing: 0.2em;
+  color: var(--fg-1);
+  text-transform: uppercase;
+  font-weight: 600;
+  min-width: 0;
+}
+.graph-modal__title span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.graph-modal__trunc {
+  color: var(--warn);
+  font-size: 9.5px;
+  letter-spacing: 0.18em;
+}
+.graph-modal__ctrls {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.graph-modal__label {
+  font-size: 9.5px;
+  letter-spacing: 0.18em;
+  color: var(--fg-3);
+  margin-right: 4px;
+  text-transform: uppercase;
+}
+
+.graph-modal__body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+.graph-modal__canvas {
+  flex: 1;
+  position: relative;
+  min-width: 0;
+}
+.graph-modal__state {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.graph-modal__side {
+  width: 320px;
+  border-left: 1px solid var(--line);
+  background: var(--bg-1);
+  display: flex;
+  flex-direction: column;
+  animation: graph-slide-in 160ms ease-out;
+}
+@keyframes graph-slide-in {
+  from {
+    transform: translateX(8px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+.graph-modal__side-hd {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 14px;
+  height: 38px;
+  border-bottom: 1px solid var(--line);
+  font-size: 9.5px;
+  letter-spacing: 0.2em;
+  color: var(--fg-3);
+  text-transform: uppercase;
+}
+.graph-modal__side-bd {
+  padding: 16px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.graph-side__kind {
+  font-size: 9.5px;
+  letter-spacing: 0.2em;
+  color: var(--fg-3);
+  text-transform: uppercase;
+}
+.graph-side__name {
+  font-size: 14px;
+  color: var(--fg-0);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  word-break: break-word;
+}
+.graph-side__row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.graph-side__hint {
+  font-size: 9.5px;
+  letter-spacing: 0.16em;
+  color: var(--fg-3);
+  text-transform: uppercase;
+}
+.graph-side__actions {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.graph-side__actions .btn {
+  width: 100%;
+  justify-content: center;
+}
+
+/* ─── Nó do grafo: cartão 3:4 com foto + identificação ─── */
+
+.graph-node {
+  width: 150px;
+  height: 200px;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line-2);
+  background: var(--bg-2);
+  color: var(--fg-1);
+  border-radius: 2px;
+  cursor: pointer;
+  overflow: hidden;
+  transition: border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+}
+.graph-node:hover {
+  border-color: var(--accent-dim);
+  transform: translateY(-1px);
+}
+.graph-node--center {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent), 0 0 18px var(--accent-glow);
+}
+
+.graph-node__photo {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 3 / 2;
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--line);
+  overflow: hidden;
+}
+.graph-node__photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  filter: saturate(0.92) contrast(1.05);
+}
+.graph-node__photo-empty {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    repeating-linear-gradient(
+      135deg,
+      var(--bg-1) 0,
+      var(--bg-1) 6px,
+      var(--bg-2) 6px,
+      var(--bg-2) 12px
+    );
+  color: var(--fg-3);
+  opacity: 0.7;
+}
+
+.graph-node__meta {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px;
+  min-width: 0;
+}
+.graph-node__name {
+  font-size: 10.5px;
+  color: var(--fg-0);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.graph-node__alias,
+.graph-node__orcrim {
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.graph-node__alias {
+  color: var(--fg-2);
+  font-style: italic;
+}
+.graph-node__orcrim {
+  color: var(--warn);
+  font-weight: 600;
+}
+
+.graph-node__handle {
+  background: var(--line-2);
+  width: 6px;
+  height: 6px;
+  border: none;
+}
+
+/* Painel lateral — campos extras */
+.graph-side__alias {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: var(--fg-2);
+  font-style: italic;
+  text-transform: uppercase;
+}
+.graph-side__orcrim {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: var(--warn);
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+/* Camada do dossiê sobreposto ao grafo: sobe acima do canvas mantendo o
+   estado do grafo intacto no fundo. .drawer-backdrop dentro dessa camada
+   sobrepõe naturalmente o ReactFlow. */
+.graph-modal__dossier-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+}
+
+/* Dropdown flutuante do campo MÃE: posicionado absoluto sobre os campos
+   abaixo. position:absolute exige o parent (.form-field) com position:relative,
+   já garantido inline no MotherField. */
+.mother-search-results {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 2px;
+  z-index: 20;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45);
+}
+
+.mother-picked {
+  margin-top: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 9.5px;
+  letter-spacing: 0.18em;
+  color: var(--accent);
+  text-transform: uppercase;
+}
+.mother-picked__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent-glow);
+}
+
+/* ─── React Flow overrides ─── */
+
+.react-flow__attribution {
+  display: none !important;
+}
+.react-flow__controls {
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+  box-shadow: none;
+}
+.react-flow__controls button {
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--line);
+  color: var(--fg-1);
+  width: 26px;
+  height: 26px;
+}
+.react-flow__controls button:hover {
+  background: var(--bg-2);
+  color: var(--accent);
+}
+.react-flow__controls button:last-child {
+  border-bottom: none;
+}
+.react-flow__controls button svg {
+  fill: currentColor;
+}
+.react-flow__edge-path {
+  stroke: var(--line-2);
+  stroke-width: 1;
+}
+.react-flow__edge.selected .react-flow__edge-path,
+.react-flow__edge:focus-visible .react-flow__edge-path {
+  stroke: var(--accent);
 }

@@ -2,6 +2,7 @@ import { api } from "./api";
 import type {
   Entity,
   EntityClassification,
+  EntityGraph,
   EntityKind,
   EntityLink,
   GalleryPhoto,
@@ -88,6 +89,16 @@ export function deleteEntityLink(entityID: string, linkID: string) {
   return api<void>(
     `/api/entities/${encodeURIComponent(entityID)}/links/${encodeURIComponent(linkID)}`,
     { method: "DELETE" },
+  );
+}
+
+// ────── Grafo (subrede multi-hop) ──────
+
+export type GraphDepth = 1 | 2 | 3;
+
+export function getEntityGraph(entityID: string, depth: GraphDepth) {
+  return api<EntityGraph>(
+    `/api/entities/${encodeURIComponent(entityID)}/graph?depth=${depth}`,
   );
 }
 

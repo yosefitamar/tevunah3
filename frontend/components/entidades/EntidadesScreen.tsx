@@ -1,7 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { Filter, Plus, RotateCcw, Search, ShieldAlert, Trash2 } from "lucide-react";
+import {
+  AlertOctagon,
+  Car,
+  Filter,
+  Plus,
+  RotateCcw,
+  Search,
+  ShieldAlert,
+  Trash2,
+  User,
+} from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useModal } from "@/contexts/ModalContext";
 import { listEntities, restoreEntity, type EntitiesList } from "@/lib/entities-api";
@@ -120,6 +130,16 @@ export default function EntidadesScreen() {
     setSort(next);
   }
 
+  // applyQuickFilter substitui o (kind, tag) atual pelo definido no chip,
+  // ou limpa se o chip já estiver ativo (toggle). Demais dimensões da busca
+  // (search, sort, paginação) permanecem; resetamos a página pra 0 pra que
+  // o usuário sempre veja o início do resultado filtrado.
+  function applyQuickFilter(next: Filters) {
+    const same = next.kind === filters.kind && next.tag === filters.tag;
+    setPage(0);
+    setFilters(same ? EMPTY_FILTERS : next);
+  }
+
   if (!canListEntities(me)) {
     return (
       <div className="placeholder">
@@ -165,6 +185,11 @@ export default function EntidadesScreen() {
             BUSCAR
           </button>
         </form>
+
+        {/* Atalhos rápidos de filtro: aplicam (kind, tag) atômicos. Clique
+            no chip ativo desativa; clique em outro chip substitui (são
+            mutuamente exclusivos porque colidem na dimensão kind). */}
+        <QuickFilters value={filters} onApply={applyQuickFilter} />
 
         <button
           type="button"
@@ -362,6 +387,7 @@ export default function EntidadesScreen() {
           entityId={selectedId}
           onClose={() => setSelectedId(null)}
           onChanged={() => reload(search, filters, page, sort, trashMode)}
+          onOpenEntity={(id) => setSelectedId(id)}
         />
       )}
     </div>
@@ -413,6 +439,59 @@ function FilterPanel({ value, onApply }: FilterPanelProps) {
           APLICAR
         </button>
       </div>
+    </div>
+  );
+}
+
+// ─────────────────────────── QuickFilters ────────────────────────────
+//
+// Atalhos visuais ao lado da busca pros filtros mais comuns. Cada chip
+// aplica uma combinação (kind, tag) específica; clique no chip ativo
+// limpa o filtro. Mutuamente exclusivos: chips colidem na dimensão kind.
+
+type QuickPreset = {
+  id: "person" | "orcrim" | "vehicle";
+  label: string;
+  icon: typeof User;
+  filter: Filters;
+};
+
+const QUICK_PRESETS: QuickPreset[] = [
+  { id: "person",  label: "PESSOAS",  icon: User,         filter: { kind: "person",       tag: "" } },
+  { id: "orcrim",  label: "ORCRIM",   icon: AlertOctagon, filter: { kind: "organization", tag: "orcrim" } },
+  { id: "vehicle", label: "VEÍCULOS", icon: Car,          filter: { kind: "vehicle",      tag: "" } },
+];
+
+function quickPresetActive(p: QuickPreset, f: Filters): boolean {
+  return f.kind === p.filter.kind && f.tag === p.filter.tag;
+}
+
+function QuickFilters({
+  value,
+  onApply,
+}: {
+  value: Filters;
+  onApply: (next: Filters) => void;
+}) {
+  return (
+    <div className="quick-filters" role="toolbar" aria-label="Filtros rápidos">
+      {QUICK_PRESETS.map((p) => {
+        const active = quickPresetActive(p, value);
+        const Icon = p.icon;
+        return (
+          <button
+            key={p.id}
+            type="button"
+            className={"quick-chip" + (active ? " quick-chip--on" : "")}
+            onClick={() => onApply(p.filter)}
+            title={active ? `Remover filtro ${p.label}` : `Filtrar ${p.label}`}
+            aria-pressed={active}
+          >
+            <Icon size={14} strokeWidth={1.8} />
+            <span>{p.label}</span>
+          </button>
+        );
+      })}
     </div>
   );
 }

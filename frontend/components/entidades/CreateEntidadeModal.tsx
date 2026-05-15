@@ -15,6 +15,7 @@ import {
 import { useModal } from "@/contexts/ModalContext";
 import PrimaryPhotoPicker from "./PrimaryPhotoPicker";
 import { PendingGalleryEditor, type PendingPhoto } from "./GalleryEditor";
+import MotherField from "./MotherField";
 import {
   createEntity,
   createEntityLink,
@@ -86,6 +87,10 @@ export default function CreateEntidadeModal({ onClose, onCreated, initialKind }:
   // Person
   const [aliases, setAliases] = useState<string[]>([]);
   const [motherName, setMotherName] = useState("");
+  // Quando o usuário escolhe uma pessoa já cadastrada como mãe, guardamos o
+  // ID aqui. No submit, depois de criar a pessoa, abrimos um vínculo
+  // mother_of automático (mãe → filho).
+  const [motherEntityId, setMotherEntityId] = useState<string>("");
   const [gender, setGender] = useState<Gender | "">("");
   const [dob, setDob] = useState("");
   const [cpf, setCpf] = useState("");
@@ -371,6 +376,23 @@ export default function CreateEntidadeModal({ onClose, onCreated, initialKind }:
         }
       }
 
+      // Pessoa: se a mãe foi pareada com uma entidade existente, cria o
+      // vínculo mother_of(mãe → nova pessoa). Falha silenciosa caso o link
+      // não consiga ser criado — não bloqueia a criação da pessoa.
+      if (kind === "person" && motherEntityId) {
+        try {
+          await createEntityLink(motherEntityId, {
+            to_entity_id: res.entity.id,
+            relation_type: "mother_of",
+          });
+        } catch (e) {
+          setErr(
+            "Pessoa criada, mas falhou o vínculo mãe→filho: " +
+              ((e as ApiError).message ?? "erro desconhecido"),
+          );
+        }
+      }
+
       // Pessoa: persiste vínculos com veículos selecionados/criados inline.
       if (kind === "person" && pendingVehicleLinks.length > 0) {
         const failures: string[] = [];
@@ -519,6 +541,8 @@ export default function CreateEntidadeModal({ onClose, onCreated, initialKind }:
                       setAliases={setAliases}
                       motherName={motherName}
                       setMotherName={setMotherName}
+                      motherEntityId={motherEntityId}
+                      setMotherEntityId={setMotherEntityId}
                       gender={gender}
                       setGender={setGender}
                       dob={dob}
@@ -752,6 +776,8 @@ function PersonFields(props: {
   setAliases: (v: string[]) => void;
   motherName: string;
   setMotherName: (v: string) => void;
+  motherEntityId: string;
+  setMotherEntityId: (v: string) => void;
   gender: Gender | "";
   setGender: (v: Gender | "") => void;
   dob: string;
@@ -765,15 +791,13 @@ function PersonFields(props: {
     <fieldset className="form-fieldset">
       <legend>DADOS · PESSOA</legend>
 
-      <label className="form-field">
-        <span>NOME DA MÃE</span>
-        <input
-          type="text"
-          value={props.motherName}
-          onChange={(e) => props.setMotherName(e.target.value)}
-          maxLength={200}
-        />
-      </label>
+      <MotherField
+        name={props.motherName}
+        setName={props.setMotherName}
+        linkedId={props.motherEntityId}
+        setLinkedId={props.setMotherEntityId}
+      />
+
 
       <div className="form-grid-2">
         <label className="form-field">

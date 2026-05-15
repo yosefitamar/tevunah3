@@ -2,7 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Car, Link2, Pencil, Plus, Trash2, X } from "lucide-react";
+import { Car, Link2, Network, Pencil, Plus, Trash2, X } from "lucide-react";
+import GraphModal from "./GraphModal";
+import MotherField from "./MotherField";
 import TagInput from "../shared/TagInput";
 import Combobox from "../shared/Combobox";
 import {
@@ -19,8 +21,6 @@ import {
   ENTITY_KIND_LABEL,
   GENDERS,
   GENDER_LABEL,
-  RELATION_LABEL,
-  RELATION_TYPES,
   VEHICLE_CATEGORIES,
   VEHICLE_CATEGORY_LABEL,
   isOrganization,
@@ -29,14 +29,19 @@ import {
   isVehicle,
   linkOtherSide,
   orgPrimaryLabel,
+  relationLabelFor,
+  relationsForPair,
+  vehicleListLabel,
   vehiclePrimaryLabel,
   type Entity,
+  type EntityKind,
   type EntityLink,
   type PersonAddress,
   type Gender,
   type OrganizationAttrs,
   type PersonAttrs,
   type PlaceAttrs,
+  type RelationOption,
   type RelationType,
   type VehicleAttrs,
   type VehicleCategory,
@@ -69,15 +74,23 @@ type Props = {
   entityId: string;
   onClose: () => void;
   onChanged: () => void;
+  // Permite trocar a entidade aberta no drawer a partir de um nó do grafo.
+  onOpenEntity?: (id: string) => void;
 };
 
-export default function EntidadeDrawer({ entityId, onClose, onChanged }: Props) {
+export default function EntidadeDrawer({
+  entityId,
+  onClose,
+  onChanged,
+  onOpenEntity,
+}: Props) {
   const { user: me } = useAuth();
   const modal = useModal();
   const [data, setData] = useState<Entity | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
+  const [graphOpen, setGraphOpen] = useState(false);
 
   const reload = () => {
     setLoading(true);
@@ -126,14 +139,27 @@ export default function EntidadeDrawer({ entityId, onClose, onChanged }: Props) 
       >
         <div className="drawer-hd">
           <span>DOSSIÊ DA ENTIDADE</span>
-          <button
-            type="button"
-            className="action-btn"
-            onClick={onClose}
-            aria-label="Fechar"
-          >
-            <X size={14} />
-          </button>
+          <div className="drawer-hd__actions">
+            {data && (
+              <button
+                type="button"
+                className="action-btn"
+                onClick={() => setGraphOpen(true)}
+                aria-label="Ver grafo de vínculos"
+                title="Ver grafo de vínculos"
+              >
+                <Network size={14} />
+              </button>
+            )}
+            <button
+              type="button"
+              className="action-btn"
+              onClick={onClose}
+              aria-label="Fechar"
+            >
+              <X size={14} />
+            </button>
+          </div>
         </div>
 
         <div className="drawer-bd">
@@ -177,6 +203,15 @@ export default function EntidadeDrawer({ entityId, onClose, onChanged }: Props) 
           )}
         </div>
       </aside>
+
+      {graphOpen && data && (
+        <GraphModal
+          entityId={data.id}
+          entityName={data.name}
+          onClose={() => setGraphOpen(false)}
+          onOpenEntity={onOpenEntity}
+        />
+      )}
     </div>
   );
 }
@@ -254,7 +289,7 @@ function ViewMode({
 
       {/* No dossiê (modo consulta) os vínculos e endereços são read-only.
           Adição/remoção fica disponível apenas no modo EDITAR. */}
-      <LinksSection entityID={data.id} canManage={false} />
+      <LinksSection entityID={data.id} entityKind={data.kind} canManage={false} />
 
       {isPerson(data) && (
         <AddressesSection
@@ -455,6 +490,14 @@ function EditMode({
   );
   const [dob, setDob] = useState(person?.date_of_birth ?? "");
   const [motherName, setMotherName] = useState(person?.mother_name ?? "");
+  // Mãe pareada (entidade já cadastrada) — guardamos o id atual da entidade
+  // e o id do vínculo existente. No save fazemos o diff: se mudou, removemos
+  // o link antigo e criamos um novo.
+  const [motherEntityId, setMotherEntityId] = useState("");
+  const motherOriginalRef = useRef<{ entityId: string; linkId: string }>({
+    entityId: "",
+    linkId: "",
+  });
   const [cpf, setCpf] = useState(person?.cpf ?? "");
   const [orcrimId, setOrcrimId] = useState(person?.orcrim_id ?? "");
   // Organization
@@ -488,6 +531,34 @@ function EditMode({
 
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  // Carrega o vínculo mother_of existente (se houver) pra alimentar o estado
+  // inicial do MotherField e permitir o diff no save. direction=in significa
+  // que a entidade atual é o `to` do link — i.e., é o filho(a).
+  useEffect(() => {
+    if (data.kind !== "person") return;
+    let alive = true;
+    listEntityLinks(data.id)
+      .then((r) => {
+        if (!alive) return;
+        const mom = r.items.find(
+          (l) => l.relation_type === "mother_of" && l.direction === "in",
+        );
+        if (mom) {
+          motherOriginalRef.current = {
+            entityId: mom.from_entity_id,
+            linkId: mom.id,
+          };
+          setMotherEntityId(mom.from_entity_id);
+        }
+      })
+      .catch(() => {
+        /* sem cancelamento — falha silenciosa preserva nome livre */
+      });
+    return () => {
+      alive = false;
+    };
+  }, [data.id, data.kind]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -559,6 +630,35 @@ function EditMode({
             : undefined,
       };
       const res = await updateEntity(data.id, payload);
+      // Pessoa: aplica diff do pareamento de mãe. Se mudou em relação ao
+      // estado original, remove o vínculo antigo e cria o novo. A cascata
+      // de irmandade roda no backend ao inserir o mother_of.
+      if (data.kind === "person") {
+        const orig = motherOriginalRef.current;
+        if (orig.entityId !== motherEntityId) {
+          try {
+            if (orig.linkId) {
+              await deleteEntityLink(data.id, orig.linkId);
+            }
+            if (motherEntityId) {
+              await createEntityLink(motherEntityId, {
+                to_entity_id: data.id,
+                relation_type: "mother_of",
+              });
+            }
+            motherOriginalRef.current = {
+              entityId: motherEntityId,
+              linkId: "", // novo id desconhecido; será refetched pelo onSaved
+            };
+          } catch (linkErr) {
+            // Falha no vínculo não derruba o save da entidade — só avisa.
+            setErr(
+              "Entidade salva, mas o vínculo com a mãe não foi sincronizado: " +
+                ((linkErr as ApiError).message ?? "erro desconhecido"),
+            );
+          }
+        }
+      }
       onSaved(res.entity);
     } catch (e) {
       const apiErr = e as ApiError;
@@ -628,15 +728,12 @@ function EditMode({
       {data.kind === "person" && (
         <fieldset className="form-fieldset">
           <legend>DADOS · PESSOA</legend>
-          <label className="form-field">
-            <span>NOME DA MÃE</span>
-            <input
-              type="text"
-              value={motherName}
-              onChange={(e) => setMotherName(e.target.value)}
-              maxLength={200}
-            />
-          </label>
+          <MotherField
+            name={motherName}
+            setName={setMotherName}
+            linkedId={motherEntityId}
+            setLinkedId={setMotherEntityId}
+          />
           <div className="form-grid-2">
             <label className="form-field">
               <span>GÊNERO</span>
@@ -890,7 +987,7 @@ function EditMode({
       {/* Gerenciamento dos relacionamentos (vínculos e endereços) só fica
           disponível no modo EDITAR. Adições/remoções persistem imediatamente
           via API — independentes do SALVAR da entidade base. */}
-      <LinksSection entityID={data.id} canManage={true} />
+      <LinksSection entityID={data.id} entityKind={data.kind} canManage={true} />
 
       {data.kind === "person" && (
         <AddressesSection
@@ -986,9 +1083,11 @@ function DrawerOrcrimSelect({
 
 function LinksSection({
   entityID,
+  entityKind,
   canManage,
 }: {
   entityID: string;
+  entityKind: EntityKind;
   canManage: boolean;
 }) {
   const modal = useModal();
@@ -1017,7 +1116,8 @@ function LinksSection({
       title: "REMOVER VÍNCULO",
       message: (
         <>
-          Remover vínculo <b>{RELATION_LABEL[l.relation_type]}</b> com{" "}
+          Remover vínculo{" "}
+          <b>{relationLabelFor(l.relation_type, l.direction)}</b> com{" "}
           <b>{other.name.toUpperCase()}</b>?
         </>
       ),
@@ -1069,16 +1169,25 @@ function LinksSection({
           {links.map((l) => {
             const other = linkOtherSide(l);
             const arrow = l.direction === "out" ? "→" : "←";
+            // Para veículos, monta "MARCA MODELO COR - PLACA" com base no
+            // summary embutido. Fallback pro name livre quando o backend
+            // não enviou attrs (ex.: link antigo). Demais kinds usam name.
+            const otherLabel =
+              other.kind === "vehicle" && other.vehicle
+                ? vehicleListLabel(other.vehicle, other.name)
+                : other.name;
             return (
               <li key={l.id} className="link-row">
                 <span className="link-arrow" title={l.direction === "out" ? "sai daqui" : "chega aqui"}>
                   {arrow}
                 </span>
-                <span className="link-relation">{RELATION_LABEL[l.relation_type]}</span>
+                <span className="link-relation">
+                  {relationLabelFor(l.relation_type, l.direction)}
+                </span>
                 <span className="link-other">
                   <Link2 size={11} strokeWidth={1.8} />{" "}
                   <span className="link-other-kind">{ENTITY_KIND_LABEL[other.kind]}</span>{" "}
-                  <span className="link-other-name">{other.name.toUpperCase()}</span>
+                  <span className="link-other-name">{otherLabel.toUpperCase()}</span>
                 </span>
                 {l.note && <span className="link-note">· {l.note}</span>}
                 {canManage && (
@@ -1101,6 +1210,7 @@ function LinksSection({
       {adding && (
         <AddLinkModal
           entityID={entityID}
+          entityKind={entityKind}
           onClose={() => setAdding(false)}
           onCreated={() => {
             setAdding(false);
@@ -1116,10 +1226,12 @@ function LinksSection({
 
 function AddLinkModal({
   entityID,
+  entityKind,
   onClose,
   onCreated,
 }: {
   entityID: string;
+  entityKind: EntityKind;
   onClose: () => void;
   onCreated: () => void;
 }) {
@@ -1128,11 +1240,39 @@ function AddLinkModal({
   const [results, setResults] = useState<Entity[]>([]);
   const [searching, setSearching] = useState(false);
   const [picked, setPicked] = useState<Entity | null>(null);
-  const [relation, setRelation] = useState<RelationType>("owns");
+  // relation guarda a chave do tipo escolhido. As opções dependem do par
+  // (entityKind, picked.kind). Resetamos relation toda vez que muda a ponta
+  // selecionada pra evitar relation_type incompatível com o par.
+  const [relation, setRelation] = useState<RelationType | "">("");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [newVehicleOpen, setNewVehicleOpen] = useState(false);
+
+  // Opções compatíveis com o par anchor↔picked. Cada item já vem com a label
+  // na perspectiva do anchor (ex.: MEMBRO DE vs TEM COMO MEMBRO) e o flag
+  // anchorAsFrom que diz se o anchor entra como `from` no insert canônico.
+  const relationOptions: RelationOption[] = picked
+    ? relationsForPair(entityKind, picked.kind)
+    : [];
+
+  // Sempre que troca o picked, derruba a escolha de relação anterior (que pode
+  // ser inválida pro novo par) e auto-seleciona a primeira opção compatível.
+  useEffect(() => {
+    if (!picked) {
+      setRelation("");
+      return;
+    }
+    const options = relationsForPair(entityKind, picked.kind);
+    setRelation(options[0]?.key ?? "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [picked?.id, entityKind]);
+
+  // O botão "NOVO VEÍCULO" só aparece quando o anchor pode possuir/conduzir
+  // veículos. Pra kinds que não casam (lugar, veículo), criar veículo dali
+  // não tem caminho de vínculo possível.
+  const canCreateVehicleInline =
+    entityKind === "person" || entityKind === "organization";
 
   // Busca debounced. Só dispara com >=2 chars. Limita resultados via API.
   useEffect(() => {
@@ -1164,11 +1304,23 @@ function AddLinkModal({
       setErr("Selecione uma entidade alvo");
       return;
     }
+    if (!relation) {
+      setErr("Selecione um tipo de relação");
+      return;
+    }
     setBusy(true);
     setErr(null);
     try {
-      await createEntityLink(entityID, {
-        to_entity_id: picked.id,
+      // Inserção canônica: a relação tem um sentido fixo no banco (from→to).
+      // Se o anchor entra como `from` na canônica, POSTamos em /{anchor}/links
+      // com to_entity_id = picked. Se entra como `to` (ex.: anchor é uma
+      // organização e o usuário escolheu "TEM COMO MEMBRO"), invertemos: o
+      // POST vai pra /{picked}/links com to_entity_id = anchor.
+      const opt = relationOptions.find((o) => o.key === relation);
+      const fromID = opt?.anchorAsFrom === false ? picked.id : entityID;
+      const toID = opt?.anchorAsFrom === false ? entityID : picked.id;
+      await createEntityLink(fromID, {
+        to_entity_id: toID,
         relation_type: relation,
         note: note.trim() || undefined,
       });
@@ -1232,14 +1384,16 @@ function AddLinkModal({
             />
           </label>
 
-          <button
-            type="button"
-            className="btn btn-ghost"
-            style={{ alignSelf: "flex-start" }}
-            onClick={() => setNewVehicleOpen(true)}
-          >
-            <Car size={12} strokeWidth={2} /> NOVO VEÍCULO
-          </button>
+          {canCreateVehicleInline && (
+            <button
+              type="button"
+              className="btn btn-ghost"
+              style={{ alignSelf: "flex-start" }}
+              onClick={() => setNewVehicleOpen(true)}
+            >
+              <Car size={12} strokeWidth={2} /> NOVO VEÍCULO
+            </button>
+          )}
 
           {!picked && query.trim().length >= 2 && (
             <div className="link-search-results">
@@ -1276,10 +1430,15 @@ function AddLinkModal({
             <select
               value={relation}
               onChange={(e) => setRelation(e.target.value as RelationType)}
+              disabled={!picked || relationOptions.length === 0}
             >
-              {RELATION_TYPES.map((rt) => (
-                <option key={rt} value={rt}>
-                  {RELATION_LABEL[rt]}
+              {!picked && <option value="">SELECIONE A ENTIDADE ALVO</option>}
+              {picked && relationOptions.length === 0 && (
+                <option value="">NENHUMA RELAÇÃO COMPATÍVEL</option>
+              )}
+              {relationOptions.map((opt) => (
+                <option key={opt.key} value={opt.key}>
+                  {opt.label}
                 </option>
               ))}
             </select>
@@ -1305,7 +1464,7 @@ function AddLinkModal({
               type="button"
               className="btn btn-primary"
               onClick={onSubmit}
-              disabled={busy || !picked}
+              disabled={busy || !picked || !relation}
             >
               {busy ? "CRIANDO…" : "CRIAR VÍNCULO"}
             </button>

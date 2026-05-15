@@ -141,30 +141,229 @@ export function vehiclePrimaryLabel(name: string, plate?: string): string {
   return name;
 }
 
-// Rótulo de listagem de veículo no formato "PLACA - MARCA - MODELO COR".
+// Rótulo de listagem de veículo no formato "MARCA MODELO COR - PLACA".
 // Partes vazias são omitidas; sem nenhum atributo, cai no nome livre.
+// O "-" separa o bloco identificação do bloco placa pra dar respiro visual.
 export function vehicleListLabel(attrs?: VehicleAttrs, fallbackName?: string): string {
   const plate = attrs?.plate?.trim();
   const brand = attrs?.brand?.trim();
   const model = attrs?.model?.trim();
   const color = attrs?.color?.trim();
-  const modelColor = [model, color].filter(Boolean).join(" ");
-  const parts = [plate, brand, modelColor].filter(Boolean);
-  return parts.length > 0 ? parts.join(" - ") : (fallbackName ?? "");
+  const head = [brand, model, color].filter(Boolean).join(" ");
+  if (head && plate) return `${head} - ${plate}`;
+  if (head) return head;
+  if (plate) return plate;
+  return fallbackName ?? "";
 }
 
 // ────── Vínculos entre entidades ──────
+//
+// Catálogo de relações é fechado: tipos e pares (from_kind × to_kind) são
+// validados no domain. UI usa o catálogo pra (a) filtrar opções no seletor
+// conforme o par anchor↔target, (b) renderizar rótulos bidirecionais coerentes.
 
-export type RelationType = "owns" | "associated_with";
+export type RelationType =
+  | "associated_with"
+  | "owns"
+  | "spouse"
+  | "relative"
+  | "friend"
+  | "colleague"
+  | "partner"
+  | "member_of"
+  | "leader_of"
+  | "employee_of"
+  | "drives"
+  | "frequents"
+  | "subsidiary_of"
+  | "partnership"
+  | "based_at"
+  | "father_of"
+  | "mother_of"
+  | "sibling"
+  | "half_sibling";
 
+// Rótulo "out" — perspectiva da entidade FROM. Usado nas edges do grafo
+// (sempre desenhadas from→to) e em listagens de links saindo.
 export const RELATION_LABEL: Record<RelationType, string> = {
-  owns: "PROPRIETÁRIO",
   associated_with: "ASSOCIADO",
+  owns: "PROPRIETÁRIO",
+  spouse: "CÔNJUGE",
+  relative: "PARENTE",
+  friend: "AMIGO",
+  colleague: "COLEGA",
+  partner: "SÓCIO",
+  member_of: "MEMBRO DE",
+  leader_of: "LÍDER DE",
+  employee_of: "FUNCIONÁRIO DE",
+  drives: "CONDUTOR",
+  frequents: "FREQUENTA",
+  subsidiary_of: "SUBSIDIÁRIA DE",
+  partnership: "PARCERIA",
+  based_at: "SEDE EM",
+  father_of: "PAI DE",
+  mother_of: "MÃE DE",
+  sibling: "IRMÃO(Ã)",
+  half_sibling: "MEIO-IRMÃO(Ã)",
 };
 
-export const RELATION_TYPES: RelationType[] = ["owns", "associated_with"];
+// Rótulo "in" — perspectiva da entidade TO. Para relações simétricas é igual
+// ao "out". Para direcionais, inverte o sentido semântico
+// (ex.: out=MEMBRO DE / in=TEM COMO MEMBRO).
+export const RELATION_LABEL_IN: Record<RelationType, string> = {
+  associated_with: "ASSOCIADO",
+  owns: "PROPRIEDADE DE",
+  spouse: "CÔNJUGE",
+  relative: "PARENTE",
+  friend: "AMIGO",
+  colleague: "COLEGA",
+  partner: "SÓCIO",
+  member_of: "TEM COMO MEMBRO",
+  leader_of: "LIDERADO POR",
+  employee_of: "EMPREGA",
+  drives: "CONDUZIDO POR",
+  frequents: "FREQUENTADO POR",
+  subsidiary_of: "CONTROLA",
+  partnership: "PARCERIA",
+  based_at: "SEDE DE",
+  // Os dois mapeiam pra "FILHO(A) DE" semanticamente, mas no seletor de
+  // vínculo apareceriam duplicados. Disambiguamos com a especificação do
+  // parente.
+  father_of: "FILHO(A) DO PAI",
+  mother_of: "FILHO(A) DA MÃE",
+  sibling: "IRMÃO(Ã)",
+  half_sibling: "MEIO-IRMÃO(Ã)",
+};
+
+export const RELATION_TYPES: RelationType[] = [
+  "associated_with",
+  "owns",
+  "spouse",
+  "relative",
+  "friend",
+  "colleague",
+  "partner",
+  "member_of",
+  "leader_of",
+  "employee_of",
+  "drives",
+  "frequents",
+  "subsidiary_of",
+  "partnership",
+  "based_at",
+  "father_of",
+  "mother_of",
+  "sibling",
+  "half_sibling",
+];
+
+// RelationDef descreve os kinds aceitos nas pontas canônicas (from × to) e se
+// a relação é simétrica. UI usa esses dados pra montar o seletor.
+export type RelationDef = {
+  key: RelationType;
+  symmetric: boolean;
+  fromKinds: EntityKind[];
+  toKinds: EntityKind[];
+};
+
+const ALL_KINDS: EntityKind[] = ["person", "organization", "place", "vehicle"];
+
+export const RELATIONS: RelationDef[] = [
+  { key: "associated_with", symmetric: true, fromKinds: ALL_KINDS, toKinds: ALL_KINDS },
+  { key: "owns",            symmetric: false, fromKinds: ["person", "organization"], toKinds: ["vehicle"] },
+  { key: "spouse",          symmetric: true,  fromKinds: ["person"], toKinds: ["person"] },
+  { key: "relative",        symmetric: true,  fromKinds: ["person"], toKinds: ["person"] },
+  { key: "friend",          symmetric: true,  fromKinds: ["person"], toKinds: ["person"] },
+  { key: "colleague",       symmetric: true,  fromKinds: ["person"], toKinds: ["person"] },
+  { key: "partner",         symmetric: true,  fromKinds: ["person"], toKinds: ["person"] },
+  { key: "member_of",       symmetric: false, fromKinds: ["person"], toKinds: ["organization"] },
+  { key: "leader_of",       symmetric: false, fromKinds: ["person"], toKinds: ["organization"] },
+  { key: "employee_of",     symmetric: false, fromKinds: ["person"], toKinds: ["organization"] },
+  { key: "drives",          symmetric: false, fromKinds: ["person"], toKinds: ["vehicle"] },
+  { key: "frequents",       symmetric: false, fromKinds: ["person"], toKinds: ["place"] },
+  { key: "subsidiary_of",   symmetric: false, fromKinds: ["organization"], toKinds: ["organization"] },
+  { key: "partnership",     symmetric: true,  fromKinds: ["organization"], toKinds: ["organization"] },
+  { key: "based_at",        symmetric: false, fromKinds: ["organization"], toKinds: ["place"] },
+  { key: "father_of",       symmetric: false, fromKinds: ["person"], toKinds: ["person"] },
+  { key: "mother_of",       symmetric: false, fromKinds: ["person"], toKinds: ["person"] },
+  { key: "sibling",         symmetric: true,  fromKinds: ["person"], toKinds: ["person"] },
+  { key: "half_sibling",    symmetric: true,  fromKinds: ["person"], toKinds: ["person"] },
+];
+
+const RELATIONS_BY_KEY: Record<RelationType, RelationDef> = Object.fromEntries(
+  RELATIONS.map((r) => [r.key, r]),
+) as Record<RelationType, RelationDef>;
+
+// Devolve a label da relação na perspectiva da entidade consultada.
+// direction="out" quando ela é o from; "in" quando é o to.
+export function relationLabelFor(
+  key: RelationType,
+  direction: LinkDirection,
+): string {
+  return direction === "out" ? RELATION_LABEL[key] : RELATION_LABEL_IN[key];
+}
+
+// Opção apresentada no seletor de relação dentro do modal de adicionar link.
+//   key:        relation_type canônico (vai pro DB).
+//   label:      texto exibido (já na perspectiva do anchor).
+//   anchorAsFrom: se true, o anchor vira `from` no insert; senão, o `other` vira `from`
+//   (caso em que a UI precisa fazer POST no endpoint do `other`).
+export type RelationOption = {
+  key: RelationType;
+  label: string;
+  anchorAsFrom: boolean;
+};
+
+// relationsForPair lista as opções aceitas pra um par (anchorKind, otherKind)
+// já com o rótulo na perspectiva do anchor e o flag de orientação canônica.
+// Para relações simétricas, anchorAsFrom = true por padrão (irrelevante na
+// semântica, mas mantém a inserção previsível).
+export function relationsForPair(
+  anchorKind: EntityKind,
+  otherKind: EntityKind,
+): RelationOption[] {
+  const out: RelationOption[] = [];
+  for (const r of RELATIONS) {
+    const asFrom =
+      r.fromKinds.includes(anchorKind) && r.toKinds.includes(otherKind);
+    const asTo =
+      !r.symmetric &&
+      r.toKinds.includes(anchorKind) &&
+      r.fromKinds.includes(otherKind);
+    if (asFrom) {
+      out.push({
+        key: r.key,
+        label: r.symmetric ? RELATION_LABEL[r.key] : RELATION_LABEL[r.key],
+        anchorAsFrom: true,
+      });
+    } else if (asTo) {
+      out.push({
+        key: r.key,
+        label: RELATION_LABEL_IN[r.key],
+        anchorAsFrom: false,
+      });
+    }
+  }
+  return out;
+}
+
+// Utilitário pra consultar a definição canônica de uma relação a partir do
+// key (útil em raros pontos da UI que precisam saber se é simétrica).
+export function relationDef(key: RelationType): RelationDef | undefined {
+  return RELATIONS_BY_KEY[key];
+}
 
 export type LinkDirection = "out" | "in";
+
+// Resumo dos attrs de veículo embutido no payload de link. Backend popula
+// quando a ponta correspondente é kind=vehicle. Permite renderizar
+// "MARCA MODELO COR - PLACA" sem fazer fetch extra por linha.
+export type VehicleSummary = {
+  plate?: string;
+  brand?: string;
+  model?: string;
+  color?: string;
+};
 
 export type EntityLink = {
   id: string;
@@ -172,9 +371,11 @@ export type EntityLink = {
   from_entity_id: string;
   from_kind: EntityKind;
   from_name: string;
+  from_vehicle?: VehicleSummary;
   to_entity_id: string;
   to_kind: EntityKind;
   to_name: string;
+  to_vehicle?: VehicleSummary;
   relation_type: RelationType;
   valid_from?: string;
   valid_to?: string;
@@ -183,18 +384,64 @@ export type EntityLink = {
   created_by: string;
 };
 
-// Devolve { id, kind, name } da entidade do "outro lado" do link na
-// perspectiva da entidade consultada.
+// Devolve { id, kind, name, vehicle } da entidade do "outro lado" do link
+// na perspectiva da entidade consultada. `vehicle` só vem quando o outro
+// lado é kind=vehicle e o backend incluiu o summary.
 export function linkOtherSide(l: EntityLink): {
   id: string;
   kind: EntityKind;
   name: string;
+  vehicle?: VehicleSummary;
 } {
   if (l.direction === "out") {
-    return { id: l.to_entity_id, kind: l.to_kind, name: l.to_name };
+    return {
+      id: l.to_entity_id,
+      kind: l.to_kind,
+      name: l.to_name,
+      vehicle: l.to_vehicle,
+    };
   }
-  return { id: l.from_entity_id, kind: l.from_kind, name: l.from_name };
+  return {
+    id: l.from_entity_id,
+    kind: l.from_kind,
+    name: l.from_name,
+    vehicle: l.from_vehicle,
+  };
 }
+
+// ────── Grafo (subrede multi-hop) ──────
+//
+// Espelha o JSON de GET /api/entities/{id}/graph?depth=N. Inclui classification
+// no nó porque a UI quer pintar a pill, e summary de veículo só quando a ponta
+// é kind=vehicle. Edges não trazem datas de validade — o grafo é "agora".
+
+export type GraphNode = {
+  id: string;
+  kind: EntityKind;
+  name: string;
+  classification: EntityClassification;
+  version: number;
+  has_photo: boolean;
+  alias?: string;        // person: primeiro vulgo; org: primeira sigla
+  orcrim_alias?: string; // person: alias da ORCRIM associada
+  vehicle?: VehicleSummary;
+};
+
+export type GraphEdge = {
+  id: string;
+  from: string;
+  to: string;
+  relation_type: RelationType;
+  note?: string;
+};
+
+export type EntityGraph = {
+  center_id: string;
+  depth: number;
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  truncated: boolean;
+};
 
 // GalleryPhoto = foto adicional anexada à entidade (distinta da foto primária).
 // O binário é servido em /api/entities/{id}/photos/{photo.id}.

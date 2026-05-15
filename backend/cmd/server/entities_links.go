@@ -17,20 +17,41 @@ import (
 // consultada. Inclui a direção (out/in) e os dados das duas pontas (id, kind,
 // name) pra UI renderizar sem precisar de outra chamada.
 type publicLink struct {
-	ID           string     `json:"id"`
-	Direction    string     `json:"direction"` // "out" | "in"
-	FromEntityID string     `json:"from_entity_id"`
-	FromKind     string     `json:"from_kind"`
-	FromName     string     `json:"from_name"`
-	ToEntityID   string     `json:"to_entity_id"`
-	ToKind       string     `json:"to_kind"`
-	ToName       string     `json:"to_name"`
-	RelationType string     `json:"relation_type"`
-	ValidFrom    *string    `json:"valid_from,omitempty"`
-	ValidTo      *string    `json:"valid_to,omitempty"`
-	Note         string     `json:"note,omitempty"`
-	CreatedAt    time.Time  `json:"created_at"`
-	CreatedBy    string     `json:"created_by"`
+	ID           string                `json:"id"`
+	Direction    string                `json:"direction"` // "out" | "in"
+	FromEntityID string                `json:"from_entity_id"`
+	FromKind     string                `json:"from_kind"`
+	FromName     string                `json:"from_name"`
+	FromVehicle  *publicVehicleSummary `json:"from_vehicle,omitempty"`
+	ToEntityID   string                `json:"to_entity_id"`
+	ToKind       string                `json:"to_kind"`
+	ToName       string                `json:"to_name"`
+	ToVehicle    *publicVehicleSummary `json:"to_vehicle,omitempty"`
+	RelationType string                `json:"relation_type"`
+	ValidFrom    *string               `json:"valid_from,omitempty"`
+	ValidTo      *string               `json:"valid_to,omitempty"`
+	Note         string                `json:"note,omitempty"`
+	CreatedAt    time.Time             `json:"created_at"`
+	CreatedBy    string                `json:"created_by"`
+}
+
+type publicVehicleSummary struct {
+	Plate *string `json:"plate,omitempty"`
+	Brand *string `json:"brand,omitempty"`
+	Model *string `json:"model,omitempty"`
+	Color *string `json:"color,omitempty"`
+}
+
+func toPublicVehicleSummary(v *entities.VehicleSummary) *publicVehicleSummary {
+	if v == nil {
+		return nil
+	}
+	return &publicVehicleSummary{
+		Plate: v.Plate,
+		Brand: v.Brand,
+		Model: v.Model,
+		Color: v.Color,
+	}
 }
 
 func toPublicLink(l *entities.LinkWithDirection) publicLink {
@@ -40,9 +61,11 @@ func toPublicLink(l *entities.LinkWithDirection) publicLink {
 		FromEntityID: l.FromEntityID,
 		FromKind:     string(l.FromKind),
 		FromName:     l.FromName,
+		FromVehicle:  toPublicVehicleSummary(l.FromVehicle),
 		ToEntityID:   l.ToEntityID,
 		ToKind:       string(l.ToKind),
 		ToName:       l.ToName,
+		ToVehicle:    toPublicVehicleSummary(l.ToVehicle),
 		RelationType: string(l.RelationType),
 		Note:         l.Note,
 		CreatedAt:    l.CreatedAt,
@@ -223,6 +246,8 @@ func (a *app) handleEntityLinkCreate(w http.ResponseWriter, r *http.Request) {
 			httpx.Error(w, http.StatusBadRequest, "entidade não pode ser ligada a si mesma")
 		case errors.Is(err, entities.ErrLinkInvalidType):
 			httpx.Error(w, http.StatusBadRequest, "relation_type inválido")
+		case errors.Is(err, entities.ErrLinkInvalidPair):
+			httpx.Error(w, http.StatusBadRequest, "tipo de relação incompatível com as entidades informadas")
 		default:
 			log.Printf("link create: %v", err)
 			httpx.Error(w, http.StatusInternalServerError, "erro ao criar vínculo")
@@ -243,6 +268,31 @@ func (a *app) handleEntityLinkCreate(w http.ResponseWriter, r *http.Request) {
 		ResourceClassification: &classPtr,
 		After:                  toPublicLinkFromPlain(l, entities.DirectionOut),
 	})
+
+	// Cascata de irmandade: quando o vínculo recém-criado é parental, o filho
+	// pode ter ganhado novos irmãos (ou ter um meio-irmão promovido a irmão
+	// pleno). Auditamos cada link sintetizado como entity.link.add.auto pra
+	// preservar a trilha.
+	if l.RelationType == entities.RelationFatherOf || l.RelationType == entities.RelationMotherOf {
+		newSibs, err := a.entities.ResyncSiblings(r.Context(), l.ToEntityID, me.ID)
+		if err != nil {
+			log.Printf("resync siblings: %v", err)
+		}
+		toClass := to.Classification
+		for _, sib := range newSibs {
+			_ = a.audit.Log(r.Context(), audit.Entry{
+				ActorUserID:            aid,
+				ActorSessionID:         sid,
+				ActorIP:                ip,
+				ActorUserAgent:         ua,
+				Action:                 "entity.link.add.auto",
+				ResourceType:           audit.Ptr("entity"),
+				ResourceID:             audit.Ptr(l.ToEntityID),
+				ResourceClassification: &toClass,
+				After:                  toPublicLinkFromPlain(sib, entities.DirectionOut),
+			})
+		}
+	}
 
 	httpx.Created(w, map[string]any{"link": toPublicLinkFromPlain(l, entities.DirectionOut)})
 }

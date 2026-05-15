@@ -113,6 +113,7 @@ func main() {
 	mux.Handle("GET /api/entities/{id}/links", auth(http.HandlerFunc(a.handleEntityLinksList)))
 	mux.Handle("POST /api/entities/{id}/links", auth(http.HandlerFunc(a.handleEntityLinkCreate)))
 	mux.Handle("DELETE /api/entities/{id}/links/{lid}", auth(http.HandlerFunc(a.handleEntityLinkDelete)))
+	mux.Handle("GET /api/entities/{id}/graph", auth(http.HandlerFunc(a.handleEntityGraph)))
 	mux.Handle("GET /api/entities/{id}/addresses", auth(http.HandlerFunc(a.handlePersonAddressList)))
 	mux.Handle("POST /api/entities/{id}/addresses", auth(http.HandlerFunc(a.handlePersonAddressCreate)))
 	mux.Handle("PATCH /api/entities/{id}/addresses/{aid}", auth(http.HandlerFunc(a.handlePersonAddressUpdate)))

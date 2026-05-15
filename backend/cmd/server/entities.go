@@ -75,13 +75,14 @@ type placeAttrsJSON struct {
 }
 
 type vehicleAttrsJSON struct {
-	Plate   *string `json:"plate,omitempty"`
-	Brand   *string `json:"brand,omitempty"`
-	Model   *string `json:"model,omitempty"`
-	Color   *string `json:"color,omitempty"`
-	Year    *int    `json:"year,omitempty"`
-	Chassis *string `json:"chassis,omitempty"`
-	Renavam *string `json:"renavam,omitempty"`
+	Category *string `json:"category,omitempty"`
+	Plate    *string `json:"plate,omitempty"`
+	Brand    *string `json:"brand,omitempty"`
+	Model    *string `json:"model,omitempty"`
+	Color    *string `json:"color,omitempty"`
+	Year     *int    `json:"year,omitempty"`
+	Chassis  *string `json:"chassis,omitempty"`
+	Renavam  *string `json:"renavam,omitempty"`
 }
 
 func toPublicEntity(e *entities.Entity) publicEntity {
@@ -155,13 +156,14 @@ func toPublicEntity(e *entities.Entity) publicEntity {
 	case entities.KindVehicle:
 		if e.Vehicle != nil {
 			pe.Attrs = vehicleAttrsJSON{
-				Plate:   e.Vehicle.Plate,
-				Brand:   e.Vehicle.Brand,
-				Model:   e.Vehicle.Model,
-				Color:   e.Vehicle.Color,
-				Year:    e.Vehicle.Year,
-				Chassis: e.Vehicle.Chassis,
-				Renavam: e.Vehicle.Renavam,
+				Category: e.Vehicle.Category,
+				Plate:    e.Vehicle.Plate,
+				Brand:    e.Vehicle.Brand,
+				Model:    e.Vehicle.Model,
+				Color:    e.Vehicle.Color,
+				Year:     e.Vehicle.Year,
+				Chassis:  e.Vehicle.Chassis,
+				Renavam:  e.Vehicle.Renavam,
 			}
 		}
 	}
@@ -304,7 +306,9 @@ func (a *app) handleEntityCreate(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusBadRequest, "kind inválido (person|organization|place|vehicle)")
 		return
 	}
-	if strings.TrimSpace(req.Name) == "" {
+	// Veículo deriva o nome automaticamente dos attrs (marca/modelo/placa)
+	// na camada de domínio — só os demais kinds exigem name explícito.
+	if strings.TrimSpace(req.Name) == "" && kind != entities.KindVehicle {
 		httpx.Error(w, http.StatusBadRequest, "name obrigatório")
 		return
 	}
@@ -756,13 +760,14 @@ func vehicleFromJSON(v *vehicleAttrsJSON) *entities.VehicleAttrs {
 		return nil
 	}
 	return &entities.VehicleAttrs{
-		Plate:   trimPtr(v.Plate),
-		Brand:   trimPtr(v.Brand),
-		Model:   trimPtr(v.Model),
-		Color:   trimPtr(v.Color),
-		Year:    v.Year,
-		Chassis: trimPtr(v.Chassis),
-		Renavam: trimPtr(v.Renavam),
+		Category: trimPtr(v.Category),
+		Plate:    trimPtr(v.Plate),
+		Brand:    trimPtr(v.Brand),
+		Model:    trimPtr(v.Model),
+		Color:    trimPtr(v.Color),
+		Year:     v.Year,
+		Chassis:  trimPtr(v.Chassis),
+		Renavam:  trimPtr(v.Renavam),
 	}
 }
 

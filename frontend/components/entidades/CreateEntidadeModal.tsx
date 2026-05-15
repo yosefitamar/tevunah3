@@ -5,7 +5,13 @@ import { createPortal } from "react-dom";
 import { AlertTriangle, Building2, Car, MapPin, Plus, Trash2, User, X } from "lucide-react";
 import TagInput from "../shared/TagInput";
 import Combobox from "../shared/Combobox";
-import { VEHICLE_BRANDS, modelsForBrand } from "@/lib/vehicle-catalog";
+import {
+  VEHICLE_COLORS,
+  brandsForCategory,
+  isValidPlate,
+  modelsForBrand,
+  normalizePlateInput,
+} from "@/lib/vehicle-catalog";
 import { useModal } from "@/contexts/ModalContext";
 import PrimaryPhotoPicker from "./PrimaryPhotoPicker";
 import { PendingGalleryEditor, type PendingPhoto } from "./GalleryEditor";
@@ -26,6 +32,8 @@ import {
   GENDER_LABEL,
   RELATION_LABEL,
   RELATION_TYPES,
+  VEHICLE_CATEGORIES,
+  VEHICLE_CATEGORY_LABEL,
   isOrganization,
   isVehicle,
   orgPrimaryLabel,
@@ -34,6 +42,7 @@ import {
   type EntityKind,
   type Gender,
   type RelationType,
+  type VehicleCategory,
 } from "@/lib/entities-types";
 import { fetchAddressByCEP, formatCEP } from "@/lib/viacep";
 import type { ApiError } from "@/lib/api";
@@ -96,6 +105,7 @@ export default function CreateEntidadeModal({ onClose, onCreated, initialKind }:
   const [longitude, setLongitude] = useState("");
 
   // Vehicle
+  const [vCategory, setVCategory] = useState<VehicleCategory>("car");
   const [plate, setPlate] = useState("");
   const [brand, setBrand] = useState("");
   const [model, setModel] = useState("");
@@ -186,6 +196,10 @@ export default function CreateEntidadeModal({ onClose, onCreated, initialKind }:
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
+    // Quando este wizard é renderizado via portal dentro de outro form
+    // (ex.: AddLinkModal no EditMode da entidade), o evento submit borbularia
+    // pela árvore React até o form ancestral e dispararia o save dele.
+    e.stopPropagation();
     setErr(null);
     if (kind === null) return; // não há form para submeter na etapa 1
     const orderedTabs = tabsForKind(kind);
@@ -210,6 +224,12 @@ export default function CreateEntidadeModal({ onClose, onCreated, initialKind }:
     const supportsPrimaryPhoto = kind === "person" || kind === "place";
     if (supportsPrimaryPhoto && photoFile && photoFile.size > 5 * 1024 * 1024) {
       setErr("A foto excede 5 MiB");
+      return;
+    }
+    // Placa, quando informada, precisa estar em formato BR válido.
+    if (kind === "vehicle" && plate.trim() && !isValidPlate(plate)) {
+      setActiveTab("data");
+      setErr("Placa inválida — use o padrão antigo (ABC1234) ou Mercosul (ABC1D23)");
       return;
     }
     // Bloqueio rígido: CPF tomado por outra pessoa — usuário já viu modal
@@ -309,6 +329,7 @@ export default function CreateEntidadeModal({ onClose, onCreated, initialKind }:
         vehicle:
           kind === "vehicle"
             ? {
+                category: vCategory,
                 plate: plate.trim() || undefined,
                 brand: brand.trim() || undefined,
                 model: model.trim() || undefined,
@@ -545,6 +566,14 @@ export default function CreateEntidadeModal({ onClose, onCreated, initialKind }:
                 )}
                 {kind === "vehicle" && (
                   <VehicleFields
+                    category={vCategory}
+                    setCategory={(c) => {
+                      setVCategory(c);
+                      // Catálogos de marca/modelo diferem por categoria —
+                      // limpa os campos pra não misturar carro com moto.
+                      setBrand("");
+                      setModel("");
+                    }}
                     plate={plate}
                     setPlate={setPlate}
                     brand={brand}
@@ -980,6 +1009,8 @@ function PlaceFields(props: {
 // ────────────── Vehicle fields ──────────────
 
 function VehicleFields(props: {
+  category: VehicleCategory;
+  setCategory: (v: VehicleCategory) => void;
   plate: string;
   setPlate: (v: string) => void;
   brand: string;
@@ -999,15 +1030,33 @@ function VehicleFields(props: {
     <fieldset className="form-fieldset">
       <legend>DADOS · VEÍCULO</legend>
       <div className="form-grid-2">
+        <label className="form-field" style={{ gridColumn: "1 / -1" }}>
+          <span>TIPO</span>
+          <select
+            value={props.category}
+            onChange={(e) => props.setCategory(e.target.value as VehicleCategory)}
+          >
+            {VEHICLE_CATEGORIES.map((c) => (
+              <option key={c} value={c}>
+                {VEHICLE_CATEGORY_LABEL[c]}
+              </option>
+            ))}
+          </select>
+        </label>
         <label className="form-field">
           <span>PLACA</span>
           <input
             type="text"
             value={props.plate}
-            onChange={(e) => props.setPlate(e.target.value.toUpperCase())}
-            maxLength={10}
+            onChange={(e) => props.setPlate(normalizePlateInput(e.target.value))}
+            maxLength={7}
             placeholder="ABC1D23"
           />
+          {props.plate.length > 0 && !isValidPlate(props.plate) && (
+            <span style={{ fontSize: 9.5, color: "var(--crit)" }}>
+              ⚠ formato inválido — use o padrão antigo (ABC1234) ou Mercosul (ABC1D23)
+            </span>
+          )}
         </label>
         <label className="form-field">
           <span>ANO</span>
@@ -1027,13 +1076,16 @@ function VehicleFields(props: {
               props.setBrand(v);
               // Trocar a marca invalida o modelo se já não pertencer à nova
               // lista — assim o usuário não fica com "GOL" sob marca "FIAT".
-              if (props.model && !modelsForBrand(v).includes(props.model.toUpperCase())) {
+              if (
+                props.model &&
+                !modelsForBrand(v, props.category).includes(props.model.toUpperCase())
+              ) {
                 props.setModel("");
               }
             }}
-            options={VEHICLE_BRANDS}
+            options={brandsForCategory(props.category)}
             uppercase
-            placeholder="ex.: VOLKSWAGEN"
+            placeholder={props.category === "motorcycle" ? "ex.: HONDA" : "ex.: VOLKSWAGEN"}
           />
         </label>
         <label className="form-field">
@@ -1041,7 +1093,7 @@ function VehicleFields(props: {
           <Combobox
             value={props.model}
             onChange={props.setModel}
-            options={modelsForBrand(props.brand)}
+            options={modelsForBrand(props.brand, props.category)}
             uppercase
             placeholder={
               props.brand
@@ -1052,12 +1104,20 @@ function VehicleFields(props: {
         </label>
         <label className="form-field">
           <span>COR</span>
-          <input
-            type="text"
+          <select
             value={props.color}
             onChange={(e) => props.setColor(e.target.value)}
-            maxLength={30}
-          />
+          >
+            <option value="">—</option>
+            {!VEHICLE_COLORS.includes(props.color) && props.color !== "" && (
+              <option value={props.color}>{props.color.toUpperCase()}</option>
+            )}
+            {VEHICLE_COLORS.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
         </label>
         <label className="form-field">
           <span>RENAVAM</span>

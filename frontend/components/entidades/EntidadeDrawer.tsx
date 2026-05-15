@@ -1,10 +1,17 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Link2, Pencil, Plus, Trash2, X } from "lucide-react";
+import { createPortal } from "react-dom";
+import { Car, Link2, Pencil, Plus, Trash2, X } from "lucide-react";
 import TagInput from "../shared/TagInput";
 import Combobox from "../shared/Combobox";
-import { VEHICLE_BRANDS, modelsForBrand } from "@/lib/vehicle-catalog";
+import {
+  VEHICLE_COLORS,
+  brandsForCategory,
+  isValidPlate,
+  modelsForBrand,
+  normalizePlateInput,
+} from "@/lib/vehicle-catalog";
 import { fetchAddressByCEP, formatCEP } from "@/lib/viacep";
 import { useAuth } from "@/contexts/AuthContext";
 import { useModal } from "@/contexts/ModalContext";
@@ -14,6 +21,8 @@ import {
   GENDER_LABEL,
   RELATION_LABEL,
   RELATION_TYPES,
+  VEHICLE_CATEGORIES,
+  VEHICLE_CATEGORY_LABEL,
   isOrganization,
   isPerson,
   isPlace,
@@ -30,6 +39,7 @@ import {
   type PlaceAttrs,
   type RelationType,
   type VehicleAttrs,
+  type VehicleCategory,
 } from "@/lib/entities-types";
 import {
   createEntityLink,
@@ -49,6 +59,7 @@ import {
   uploadEntityPhoto,
 } from "@/lib/entities-api";
 import PrimaryPhotoPicker from "./PrimaryPhotoPicker";
+import CreateEntidadeModal from "./CreateEntidadeModal";
 import { PersistedGalleryEditor } from "./GalleryEditor";
 import { canDeleteEntities, canEditEntities } from "@/lib/permissions";
 import { formatBR } from "@/lib/format";
@@ -384,6 +395,10 @@ function VehicleView({ attrs }: { attrs?: VehicleAttrs }) {
   if (!attrs) return <div className="muted">// SEM DADOS</div>;
   return (
     <dl className="dossier-list">
+      <Row
+        label="TIPO"
+        value={VEHICLE_CATEGORY_LABEL[attrs.category ?? "car"]}
+      />
       <Row label="PLACA" value={attrs.plate ?? "—"} />
       <Row label="MARCA" value={attrs.brand ?? "—"} />
       <Row label="MODELO" value={attrs.model ?? "—"} />
@@ -458,6 +473,9 @@ function EditMode({
     place?.longitude != null ? String(place.longitude) : "",
   );
   // Vehicle
+  const [vCategory, setVCategory] = useState<VehicleCategory>(
+    vehicle?.category ?? "car",
+  );
   const [vPlate, setVPlate] = useState(vehicle?.plate ?? "");
   const [vBrand, setVBrand] = useState(vehicle?.brand ?? "");
   const [vModel, setVModel] = useState(vehicle?.model ?? "");
@@ -473,9 +491,18 @@ function EditMode({
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
+    // Ignora submits que borbulharam de um form aninhado (ex.: wizard de novo
+    // veículo aberto via portal a partir do AddLinkModal). O evento submit
+    // propaga pela árvore React mesmo através do portal; sem esse guard, o
+    // "PRÓXIMO" do wizard dispararia o save da entidade e fecharia o drawer.
+    if (e.target !== e.currentTarget) return;
     setErr(null);
     if (!name.trim()) {
       setErr("Nome é obrigatório");
+      return;
+    }
+    if (data.kind === "vehicle" && vPlate.trim() && !isValidPlate(vPlate)) {
+      setErr("Placa inválida — use o padrão antigo (ABC1234) ou Mercosul (ABC1D23)");
       return;
     }
     setBusy(true);
@@ -520,6 +547,7 @@ function EditMode({
         vehicle:
           data.kind === "vehicle"
             ? {
+                category: vCategory,
                 plate: vPlate.trim() || undefined,
                 brand: vBrand.trim() || undefined,
                 model: vModel.trim() || undefined,
@@ -746,14 +774,38 @@ function EditMode({
         <fieldset className="form-fieldset">
           <legend>DADOS · VEÍCULO</legend>
           <div className="form-grid-2">
+            <label className="form-field" style={{ gridColumn: "1 / -1" }}>
+              <span>TIPO</span>
+              <select
+                value={vCategory}
+                onChange={(e) => {
+                  setVCategory(e.target.value as VehicleCategory);
+                  // Catálogos de marca/modelo diferem por categoria.
+                  setVBrand("");
+                  setVModel("");
+                }}
+              >
+                {VEHICLE_CATEGORIES.map((c) => (
+                  <option key={c} value={c}>
+                    {VEHICLE_CATEGORY_LABEL[c]}
+                  </option>
+                ))}
+              </select>
+            </label>
             <label className="form-field">
               <span>PLACA</span>
               <input
                 type="text"
                 value={vPlate}
-                onChange={(e) => setVPlate(e.target.value.toUpperCase())}
-                maxLength={10}
+                onChange={(e) => setVPlate(normalizePlateInput(e.target.value))}
+                maxLength={7}
+                placeholder="ABC1D23"
               />
+              {vPlate.length > 0 && !isValidPlate(vPlate) && (
+                <span style={{ fontSize: 9.5, color: "var(--crit)" }}>
+                  ⚠ formato inválido — use o padrão antigo (ABC1234) ou Mercosul (ABC1D23)
+                </span>
+              )}
             </label>
             <label className="form-field">
               <span>ANO</span>
@@ -771,11 +823,14 @@ function EditMode({
                 value={vBrand}
                 onChange={(v) => {
                   setVBrand(v);
-                  if (vModel && !modelsForBrand(v).includes(vModel.toUpperCase())) {
+                  if (
+                    vModel &&
+                    !modelsForBrand(v, vCategory).includes(vModel.toUpperCase())
+                  ) {
                     setVModel("");
                   }
                 }}
-                options={VEHICLE_BRANDS}
+                options={brandsForCategory(vCategory)}
                 uppercase
               />
             </label>
@@ -784,19 +839,24 @@ function EditMode({
               <Combobox
                 value={vModel}
                 onChange={setVModel}
-                options={modelsForBrand(vBrand)}
+                options={modelsForBrand(vBrand, vCategory)}
                 uppercase
                 placeholder={vBrand ? "selecione ou digite" : "selecione a marca primeiro"}
               />
             </label>
             <label className="form-field">
               <span>COR</span>
-              <input
-                type="text"
-                value={vColor}
-                onChange={(e) => setVColor(e.target.value)}
-                maxLength={30}
-              />
+              <select value={vColor} onChange={(e) => setVColor(e.target.value)}>
+                <option value="">—</option>
+                {!VEHICLE_COLORS.includes(vColor) && vColor !== "" && (
+                  <option value={vColor}>{vColor.toUpperCase()}</option>
+                )}
+                {VEHICLE_COLORS.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
             </label>
             <label className="form-field">
               <span>RENAVAM</span>
@@ -1072,6 +1132,7 @@ function AddLinkModal({
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [newVehicleOpen, setNewVehicleOpen] = useState(false);
 
   // Busca debounced. Só dispara com >=2 chars. Limita resultados via API.
   useEffect(() => {
@@ -1171,6 +1232,15 @@ function AddLinkModal({
             />
           </label>
 
+          <button
+            type="button"
+            className="btn btn-ghost"
+            style={{ alignSelf: "flex-start" }}
+            onClick={() => setNewVehicleOpen(true)}
+          >
+            <Car size={12} strokeWidth={2} /> NOVO VEÍCULO
+          </button>
+
           {!picked && query.trim().length >= 2 && (
             <div className="link-search-results">
               {searching && <div className="muted" style={{ fontSize: 11 }}>// buscando…</div>}
@@ -1240,6 +1310,30 @@ function AddLinkModal({
               {busy ? "CRIANDO…" : "CRIAR VÍNCULO"}
             </button>
           </div>
+
+          {/* Portal renderizado dentro de .modal (sob o stopPropagation):
+              eventos do wizard de veículo propagam pela árvore React e
+              seriam capturados pelo onClick={onClose} do backdrop se ficassem
+              fora — fechando este modal antes de criar veículo e vínculo. */}
+          {newVehicleOpen &&
+            typeof document !== "undefined" &&
+            createPortal(
+              <CreateEntidadeModal
+                initialKind="vehicle"
+                onClose={() => setNewVehicleOpen(false)}
+                onCreated={async (id) => {
+                  setNewVehicleOpen(false);
+                  try {
+                    const r = await getEntity(id);
+                    setPicked(r.entity);
+                    setQuery(entityLabel(r.entity));
+                  } catch {
+                    /* silencioso — usuário pode buscar o veículo manualmente */
+                  }
+                }}
+              />,
+              document.body,
+            )}
         </div>
       </div>
     </div>

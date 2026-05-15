@@ -105,7 +105,17 @@ export type PlaceAttrs = {
   has_photo?: boolean;
 };
 
+export type VehicleCategory = "car" | "motorcycle";
+
+export const VEHICLE_CATEGORIES: VehicleCategory[] = ["car", "motorcycle"];
+
+export const VEHICLE_CATEGORY_LABEL: Record<VehicleCategory, string> = {
+  car: "CARRO",
+  motorcycle: "MOTO",
+};
+
 export type VehicleAttrs = {
+  category?: VehicleCategory;
   plate?: string;
   brand?: string;
   model?: string;
@@ -122,13 +132,25 @@ export type EntityAttrs =
   | VehicleAttrs;
 
 // Rótulo prioritário de um veículo: placa quando existe, senão o nome livre.
-// Usado em listagens e em selects de "alvo do vínculo".
+// Usado em selects de "alvo do vínculo".
 export function vehiclePrimaryLabel(name: string, plate?: string): string {
   if (plate && plate.trim()) {
     if (name && name !== plate) return `${plate} · ${name}`;
     return plate;
   }
   return name;
+}
+
+// Rótulo de listagem de veículo no formato "PLACA - MARCA - MODELO COR".
+// Partes vazias são omitidas; sem nenhum atributo, cai no nome livre.
+export function vehicleListLabel(attrs?: VehicleAttrs, fallbackName?: string): string {
+  const plate = attrs?.plate?.trim();
+  const brand = attrs?.brand?.trim();
+  const model = attrs?.model?.trim();
+  const color = attrs?.color?.trim();
+  const modelColor = [model, color].filter(Boolean).join(" ");
+  const parts = [plate, brand, modelColor].filter(Boolean);
+  return parts.length > 0 ? parts.join(" - ") : (fallbackName ?? "");
 }
 
 // ────── Vínculos entre entidades ──────

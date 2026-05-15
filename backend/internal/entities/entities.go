@@ -129,13 +129,16 @@ type PlaceAttrs struct {
 // identificador prático no Brasil — normalizada em uppercase, sem hífen ou
 // espaços, e única quando preenchida (unique index parcial).
 type VehicleAttrs struct {
-	Plate   *string
-	Brand   *string
-	Model   *string
-	Color   *string
-	Year    *int
-	Chassis *string
-	Renavam *string
+	// Category distingue carro de moto ('car' | 'motorcycle'). Vazio no
+	// insert é tratado como 'car' (default da coluna).
+	Category *string
+	Plate    *string
+	Brand    *string
+	Model    *string
+	Color    *string
+	Year     *int
+	Chassis  *string
+	Renavam  *string
 }
 
 // NewEntity é o input do Create.
@@ -359,7 +362,7 @@ func (r *Repo) List(ctx context.Context, opts ListOpts) (*ListResult, error) {
 		         ''
 		       ) AS tags_csv,
 		       COALESCE(to_jsonb(o.aliases), 'null'::jsonb) AS org_aliases_json,
-		       v.plate AS vehicle_plate
+		       v.plate, v.category, v.brand, v.model, v.color
 		  FROM app.entities e
 		  LEFT JOIN app.entity_organizations o ON o.entity_id = e.id
 		  LEFT JOIN app.entity_vehicles v ON v.entity_id = e.id
@@ -389,11 +392,12 @@ func (r *Repo) List(ctx context.Context, opts ListOpts) (*ListResult, error) {
 		var deletedAt sql.NullTime
 		var deletedBy sql.NullString
 		var orgAliasesJSON []byte
-		var vehiclePlate sql.NullString
+		var vehiclePlate, vehicleCategory, vehicleBrand, vehicleModel, vehicleColor sql.NullString
 		if err := rows.Scan(
 			&e.ID, &kind, &e.Name, &description, &e.Classification, &e.Version,
 			&e.CreatedAt, &createdBy, &e.UpdatedAt, &updatedBy,
-			&deletedAt, &deletedBy, &tagsCSV, &orgAliasesJSON, &vehiclePlate,
+			&deletedAt, &deletedBy, &tagsCSV, &orgAliasesJSON,
+			&vehiclePlate, &vehicleCategory, &vehicleBrand, &vehicleModel, &vehicleColor,
 		); err != nil {
 			return nil, err
 		}
@@ -422,10 +426,16 @@ func (r *Repo) List(ctx context.Context, opts ListOpts) (*ListResult, error) {
 				e.Organization = &OrganizationAttrs{Aliases: aliases}
 			}
 		}
-		// Para veículo, popula attrs.plate (rótulo prioritário do veículo).
-		if e.Kind == KindVehicle && vehiclePlate.Valid {
-			s := vehiclePlate.String
-			e.Vehicle = &VehicleAttrs{Plate: &s}
+		// Para veículo, popula os attrs usados no rótulo de listagem
+		// (placa, categoria, marca, modelo, cor).
+		if e.Kind == KindVehicle {
+			e.Vehicle = &VehicleAttrs{
+				Plate:    nullStr(vehiclePlate),
+				Category: nullStr(vehicleCategory),
+				Brand:    nullStr(vehicleBrand),
+				Model:    nullStr(vehicleModel),
+				Color:    nullStr(vehicleColor),
+			}
 		}
 		items = append(items, e)
 	}
@@ -965,12 +975,12 @@ func (r *Repo) loadChild(ctx context.Context, e *Entity) error {
 		e.Place = &a
 	case KindVehicle:
 		var a VehicleAttrs
-		var plate, brand, model, color, chassis, renavam sql.NullString
+		var category, plate, brand, model, color, chassis, renavam sql.NullString
 		var year sql.NullInt64
 		err := r.db.QueryRowContext(ctx, `
-			SELECT plate, brand, model, color, year, chassis, renavam
+			SELECT category, plate, brand, model, color, year, chassis, renavam
 			  FROM app.entity_vehicles WHERE entity_id = $1`, e.ID,
-		).Scan(&plate, &brand, &model, &color, &year, &chassis, &renavam)
+		).Scan(&category, &plate, &brand, &model, &color, &year, &chassis, &renavam)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				e.Vehicle = &VehicleAttrs{}
@@ -978,6 +988,7 @@ func (r *Repo) loadChild(ctx context.Context, e *Entity) error {
 			}
 			return err
 		}
+		a.Category = nullStr(category)
 		a.Plate = nullStr(plate)
 		a.Brand = nullStr(brand)
 		a.Model = nullStr(model)
@@ -1106,11 +1117,16 @@ func insertChild(ctx context.Context, tx *sql.Tx, id string, k Kind, p *PersonAt
 				plate = s
 			}
 		}
+		// Coluna category é NOT NULL; sem valor explícito assume 'car'.
+		category := "car"
+		if v.Category != nil && *v.Category != "" {
+			category = *v.Category
+		}
 		_, err := tx.ExecContext(ctx, `
 			INSERT INTO app.entity_vehicles
-			  (entity_id, plate, brand, model, color, year, chassis, renavam)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-			id, plate, nilStr(v.Brand), nilStr(v.Model), nilStr(v.Color),
+			  (entity_id, category, plate, brand, model, color, year, chassis, renavam)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+			id, category, plate, nilStr(v.Brand), nilStr(v.Model), nilStr(v.Color),
 			nullableInt(v.Year), nilStr(v.Chassis), nilStr(v.Renavam),
 		)
 		return err
@@ -1158,6 +1174,9 @@ func mergeVehicleAttrs(cur, patch *VehicleAttrs) VehicleAttrs {
 	}
 	if patch == nil {
 		return out
+	}
+	if patch.Category != nil {
+		out.Category = patch.Category
 	}
 	if patch.Plate != nil {
 		out.Plate = patch.Plate
@@ -1272,15 +1291,16 @@ func updateChild(ctx context.Context, tx *sql.Tx, id string, k Kind, p Patch) er
 		}
 		_, err := tx.ExecContext(ctx, `
 			UPDATE app.entity_vehicles SET
-			  plate   = COALESCE($1, plate),
-			  brand   = COALESCE($2, brand),
-			  model   = COALESCE($3, model),
-			  color   = COALESCE($4, color),
-			  year    = COALESCE($5, year),
-			  chassis = COALESCE($6, chassis),
-			  renavam = COALESCE($7, renavam)
-			WHERE entity_id = $8`,
-			plate, nilStr(a.Brand), nilStr(a.Model), nilStr(a.Color),
+			  category = COALESCE($1, category),
+			  plate    = COALESCE($2, plate),
+			  brand    = COALESCE($3, brand),
+			  model    = COALESCE($4, model),
+			  color    = COALESCE($5, color),
+			  year     = COALESCE($6, year),
+			  chassis  = COALESCE($7, chassis),
+			  renavam  = COALESCE($8, renavam)
+			WHERE entity_id = $9`,
+			nilStr(a.Category), plate, nilStr(a.Brand), nilStr(a.Model), nilStr(a.Color),
 			nullableInt(a.Year), nilStr(a.Chassis), nilStr(a.Renavam), id,
 		)
 		return err

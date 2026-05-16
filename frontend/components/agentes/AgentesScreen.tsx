@@ -18,6 +18,7 @@ import { formatBR } from "@/lib/format";
 import CreateAgentModal from "./CreateAgentModal";
 import AgentDrawer from "./AgentDrawer";
 import SortHeader, { type SortState } from "../shared/SortHeader";
+import Select from "../shared/Select";
 
 const PAGE_SIZE = 25;
 
@@ -287,50 +288,51 @@ function FilterPanel({ value, onApply }: FilterPanelProps) {
   return (
     <div className="filter-panel">
       <div className="filter-row">
-        <label className="filter-field">
+        <div className="filter-field">
           <span>PAPEL</span>
-          <select
+          <Select
             value={local.role}
-            onChange={(e) => setLocal({ ...local, role: e.target.value as RoleCode | "" })}
-          >
-            <option value="">TODOS</option>
-            {ROLES_LIST.map((r) => (
-              <option key={r} value={r}>
-                {ROLE_LABEL[r]}
-              </option>
-            ))}
-          </select>
-        </label>
+            onChange={(v) => setLocal({ ...local, role: v as RoleCode | "" })}
+            placeholder="TODOS"
+            options={[
+              { value: "", label: "TODOS" },
+              ...ROLES_LIST.map((r) => ({ value: r, label: ROLE_LABEL[r] })),
+            ]}
+          />
+        </div>
 
-        <label className="filter-field">
+        <div className="filter-field">
           <span>CLEARANCE</span>
-          <select
-            value={local.clearance}
-            onChange={(e) => setLocal({ ...local, clearance: Number(e.target.value) })}
-          >
-            <option value={0}>TODOS</option>
-            {[1, 2, 3, 4, 5].map((n) => (
-              <option key={n} value={n}>
-                CL-0{n}
-              </option>
-            ))}
-          </select>
-        </label>
+          <Select
+            value={String(local.clearance)}
+            onChange={(v) => setLocal({ ...local, clearance: Number(v) })}
+            placeholder="TODOS"
+            options={[
+              { value: "0", label: "TODOS" },
+              ...[1, 2, 3, 4, 5].map((n) => ({
+                value: String(n),
+                label: `CL-0${n}`,
+              })),
+            ]}
+          />
+        </div>
 
-        <label className="filter-field">
+        <div className="filter-field">
           <span>STATUS</span>
-          <select
+          <Select
             value={local.status}
-            onChange={(e) =>
-              setLocal({ ...local, status: e.target.value as "" | UserStatus })
+            onChange={(v) =>
+              setLocal({ ...local, status: v as "" | UserStatus })
             }
-          >
-            <option value="">TODOS</option>
-            <option value="active">{STATUS_LABEL.active}</option>
-            <option value="suspended">{STATUS_LABEL.suspended}</option>
-            <option value="deactivated">{STATUS_LABEL.deactivated}</option>
-          </select>
-        </label>
+            placeholder="TODOS"
+            options={[
+              { value: "", label: "TODOS" },
+              { value: "active", label: STATUS_LABEL.active },
+              { value: "suspended", label: STATUS_LABEL.suspended },
+              { value: "deactivated", label: STATUS_LABEL.deactivated },
+            ]}
+          />
+        </div>
       </div>
       <div className="filter-actions">
         <button type="button" className="btn btn-ghost" onClick={() => onApply(EMPTY_FILTERS)}>

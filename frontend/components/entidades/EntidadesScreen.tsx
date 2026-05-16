@@ -29,6 +29,7 @@ import {
 } from "@/lib/entities-types";
 import { formatBR } from "@/lib/format";
 import SortHeader, { type SortState } from "../shared/SortHeader";
+import Select from "../shared/Select";
 import CreateEntidadeModal from "./CreateEntidadeModal";
 import EntidadeDrawer from "./EntidadeDrawer";
 
@@ -407,20 +408,21 @@ function FilterPanel({ value, onApply }: FilterPanelProps) {
   return (
     <div className="filter-panel">
       <div className="filter-row">
-        <label className="filter-field">
+        <div className="filter-field">
           <span>TIPO</span>
-          <select
+          <Select
             value={local.kind}
-            onChange={(e) => setLocal({ ...local, kind: e.target.value as EntityKind | "" })}
-          >
-            <option value="">TODOS</option>
-            {ENTITY_KINDS.map((k) => (
-              <option key={k} value={k}>
-                {ENTITY_KIND_LABEL[k]}
-              </option>
-            ))}
-          </select>
-        </label>
+            onChange={(v) => setLocal({ ...local, kind: v as EntityKind | "" })}
+            placeholder="TODOS"
+            options={[
+              { value: "", label: "TODOS" },
+              ...ENTITY_KINDS.map((k) => ({
+                value: k,
+                label: ENTITY_KIND_LABEL[k],
+              })),
+            ]}
+          />
+        </div>
 
         <label className="filter-field">
           <span>TAG</span>

@@ -9,6 +9,8 @@ import { actionGroup, type AuditEntry } from "@/lib/types";
 import { formatBR } from "@/lib/format";
 import AuditDetail from "./AuditDetail";
 import SortHeader, { type SortState } from "../shared/SortHeader";
+import Select from "../shared/Select";
+import DateInput from "../shared/DateInput";
 
 const PAGE_SIZE = 25;
 
@@ -305,51 +307,45 @@ function FilterPanel({ value, onApply }: FilterPanelProps) {
   return (
     <div className="filter-panel">
       <div className="filter-row">
-        <label className="filter-field">
+        <div className="filter-field">
           <span>FAMÍLIA DE AÇÃO</span>
-          <select
+          <Select
             value={local.action}
-            onChange={(e) => setLocal({ ...local, action: e.target.value })}
-          >
-            {ACTION_PREFIXES.map((p) => (
-              <option key={p.value} value={p.value}>
-                {p.label}
-              </option>
-            ))}
-          </select>
-        </label>
+            onChange={(v) => setLocal({ ...local, action: v })}
+            options={ACTION_PREFIXES.map((p) => ({
+              value: p.value,
+              label: p.label,
+            }))}
+          />
+        </div>
 
-        <label className="filter-field">
+        <div className="filter-field">
           <span>TIPO DE RECURSO</span>
-          <select
+          <Select
             value={local.resourceType}
-            onChange={(e) => setLocal({ ...local, resourceType: e.target.value })}
-          >
-            {RESOURCE_TYPES.map((p) => (
-              <option key={p.value} value={p.value}>
-                {p.label}
-              </option>
-            ))}
-          </select>
-        </label>
+            onChange={(v) => setLocal({ ...local, resourceType: v })}
+            options={RESOURCE_TYPES.map((p) => ({
+              value: p.value,
+              label: p.label,
+            }))}
+          />
+        </div>
 
-        <label className="filter-field">
+        <div className="filter-field">
           <span>DE</span>
-          <input
-            type="date"
+          <DateInput
             value={local.from}
-            onChange={(e) => setLocal({ ...local, from: e.target.value })}
+            onChange={(v) => setLocal({ ...local, from: v })}
           />
-        </label>
+        </div>
 
-        <label className="filter-field">
+        <div className="filter-field">
           <span>ATÉ</span>
-          <input
-            type="date"
+          <DateInput
             value={local.to}
-            onChange={(e) => setLocal({ ...local, to: e.target.value })}
+            onChange={(v) => setLocal({ ...local, to: v })}
           />
-        </label>
+        </div>
       </div>
       <div className="filter-actions">
         <button type="button" className="btn btn-ghost" onClick={() => onApply(EMPTY_FILTERS)}>

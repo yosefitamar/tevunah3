@@ -123,6 +123,7 @@ export type VehicleAttrs = {
   year?: number;
   chassis?: string;
   renavam?: string;
+  has_photo?: boolean;
 };
 
 export type EntityAttrs =
@@ -355,6 +356,37 @@ export function relationDef(key: RelationType): RelationDef | undefined {
 
 export type LinkDirection = "out" | "in";
 
+// ────── Catálogo de relações sociais/familiares (UI-friendly) ──────
+//
+// Mapa de rótulos cotidianos → (relation_type canônico + direção). Usado no
+// seletor de vínculos do wizard de pessoa: o usuário pensa "FILHO(A) DESTA MÃE"
+// e o sistema resolve pro link correto (mother_of de OTHER → NEW).
+//
+// `anchorAsFrom = true`  → cria o link com a entidade nova como `from`
+// `anchorAsFrom = false` → cria com a entidade externa (other) como `from`
+
+export type FamilyOption = {
+  id: string;
+  label: string;
+  relation: RelationType;
+  anchorAsFrom: boolean;
+};
+
+export const FAMILY_OPTIONS: FamilyOption[] = [
+  { id: "spouse",         label: "ESPOSO(A) / CÔNJUGE",  relation: "spouse",         anchorAsFrom: true },
+  { id: "is_father",      label: "É PAI DE",             relation: "father_of",      anchorAsFrom: true },
+  { id: "is_mother",      label: "É MÃE DE",             relation: "mother_of",      anchorAsFrom: true },
+  { id: "son_of_father",  label: "FILHO(A) DESTE PAI",   relation: "father_of",      anchorAsFrom: false },
+  { id: "son_of_mother",  label: "FILHO(A) DESTA MÃE",   relation: "mother_of",      anchorAsFrom: false },
+  { id: "sibling",        label: "IRMÃO(Ã)",             relation: "sibling",        anchorAsFrom: true },
+  { id: "half_sibling",   label: "MEIO-IRMÃO(Ã)",        relation: "half_sibling",   anchorAsFrom: true },
+  { id: "relative",       label: "PARENTE (TIO, PRIMO…)", relation: "relative",      anchorAsFrom: true },
+  { id: "friend",         label: "AMIGO(A)",             relation: "friend",         anchorAsFrom: true },
+  { id: "colleague",      label: "COLEGA",               relation: "colleague",      anchorAsFrom: true },
+  { id: "partner",        label: "SÓCIO(A)",             relation: "partner",        anchorAsFrom: true },
+  { id: "associated",     label: "ASSOCIADO",            relation: "associated_with", anchorAsFrom: true },
+];
+
 // Resumo dos attrs de veículo embutido no payload de link. Backend popula
 // quando a ponta correspondente é kind=vehicle. Permite renderizar
 // "MARCA MODELO COR - PLACA" sem fazer fetch extra por linha.
@@ -363,6 +395,7 @@ export type VehicleSummary = {
   brand?: string;
   model?: string;
   color?: string;
+  category?: VehicleCategory;
 };
 
 export type EntityLink = {

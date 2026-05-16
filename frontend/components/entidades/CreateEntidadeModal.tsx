@@ -5,6 +5,8 @@ import { createPortal } from "react-dom";
 import { AlertTriangle, Building2, Car, MapPin, Plus, Trash2, User, X } from "lucide-react";
 import TagInput from "../shared/TagInput";
 import Combobox from "../shared/Combobox";
+import Select from "../shared/Select";
+import DateInput from "../shared/DateInput";
 import {
   VEHICLE_COLORS,
   brandsForCategory,
@@ -29,6 +31,7 @@ import {
 } from "@/lib/entities-api";
 import {
   ENTITY_KIND_LABEL,
+  FAMILY_OPTIONS,
   GENDERS,
   GENDER_LABEL,
   RELATION_LABEL,
@@ -36,11 +39,13 @@ import {
   VEHICLE_CATEGORIES,
   VEHICLE_CATEGORY_LABEL,
   isOrganization,
+  isPerson,
   isVehicle,
   orgPrimaryLabel,
   vehiclePrimaryLabel,
   type Entity,
   type EntityKind,
+  type FamilyOption,
   type Gender,
   type RelationType,
   type VehicleCategory,
@@ -124,6 +129,9 @@ export default function CreateEntidadeModal({ onClose, onCreated, initialKind }:
   const [pendingAddresses, setPendingAddresses] = useState<AddressDraft[]>([]);
   const [pendingVehicleLinks, setPendingVehicleLinks] = useState<
     { vehicle: Entity; relation: RelationType }[]
+  >([]);
+  const [pendingFamilyLinks, setPendingFamilyLinks] = useState<
+    { person: Entity; option: FamilyOption }[]
   >([]);
 
   const [busy, setBusy] = useState(false);
@@ -226,7 +234,8 @@ export default function CreateEntidadeModal({ onClose, onCreated, initialKind }:
       setErr("Nome completo é obrigatório");
       return;
     }
-    const supportsPrimaryPhoto = kind === "person" || kind === "place";
+    const supportsPrimaryPhoto =
+      kind === "person" || kind === "place" || kind === "vehicle";
     if (supportsPrimaryPhoto && photoFile && photoFile.size > 5 * 1024 * 1024) {
       setErr("A foto excede 5 MiB");
       return;
@@ -389,6 +398,35 @@ export default function CreateEntidadeModal({ onClose, onCreated, initialKind }:
           setErr(
             "Pessoa criada, mas falhou o vínculo mãe→filho: " +
               ((e as ApiError).message ?? "erro desconhecido"),
+          );
+        }
+      }
+
+      // Pessoa: persiste vínculos familiares/sociais. Cada item tem uma
+      // FamilyOption que decide quem é `from` no insert e qual relation_type
+      // canônico usar. Conflitos de unique (link já existente, ex.: mãe já
+      // declarada via MotherField) são silenciosamente ignorados.
+      if (kind === "person" && pendingFamilyLinks.length > 0) {
+        const failures: string[] = [];
+        for (const lk of pendingFamilyLinks) {
+          const fromID = lk.option.anchorAsFrom ? res.entity.id : lk.person.id;
+          const toID = lk.option.anchorAsFrom ? lk.person.id : res.entity.id;
+          try {
+            await createEntityLink(fromID, {
+              to_entity_id: toID,
+              relation_type: lk.option.relation,
+            });
+          } catch (e) {
+            const msg = (e as ApiError).message ?? "";
+            if (!/já existe|already/i.test(msg)) {
+              failures.push(`${lk.person.name}: ${msg || "erro"}`);
+            }
+          }
+        }
+        if (failures.length > 0) {
+          setErr(
+            "Pessoa criada, mas falharam vínculos familiares: " +
+              failures.join("; "),
           );
         }
       }
@@ -556,6 +594,10 @@ export default function CreateEntidadeModal({ onClose, onCreated, initialKind }:
                       items={pendingAddresses}
                       onChange={setPendingAddresses}
                     />
+                    <FamilyLinkPicker
+                      items={pendingFamilyLinks}
+                      onChange={setPendingFamilyLinks}
+                    />
                     <VehicleLinkPicker
                       items={pendingVehicleLinks}
                       onChange={setPendingVehicleLinks}
@@ -619,7 +661,7 @@ export default function CreateEntidadeModal({ onClose, onCreated, initialKind }:
 
             {activeTab === "media" && (
               <>
-                {(kind === "person" || kind === "place") && (
+                {(kind === "person" || kind === "place" || kind === "vehicle") && (
                   <PrimaryPhotoPicker
                     file={photoFile}
                     onFileChange={setPhotoFile}
@@ -800,28 +842,21 @@ function PersonFields(props: {
 
 
       <div className="form-grid-2">
-        <label className="form-field">
+        <div className="form-field">
           <span>GÊNERO</span>
-          <select
+          <Select
             value={props.gender}
-            onChange={(e) => props.setGender(e.target.value as Gender | "")}
-          >
-            <option value="">—</option>
-            {GENDERS.map((g) => (
-              <option key={g} value={g}>
-                {GENDER_LABEL[g]}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="form-field">
-          <span>DATA DE NASCIMENTO</span>
-          <input
-            type="date"
-            value={props.dob}
-            onChange={(e) => props.setDob(e.target.value)}
+            onChange={(v) => props.setGender(v as Gender | "")}
+            options={[
+              { value: "", label: "—" },
+              ...GENDERS.map((g) => ({ value: g, label: GENDER_LABEL[g] })),
+            ]}
           />
-        </label>
+        </div>
+        <div className="form-field">
+          <span>DATA DE NASCIMENTO</span>
+          <DateInput value={props.dob} onChange={props.setDob} />
+        </div>
       </div>
 
       <label className="form-field">
@@ -887,16 +922,20 @@ function OrcrimSelect({
   }, [options]);
 
   return (
-    <label className="form-field">
+    <div className="form-field">
       <span>ORCRIM · ORGANIZAÇÕES MARCADAS COM #ORCRIM</span>
-      <select value={value} onChange={(e) => onChange(e.target.value)}>
-        <option value="">{loading ? "CARREGANDO…" : "—"}</option>
-        {sorted.map(({ entity: o, label }) => (
-          <option key={o.id} value={o.id}>
-            {label.toUpperCase()}
-          </option>
-        ))}
-      </select>
+      <Select
+        value={value}
+        onChange={onChange}
+        placeholder={loading ? "CARREGANDO…" : "—"}
+        options={[
+          { value: "", label: loading ? "CARREGANDO…" : "—" },
+          ...sorted.map(({ entity: o, label }) => ({
+            value: o.id,
+            label: label.toUpperCase(),
+          })),
+        ]}
+      />
       {err && (
         <div className="muted" style={{ fontSize: 10 }}>
           ⚠ não foi possível carregar orcrim: {err}
@@ -907,7 +946,7 @@ function OrcrimSelect({
           Nenhuma organização com a tag #orcrim. Cadastre uma organização e marque-a com a tag.
         </div>
       )}
-    </label>
+    </div>
   );
 }
 
@@ -952,14 +991,10 @@ function OrganizationFields(props: {
             onChange={(e) => props.setTaxID(e.target.value)}
           />
         </label>
-        <label className="form-field">
+        <div className="form-field">
           <span>FUNDADA EM</span>
-          <input
-            type="date"
-            value={props.foundedAt}
-            onChange={(e) => props.setFoundedAt(e.target.value)}
-          />
-        </label>
+          <DateInput value={props.foundedAt} onChange={props.setFoundedAt} />
+        </div>
       </div>
     </fieldset>
   );
@@ -1054,19 +1089,17 @@ function VehicleFields(props: {
     <fieldset className="form-fieldset">
       <legend>DADOS · VEÍCULO</legend>
       <div className="form-grid-2">
-        <label className="form-field" style={{ gridColumn: "1 / -1" }}>
+        <div className="form-field" style={{ gridColumn: "1 / -1" }}>
           <span>TIPO</span>
-          <select
+          <Select
             value={props.category}
-            onChange={(e) => props.setCategory(e.target.value as VehicleCategory)}
-          >
-            {VEHICLE_CATEGORIES.map((c) => (
-              <option key={c} value={c}>
-                {VEHICLE_CATEGORY_LABEL[c]}
-              </option>
-            ))}
-          </select>
-        </label>
+            onChange={(v) => props.setCategory(v as VehicleCategory)}
+            options={VEHICLE_CATEGORIES.map((c) => ({
+              value: c,
+              label: VEHICLE_CATEGORY_LABEL[c],
+            }))}
+          />
+        </div>
         <label className="form-field">
           <span>PLACA</span>
           <input
@@ -1126,23 +1159,20 @@ function VehicleFields(props: {
             }
           />
         </label>
-        <label className="form-field">
+        <div className="form-field">
           <span>COR</span>
-          <select
+          <Select
             value={props.color}
-            onChange={(e) => props.setColor(e.target.value)}
-          >
-            <option value="">—</option>
-            {!VEHICLE_COLORS.includes(props.color) && props.color !== "" && (
-              <option value={props.color}>{props.color.toUpperCase()}</option>
-            )}
-            {VEHICLE_COLORS.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
-        </label>
+            onChange={props.setColor}
+            options={[
+              { value: "", label: "—" },
+              ...(!VEHICLE_COLORS.includes(props.color) && props.color !== ""
+                ? [{ value: props.color, label: props.color.toUpperCase() }]
+                : []),
+              ...VEHICLE_COLORS.map((c) => ({ value: c, label: c })),
+            ]}
+          />
+        </div>
         <label className="form-field">
           <span>RENAVAM</span>
           <input
@@ -1407,6 +1437,216 @@ function addressDraftIsEmpty(d: AddressDraft): boolean {
   );
 }
 
+// ────────────── Family link picker (pessoa) ──────────────
+//
+// Vínculos familiares/sociais adicionados durante o cadastro da pessoa.
+// O usuário pensa em rótulos cotidianos ("FILHO(A) DESTA MÃE") via
+// FAMILY_OPTIONS — o picker resolve relation_type canônico e direção
+// no submit.
+
+function FamilyLinkPicker({
+  items,
+  onChange,
+}: {
+  items: { person: Entity; option: FamilyOption }[];
+  onChange: (items: { person: Entity; option: FamilyOption }[]) => void;
+}) {
+  const [searchOpen, setSearchOpen] = useState(false);
+
+  function add(person: Entity, optionId: string) {
+    const option = FAMILY_OPTIONS.find((o) => o.id === optionId);
+    if (!option) return;
+    // Mesma pessoa pode aparecer com diferentes vínculos (ex.: PAI + SÓCIO),
+    // mas evitamos duplicar exatamente o mesmo (pessoa+option).
+    if (items.some((it) => it.person.id === person.id && it.option.id === option.id)) return;
+    onChange([...items, { person, option }]);
+  }
+  function remove(i: number) {
+    onChange(items.filter((_, idx) => idx !== i));
+  }
+  function setOption(i: number, optionId: string) {
+    const option = FAMILY_OPTIONS.find((o) => o.id === optionId);
+    if (!option) return;
+    onChange(items.map((it, idx) => (idx === i ? { ...it, option } : it)));
+  }
+
+  return (
+    <fieldset className="form-fieldset">
+      <legend>VÍNCULOS FAMILIARES / SOCIAIS · OPCIONAL</legend>
+      {items.length === 0 && (
+        <div className="muted" style={{ fontSize: 11 }}>
+          // nenhum vínculo
+        </div>
+      )}
+      {items.map((it, i) => (
+        <div key={`${it.person.id}-${it.option.id}-${i}`} className="vehicle-link-row">
+          <Select
+            value={it.option.id}
+            onChange={(v) => setOption(i, v)}
+            options={FAMILY_OPTIONS.map((o) => ({
+              value: o.id,
+              label: o.label,
+            }))}
+          />
+          <span className="vehicle-link-label">{it.person.name.toUpperCase()}</span>
+          <button
+            type="button"
+            className="address-row-remove"
+            onClick={() => remove(i)}
+            title="Remover vínculo"
+          >
+            <Trash2 size={12} strokeWidth={1.8} />
+          </button>
+        </div>
+      ))}
+      <div className="vehicle-link-actions">
+        <button
+          type="button"
+          className="btn btn-ghost"
+          onClick={() => setSearchOpen(true)}
+        >
+          <Plus size={12} strokeWidth={2} /> ADICIONAR VÍNCULO
+        </button>
+      </div>
+
+      {searchOpen && (
+        <FamilyAddPopover
+          onSelect={(person, optionId) => {
+            add(person, optionId);
+            setSearchOpen(false);
+          }}
+          onClose={() => setSearchOpen(false)}
+          excludeIds={items.map((it) => it.person.id)}
+        />
+      )}
+    </fieldset>
+  );
+}
+
+function FamilyAddPopover({
+  onSelect,
+  onClose,
+  excludeIds,
+}: {
+  onSelect: (person: Entity, optionId: string) => void;
+  onClose: () => void;
+  excludeIds: string[];
+}) {
+  const [optionId, setOptionId] = useState<string>(FAMILY_OPTIONS[0].id);
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<Entity[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  // excludeIds chega como array novo a cada render do pai — usa Set local
+  // estável só pra filtrar no render. O effect depende somente de `query`,
+  // evitando re-disparo a cada keystroke fora do input (causava o tremor).
+  const excludeSet = useMemo(
+    () => new Set(excludeIds),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [excludeIds.join("|")],
+  );
+
+  useEffect(() => {
+    const q = query.trim();
+    let alive = true;
+    setLoading(true);
+    const handle = window.setTimeout(() => {
+      listEntities({ kind: "person", search: q || undefined, limit: 12 })
+        .then((r) => {
+          if (!alive) return;
+          setResults(r.items);
+        })
+        .catch(() => alive && setResults([]))
+        .finally(() => alive && setLoading(false));
+    }, 250);
+    return () => {
+      alive = false;
+      window.clearTimeout(handle);
+    };
+  }, [query]);
+
+  const visible = results.filter((it) => !excludeSet.has(it.id));
+
+  return (
+    <div className="modal-backdrop" onClick={onClose} style={{ zIndex: 1400 }}>
+      <div
+        className="modal"
+        onClick={(e) => e.stopPropagation()}
+        style={{ maxWidth: 480 }}
+      >
+        <div className="modal-hd">
+          <span>ADICIONAR VÍNCULO</span>
+          <button
+            type="button"
+            className="action-btn"
+            onClick={onClose}
+            aria-label="Fechar"
+          >
+            <X size={14} />
+          </button>
+        </div>
+        <div className="modal-bd">
+          <div className="form-field">
+            <span>TIPO DE VÍNCULO</span>
+            <Select
+              value={optionId}
+              onChange={setOptionId}
+              options={FAMILY_OPTIONS.map((o) => ({
+                value: o.id,
+                label: o.label,
+              }))}
+            />
+          </div>
+          <label className="form-field">
+            <span>BUSCAR PESSOA (NOME, CPF, VULGO)</span>
+            <input
+              type="text"
+              autoFocus
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="digite parte do nome…"
+            />
+          </label>
+          <div className="link-search-results">
+            {loading && (
+              <div className="muted" style={{ fontSize: 11, padding: 8 }}>
+                // buscando…
+              </div>
+            )}
+            {!loading && visible.length === 0 && (
+              <div className="muted" style={{ fontSize: 11, padding: 8 }}>
+                // nenhuma pessoa encontrada
+              </div>
+            )}
+            {!loading &&
+              visible.map((p) => {
+                const alias =
+                  isPerson(p) && p.attrs?.aliases && p.attrs.aliases.length > 0
+                    ? p.attrs.aliases[0]
+                    : undefined;
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    className="link-search-item"
+                    onClick={() => onSelect(p, optionId)}
+                  >
+                    <span>{p.name.toUpperCase()}</span>
+                    {alias && (
+                      <span className="muted" style={{ fontSize: 10 }}>
+                        VULGO {alias.toUpperCase()}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ────────────── Vehicle link picker (pessoa) ──────────────
 
 function VehicleLinkPicker({
@@ -1446,16 +1686,14 @@ function VehicleLinkPicker({
               isVehicle(it.vehicle) ? it.vehicle.attrs?.plate : undefined,
             ).toUpperCase()}
           </span>
-          <select
+          <Select
             value={it.relation}
-            onChange={(e) => setRelation(i, e.target.value as RelationType)}
-          >
-            {RELATION_TYPES.map((rt) => (
-              <option key={rt} value={rt}>
-                {RELATION_LABEL[rt]}
-              </option>
-            ))}
-          </select>
+            onChange={(v) => setRelation(i, v as RelationType)}
+            options={RELATION_TYPES.map((rt) => ({
+              value: rt,
+              label: RELATION_LABEL[rt],
+            }))}
+          />
           <button
             type="button"
             className="address-row-remove"

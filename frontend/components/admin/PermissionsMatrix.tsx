@@ -13,6 +13,7 @@ import {
 import { formatBR } from "@/lib/format";
 import type { ApiError } from "@/lib/api";
 import SortHeader, { type SortState } from "../shared/SortHeader";
+import Select from "../shared/Select";
 
 type RowState = "idle" | "saving" | "saved" | "error";
 
@@ -160,19 +161,19 @@ export default function PermissionsMatrix() {
           />
         </div>
 
-        <select
+        <Select
           value={roleFilter}
-          onChange={(e) => setRoleFilter(e.target.value as RoleCode | "")}
-          className="toolbar-select"
-          aria-label="Filtrar por papel"
-        >
-          <option value="">PAPEL · TODOS</option>
-          {ROLES_LIST.map((r) => (
-            <option key={r} value={r}>
-              PAPEL · {ROLE_LABEL[r]}
-            </option>
-          ))}
-        </select>
+          onChange={(v) => setRoleFilter(v as RoleCode | "")}
+          className="sel--toolbar"
+          placeholder="PAPEL · TODOS"
+          options={[
+            { value: "", label: "PAPEL · TODOS" },
+            ...ROLES_LIST.map((r) => ({
+              value: r,
+              label: `PAPEL · ${ROLE_LABEL[r]}`,
+            })),
+          ]}
+        />
 
         <button
           type="button"
@@ -267,40 +268,31 @@ export default function PermissionsMatrix() {
                         />
                       </td>
                       <td title={lockTitle}>
-                        <select
+                        <Select
                           value={p.approver_role ?? ""}
                           disabled={
                             locked ||
                             !p.requires_dual_approval ||
                             state === "saving"
                           }
-                          onChange={(e) =>
+                          onChange={(v) =>
                             apply(p, {
-                              approver_role: (e.target.value || null) as
-                                | RoleCode
-                                | null,
+                              approver_role: (v || null) as RoleCode | null,
                             })
                           }
-                          className="row-select"
-                        >
-                          {!p.requires_dual_approval && (
-                            <option value="">—</option>
-                          )}
-                          {p.requires_dual_approval && (
-                            <>
-                              {!p.approver_role && (
-                                <option value="" disabled>
-                                  SELECIONE…
-                                </option>
-                              )}
-                              {ROLES_LIST.map((r) => (
-                                <option key={r} value={r}>
-                                  {ROLE_LABEL[r]}
-                                </option>
-                              ))}
-                            </>
-                          )}
-                        </select>
+                          className="sel--row"
+                          placeholder={
+                            p.requires_dual_approval ? "SELECIONE…" : "—"
+                          }
+                          options={
+                            p.requires_dual_approval
+                              ? ROLES_LIST.map((r) => ({
+                                  value: r,
+                                  label: ROLE_LABEL[r],
+                                }))
+                              : [{ value: "", label: "—" }]
+                          }
+                        />
                       </td>
                       <td className="muted">{formatBR(p.updated_at)}</td>
                       <td>

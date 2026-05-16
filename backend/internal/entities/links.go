@@ -164,10 +164,11 @@ type Link struct {
 // VehicleSummary é um snapshot mínimo dos attrs de um veículo, usado em
 // payloads de relação pra evitar fetch adicional por linha.
 type VehicleSummary struct {
-	Plate *string
-	Brand *string
-	Model *string
-	Color *string
+	Plate    *string
+	Brand    *string
+	Model    *string
+	Color    *string
+	Category *string
 }
 
 // NewLink é o input do CreateLink.
@@ -310,8 +311,8 @@ func (r *Repo) ListLinksForEntity(ctx context.Context, entityID string) ([]LinkW
 		SELECT l.id, l.from_entity_id, l.to_entity_id, l.relation_type,
 		       l.valid_from, l.valid_to, COALESCE(l.note,''), l.created_at, l.created_by,
 		       ef.kind, ef.name, et.kind, et.name,
-		       vf.plate, vf.brand, vf.model, vf.color,
-		       vt.plate, vt.brand, vt.model, vt.color,
+		       vf.plate, vf.brand, vf.model, vf.color, vf.category,
+		       vt.plate, vt.brand, vt.model, vt.color, vt.category,
 		       (CASE WHEN l.from_entity_id = $1 THEN 'out' ELSE 'in' END) AS direction
 		  FROM app.entity_links l
 		  JOIN app.entities ef ON ef.id = l.from_entity_id AND ef.deleted_at IS NULL
@@ -331,14 +332,14 @@ func (r *Repo) ListLinksForEntity(ctx context.Context, entityID string) ([]LinkW
 		var lw LinkWithDirection
 		var validFrom, validTo sql.NullTime
 		var fromKind, toKind, direction string
-		var fPlate, fBrand, fModel, fColor sql.NullString
-		var tPlate, tBrand, tModel, tColor sql.NullString
+		var fPlate, fBrand, fModel, fColor, fCategory sql.NullString
+		var tPlate, tBrand, tModel, tColor, tCategory sql.NullString
 		if err := rows.Scan(
 			&lw.ID, &lw.FromEntityID, &lw.ToEntityID, (*string)(&lw.RelationType),
 			&validFrom, &validTo, &lw.Note, &lw.CreatedAt, &lw.CreatedBy,
 			&fromKind, &lw.FromName, &toKind, &lw.ToName,
-			&fPlate, &fBrand, &fModel, &fColor,
-			&tPlate, &tBrand, &tModel, &tColor,
+			&fPlate, &fBrand, &fModel, &fColor, &fCategory,
+			&tPlate, &tBrand, &tModel, &tColor, &tCategory,
 			&direction,
 		); err != nil {
 			return nil, err
@@ -355,18 +356,20 @@ func (r *Repo) ListLinksForEntity(ctx context.Context, entityID string) ([]LinkW
 		lw.ToKind = Kind(toKind)
 		if lw.FromKind == KindVehicle {
 			lw.FromVehicle = &VehicleSummary{
-				Plate: nullStr(fPlate),
-				Brand: nullStr(fBrand),
-				Model: nullStr(fModel),
-				Color: nullStr(fColor),
+				Plate:    nullStr(fPlate),
+				Brand:    nullStr(fBrand),
+				Model:    nullStr(fModel),
+				Color:    nullStr(fColor),
+				Category: nullStr(fCategory),
 			}
 		}
 		if lw.ToKind == KindVehicle {
 			lw.ToVehicle = &VehicleSummary{
-				Plate: nullStr(tPlate),
-				Brand: nullStr(tBrand),
-				Model: nullStr(tModel),
-				Color: nullStr(tColor),
+				Plate:    nullStr(tPlate),
+				Brand:    nullStr(tBrand),
+				Model:    nullStr(tModel),
+				Color:    nullStr(tColor),
+				Category: nullStr(tCategory),
 			}
 		}
 		lw.Direction = Direction(direction)
@@ -517,11 +520,12 @@ func (r *Repo) enrichGraphNodes(ctx context.Context, nodes []GraphNode) error {
 		       p.aliases[1] AS person_alias,
 		       o.aliases[1] AS org_alias,
 		       oco.aliases[1] AS orcrim_alias,
-		       (p.photo_path IS NOT NULL OR pl.photo_path IS NOT NULL) AS has_photo
+		       (p.photo_path IS NOT NULL OR pl.photo_path IS NOT NULL OR v.photo_path IS NOT NULL) AS has_photo
 		  FROM app.entities e
 		  LEFT JOIN app.entity_persons p        ON p.entity_id = e.id
 		  LEFT JOIN app.entity_organizations o  ON o.entity_id = e.id
 		  LEFT JOIN app.entity_places pl        ON pl.entity_id = e.id
+		  LEFT JOIN app.entity_vehicles v       ON v.entity_id = e.id
 		  LEFT JOIN app.entity_organizations oco ON oco.entity_id = p.orcrim_id
 		 WHERE e.id IN (` + strings.Join(placeholders, ",") + `)`
 
@@ -605,8 +609,8 @@ func (r *Repo) linksTouching(ctx context.Context, ids []string) ([]linksTouching
 		SELECT l.id, l.from_entity_id, l.to_entity_id, l.relation_type, COALESCE(l.note,''),
 		       ef.kind, ef.name, ef.classification,
 		       et.kind, et.name, et.classification,
-		       vf.plate, vf.brand, vf.model, vf.color,
-		       vt.plate, vt.brand, vt.model, vt.color
+		       vf.plate, vf.brand, vf.model, vf.color, vf.category,
+		       vt.plate, vt.brand, vt.model, vt.color, vt.category
 		  FROM app.entity_links l
 		  JOIN app.entities ef ON ef.id = l.from_entity_id AND ef.deleted_at IS NULL
 		  JOIN app.entities et ON et.id = l.to_entity_id   AND et.deleted_at IS NULL
@@ -628,14 +632,14 @@ func (r *Repo) linksTouching(ctx context.Context, ids []string) ([]linksTouching
 		var e GraphEdge
 		var fromKind, toKind string
 		var f, t GraphNode
-		var fPlate, fBrand, fModel, fColor sql.NullString
-		var tPlate, tBrand, tModel, tColor sql.NullString
+		var fPlate, fBrand, fModel, fColor, fCategory sql.NullString
+		var tPlate, tBrand, tModel, tColor, tCategory sql.NullString
 		if err := rows.Scan(
 			&e.ID, &e.From, &e.To, (*string)(&e.RelationType), &e.Note,
 			&fromKind, &f.Name, &f.Classification,
 			&toKind, &t.Name, &t.Classification,
-			&fPlate, &fBrand, &fModel, &fColor,
-			&tPlate, &tBrand, &tModel, &tColor,
+			&fPlate, &fBrand, &fModel, &fColor, &fCategory,
+			&tPlate, &tBrand, &tModel, &tColor, &tCategory,
 		); err != nil {
 			return nil, err
 		}
@@ -644,10 +648,10 @@ func (r *Repo) linksTouching(ctx context.Context, ids []string) ([]linksTouching
 		f.Kind = Kind(fromKind)
 		t.Kind = Kind(toKind)
 		if f.Kind == KindVehicle {
-			f.Vehicle = &VehicleSummary{Plate: nullStr(fPlate), Brand: nullStr(fBrand), Model: nullStr(fModel), Color: nullStr(fColor)}
+			f.Vehicle = &VehicleSummary{Plate: nullStr(fPlate), Brand: nullStr(fBrand), Model: nullStr(fModel), Color: nullStr(fColor), Category: nullStr(fCategory)}
 		}
 		if t.Kind == KindVehicle {
-			t.Vehicle = &VehicleSummary{Plate: nullStr(tPlate), Brand: nullStr(tBrand), Model: nullStr(tModel), Color: nullStr(tColor)}
+			t.Vehicle = &VehicleSummary{Plate: nullStr(tPlate), Brand: nullStr(tBrand), Model: nullStr(tModel), Color: nullStr(tColor), Category: nullStr(tCategory)}
 		}
 		out = append(out, linksTouchingResult{edge: e, fromNode: f, toNode: t})
 	}
@@ -659,14 +663,14 @@ func (r *Repo) linksTouching(ctx context.Context, ids []string) ([]linksTouching
 func (r *Repo) findGraphNode(ctx context.Context, id string) (*GraphNode, error) {
 	row := r.db.QueryRowContext(ctx, `
 		SELECT e.id, e.kind, e.name, e.classification,
-		       v.plate, v.brand, v.model, v.color
+		       v.plate, v.brand, v.model, v.color, v.category
 		  FROM app.entities e
 		  LEFT JOIN app.entity_vehicles v ON v.entity_id = e.id
 		 WHERE e.id = $1 AND e.deleted_at IS NULL`, id)
 	var n GraphNode
 	var kind string
-	var plate, brand, model, color sql.NullString
-	if err := row.Scan(&n.ID, &kind, &n.Name, &n.Classification, &plate, &brand, &model, &color); err != nil {
+	var plate, brand, model, color, category sql.NullString
+	if err := row.Scan(&n.ID, &kind, &n.Name, &n.Classification, &plate, &brand, &model, &color, &category); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
@@ -674,7 +678,7 @@ func (r *Repo) findGraphNode(ctx context.Context, id string) (*GraphNode, error)
 	}
 	n.Kind = Kind(kind)
 	if n.Kind == KindVehicle {
-		n.Vehicle = &VehicleSummary{Plate: nullStr(plate), Brand: nullStr(brand), Model: nullStr(model), Color: nullStr(color)}
+		n.Vehicle = &VehicleSummary{Plate: nullStr(plate), Brand: nullStr(brand), Model: nullStr(model), Color: nullStr(color), Category: nullStr(category)}
 	}
 	return &n, nil
 }

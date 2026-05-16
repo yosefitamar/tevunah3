@@ -36,10 +36,11 @@ type publicLink struct {
 }
 
 type publicVehicleSummary struct {
-	Plate *string `json:"plate,omitempty"`
-	Brand *string `json:"brand,omitempty"`
-	Model *string `json:"model,omitempty"`
-	Color *string `json:"color,omitempty"`
+	Plate    *string `json:"plate,omitempty"`
+	Brand    *string `json:"brand,omitempty"`
+	Model    *string `json:"model,omitempty"`
+	Color    *string `json:"color,omitempty"`
+	Category *string `json:"category,omitempty"`
 }
 
 func toPublicVehicleSummary(v *entities.VehicleSummary) *publicVehicleSummary {
@@ -47,10 +48,11 @@ func toPublicVehicleSummary(v *entities.VehicleSummary) *publicVehicleSummary {
 		return nil
 	}
 	return &publicVehicleSummary{
-		Plate: v.Plate,
-		Brand: v.Brand,
-		Model: v.Model,
-		Color: v.Color,
+		Plate:    v.Plate,
+		Brand:    v.Brand,
+		Model:    v.Model,
+		Color:    v.Color,
+		Category: v.Category,
 	}
 }
 

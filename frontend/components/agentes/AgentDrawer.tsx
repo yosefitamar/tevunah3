@@ -26,6 +26,7 @@ import {
   type RoleAssignResponse,
 } from "@/lib/approvals-api";
 import type { ApiError } from "@/lib/api";
+import Select from "../shared/Select";
 
 type Props = {
   userId: string;
@@ -444,16 +445,17 @@ function SetClearanceBlock({
         Atual: <b>{clearanceLabel(user.clearance_level)}</b>. A ação é registrada
         no audit log e tem efeito imediato.
       </div>
-      <label className="form-field">
+      <div className="form-field">
         <span>NOVO CLEARANCE</span>
-        <select value={level} onChange={(e) => setLevel(Number(e.target.value))}>
-          {[1, 2, 3, 4, 5].map((n) => (
-            <option key={n} value={n}>
-              {clearanceLabel(n)}
-            </option>
-          ))}
-        </select>
-      </label>
+        <Select
+          value={String(level)}
+          onChange={(v) => setLevel(Number(v))}
+          options={[1, 2, 3, 4, 5].map((n) => ({
+            value: String(n),
+            label: clearanceLabel(n),
+          }))}
+        />
+      </div>
       {err && <div className="banner banner-error">⚠ {err}</div>}
       <div className="confirm-actions">
         <button

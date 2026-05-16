@@ -131,14 +131,15 @@ type PlaceAttrs struct {
 type VehicleAttrs struct {
 	// Category distingue carro de moto ('car' | 'motorcycle'). Vazio no
 	// insert é tratado como 'car' (default da coluna).
-	Category *string
-	Plate    *string
-	Brand    *string
-	Model    *string
-	Color    *string
-	Year     *int
-	Chassis  *string
-	Renavam  *string
+	Category  *string
+	Plate     *string
+	Brand     *string
+	Model     *string
+	Color     *string
+	Year      *int
+	Chassis   *string
+	Renavam   *string
+	PhotoPath *string
 }
 
 // NewEntity é o input do Create.
@@ -362,7 +363,7 @@ func (r *Repo) List(ctx context.Context, opts ListOpts) (*ListResult, error) {
 		         ''
 		       ) AS tags_csv,
 		       COALESCE(to_jsonb(o.aliases), 'null'::jsonb) AS org_aliases_json,
-		       v.plate, v.category, v.brand, v.model, v.color
+		       v.plate, v.category, v.brand, v.model, v.color, v.photo_path
 		  FROM app.entities e
 		  LEFT JOIN app.entity_organizations o ON o.entity_id = e.id
 		  LEFT JOIN app.entity_vehicles v ON v.entity_id = e.id
@@ -392,12 +393,12 @@ func (r *Repo) List(ctx context.Context, opts ListOpts) (*ListResult, error) {
 		var deletedAt sql.NullTime
 		var deletedBy sql.NullString
 		var orgAliasesJSON []byte
-		var vehiclePlate, vehicleCategory, vehicleBrand, vehicleModel, vehicleColor sql.NullString
+		var vehiclePlate, vehicleCategory, vehicleBrand, vehicleModel, vehicleColor, vehiclePhotoPath sql.NullString
 		if err := rows.Scan(
 			&e.ID, &kind, &e.Name, &description, &e.Classification, &e.Version,
 			&e.CreatedAt, &createdBy, &e.UpdatedAt, &updatedBy,
 			&deletedAt, &deletedBy, &tagsCSV, &orgAliasesJSON,
-			&vehiclePlate, &vehicleCategory, &vehicleBrand, &vehicleModel, &vehicleColor,
+			&vehiclePlate, &vehicleCategory, &vehicleBrand, &vehicleModel, &vehicleColor, &vehiclePhotoPath,
 		); err != nil {
 			return nil, err
 		}
@@ -430,11 +431,12 @@ func (r *Repo) List(ctx context.Context, opts ListOpts) (*ListResult, error) {
 		// (placa, categoria, marca, modelo, cor).
 		if e.Kind == KindVehicle {
 			e.Vehicle = &VehicleAttrs{
-				Plate:    nullStr(vehiclePlate),
-				Category: nullStr(vehicleCategory),
-				Brand:    nullStr(vehicleBrand),
-				Model:    nullStr(vehicleModel),
-				Color:    nullStr(vehicleColor),
+				Plate:     nullStr(vehiclePlate),
+				Category:  nullStr(vehicleCategory),
+				Brand:     nullStr(vehicleBrand),
+				Model:     nullStr(vehicleModel),
+				Color:     nullStr(vehicleColor),
+				PhotoPath: nullStr(vehiclePhotoPath),
 			}
 		}
 		items = append(items, e)
@@ -572,6 +574,8 @@ func (r *Repo) SetPhotoPath(ctx context.Context, entityID, filename, updatedBy s
 		childTable = "app.entity_persons"
 	case KindPlace:
 		childTable = "app.entity_places"
+	case KindVehicle:
+		childTable = "app.entity_vehicles"
 	default:
 		return "", fmt.Errorf("foto primária não suportada para kind %q", kind)
 	}
@@ -975,12 +979,12 @@ func (r *Repo) loadChild(ctx context.Context, e *Entity) error {
 		e.Place = &a
 	case KindVehicle:
 		var a VehicleAttrs
-		var category, plate, brand, model, color, chassis, renavam sql.NullString
+		var category, plate, brand, model, color, chassis, renavam, photoPath sql.NullString
 		var year sql.NullInt64
 		err := r.db.QueryRowContext(ctx, `
-			SELECT category, plate, brand, model, color, year, chassis, renavam
+			SELECT category, plate, brand, model, color, year, chassis, renavam, photo_path
 			  FROM app.entity_vehicles WHERE entity_id = $1`, e.ID,
-		).Scan(&category, &plate, &brand, &model, &color, &year, &chassis, &renavam)
+		).Scan(&category, &plate, &brand, &model, &color, &year, &chassis, &renavam, &photoPath)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				e.Vehicle = &VehicleAttrs{}
@@ -999,6 +1003,7 @@ func (r *Repo) loadChild(ctx context.Context, e *Entity) error {
 		}
 		a.Chassis = nullStr(chassis)
 		a.Renavam = nullStr(renavam)
+		a.PhotoPath = nullStr(photoPath)
 		e.Vehicle = &a
 	}
 	return nil

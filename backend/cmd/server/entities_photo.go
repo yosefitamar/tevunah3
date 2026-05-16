@@ -55,8 +55,8 @@ func (a *app) handleEntityPhotoUpload(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusInternalServerError, "erro ao buscar")
 		return
 	}
-	if current.Kind != entities.KindPerson && current.Kind != entities.KindPlace {
-		httpx.Error(w, http.StatusBadRequest, "foto primária só se aplica a pessoa ou lugar")
+	if current.Kind != entities.KindPerson && current.Kind != entities.KindPlace && current.Kind != entities.KindVehicle {
+		httpx.Error(w, http.StatusBadRequest, "foto primária só se aplica a pessoa, lugar ou veículo")
 		return
 	}
 	if current.Classification > me.ClearanceLevel || current.DeletedAt != nil {
@@ -295,6 +295,10 @@ func primaryPhotoPath(e *entities.Entity) string {
 	case entities.KindPlace:
 		if e.Place != nil && e.Place.PhotoPath != nil {
 			return *e.Place.PhotoPath
+		}
+	case entities.KindVehicle:
+		if e.Vehicle != nil && e.Vehicle.PhotoPath != nil {
+			return *e.Vehicle.PhotoPath
 		}
 	}
 	return ""

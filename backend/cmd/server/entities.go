@@ -83,6 +83,7 @@ type vehicleAttrsJSON struct {
 	Year     *int    `json:"year,omitempty"`
 	Chassis  *string `json:"chassis,omitempty"`
 	Renavam  *string `json:"renavam,omitempty"`
+	HasPhoto bool    `json:"has_photo,omitempty"`
 }
 
 func toPublicEntity(e *entities.Entity) publicEntity {
@@ -164,6 +165,7 @@ func toPublicEntity(e *entities.Entity) publicEntity {
 				Year:     e.Vehicle.Year,
 				Chassis:  e.Vehicle.Chassis,
 				Renavam:  e.Vehicle.Renavam,
+				HasPhoto: e.Vehicle.PhotoPath != nil && *e.Vehicle.PhotoPath != "",
 			}
 		}
 	}

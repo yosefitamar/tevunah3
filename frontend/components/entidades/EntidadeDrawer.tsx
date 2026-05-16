@@ -7,6 +7,8 @@ import GraphModal from "./GraphModal";
 import MotherField from "./MotherField";
 import TagInput from "../shared/TagInput";
 import Combobox from "../shared/Combobox";
+import Select from "../shared/Select";
+import DateInput from "../shared/DateInput";
 import {
   VEHICLE_COLORS,
   brandsForCategory,
@@ -233,7 +235,8 @@ function ViewMode({
 }) {
   const hasPrimaryPhoto =
     (isPerson(data) && data.attrs?.has_photo) ||
-    (isPlace(data) && data.attrs?.has_photo);
+    (isPlace(data) && data.attrs?.has_photo) ||
+    (isVehicle(data) && data.attrs?.has_photo);
 
   return (
     <>
@@ -672,11 +675,13 @@ function EditMode({
     }
   }
 
-  const supportsPrimaryPhoto = data.kind === "person" || data.kind === "place";
+  const supportsPrimaryPhoto =
+    data.kind === "person" || data.kind === "place" || data.kind === "vehicle";
 
   const hasPrimaryPhoto =
     (isPerson(data) && data.attrs?.has_photo) ||
-    (isPlace(data) && data.attrs?.has_photo);
+    (isPlace(data) && data.attrs?.has_photo) ||
+    (isVehicle(data) && data.attrs?.has_photo);
 
   async function uploadPrimary(file: File) {
     await uploadEntityPhoto(data.id, file);
@@ -735,28 +740,21 @@ function EditMode({
             setLinkedId={setMotherEntityId}
           />
           <div className="form-grid-2">
-            <label className="form-field">
+            <div className="form-field">
               <span>GÊNERO</span>
-              <select
+              <Select
                 value={gender}
-                onChange={(e) => setGender(e.target.value as Gender | "")}
-              >
-                <option value="">—</option>
-                {GENDERS.map((g) => (
-                  <option key={g} value={g}>
-                    {GENDER_LABEL[g]}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="form-field">
-              <span>NASCIMENTO</span>
-              <input
-                type="date"
-                value={dob}
-                onChange={(e) => setDob(e.target.value)}
+                onChange={(v) => setGender(v as Gender | "")}
+                options={[
+                  { value: "", label: "—" },
+                  ...GENDERS.map((g) => ({ value: g, label: GENDER_LABEL[g] })),
+                ]}
               />
-            </label>
+            </div>
+            <div className="form-field">
+              <span>NASCIMENTO</span>
+              <DateInput value={dob} onChange={setDob} />
+            </div>
             <label className="form-field" style={{ gridColumn: "1 / -1" }}>
               <span>CPF</span>
               <input
@@ -805,14 +803,10 @@ function EditMode({
                 onChange={(e) => setTaxID(e.target.value)}
               />
             </label>
-            <label className="form-field">
+            <div className="form-field">
               <span>FUNDADA EM</span>
-              <input
-                type="date"
-                value={foundedAt}
-                onChange={(e) => setFoundedAt(e.target.value)}
-              />
-            </label>
+              <DateInput value={foundedAt} onChange={setFoundedAt} />
+            </div>
           </div>
         </fieldset>
       )}
@@ -871,24 +865,21 @@ function EditMode({
         <fieldset className="form-fieldset">
           <legend>DADOS · VEÍCULO</legend>
           <div className="form-grid-2">
-            <label className="form-field" style={{ gridColumn: "1 / -1" }}>
+            <div className="form-field" style={{ gridColumn: "1 / -1" }}>
               <span>TIPO</span>
-              <select
+              <Select
                 value={vCategory}
-                onChange={(e) => {
-                  setVCategory(e.target.value as VehicleCategory);
-                  // Catálogos de marca/modelo diferem por categoria.
+                onChange={(v) => {
+                  setVCategory(v as VehicleCategory);
                   setVBrand("");
                   setVModel("");
                 }}
-              >
-                {VEHICLE_CATEGORIES.map((c) => (
-                  <option key={c} value={c}>
-                    {VEHICLE_CATEGORY_LABEL[c]}
-                  </option>
-                ))}
-              </select>
-            </label>
+                options={VEHICLE_CATEGORIES.map((c) => ({
+                  value: c,
+                  label: VEHICLE_CATEGORY_LABEL[c],
+                }))}
+              />
+            </div>
             <label className="form-field">
               <span>PLACA</span>
               <input
@@ -941,20 +932,20 @@ function EditMode({
                 placeholder={vBrand ? "selecione ou digite" : "selecione a marca primeiro"}
               />
             </label>
-            <label className="form-field">
+            <div className="form-field">
               <span>COR</span>
-              <select value={vColor} onChange={(e) => setVColor(e.target.value)}>
-                <option value="">—</option>
-                {!VEHICLE_COLORS.includes(vColor) && vColor !== "" && (
-                  <option value={vColor}>{vColor.toUpperCase()}</option>
-                )}
-                {VEHICLE_COLORS.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </select>
-            </label>
+              <Select
+                value={vColor}
+                onChange={setVColor}
+                options={[
+                  { value: "", label: "—" },
+                  ...(!VEHICLE_COLORS.includes(vColor) && vColor !== ""
+                    ? [{ value: vColor, label: vColor.toUpperCase() }]
+                    : []),
+                  ...VEHICLE_COLORS.map((c) => ({ value: c, label: c })),
+                ]}
+              />
+            </div>
             <label className="form-field">
               <span>RENAVAM</span>
               <input
@@ -1062,17 +1053,21 @@ function DrawerOrcrimSelect({
     .sort((a, b) => a.label.localeCompare(b.label));
 
   return (
-    <label className="form-field">
+    <div className="form-field">
       <span>ORCRIM</span>
-      <select value={value} onChange={(e) => onChange(e.target.value)}>
-        <option value="">{loading ? "CARREGANDO…" : "—"}</option>
-        {sorted.map(({ entity: o, label }) => (
-          <option key={o.id} value={o.id}>
-            {label.toUpperCase()}
-          </option>
-        ))}
-      </select>
-    </label>
+      <Select
+        value={value}
+        onChange={onChange}
+        placeholder={loading ? "CARREGANDO…" : "—"}
+        options={[
+          { value: "", label: loading ? "CARREGANDO…" : "—" },
+          ...sorted.map(({ entity: o, label }) => ({
+            value: o.id,
+            label: label.toUpperCase(),
+          })),
+        ]}
+      />
+    </div>
   );
 }
 
@@ -1425,24 +1420,31 @@ function AddLinkModal({
             </div>
           )}
 
-          <label className="form-field">
+          <div className="form-field">
             <span>TIPO DE RELAÇÃO</span>
-            <select
+            <Select
               value={relation}
-              onChange={(e) => setRelation(e.target.value as RelationType)}
+              onChange={(v) => setRelation(v as RelationType)}
               disabled={!picked || relationOptions.length === 0}
-            >
-              {!picked && <option value="">SELECIONE A ENTIDADE ALVO</option>}
-              {picked && relationOptions.length === 0 && (
-                <option value="">NENHUMA RELAÇÃO COMPATÍVEL</option>
-              )}
-              {relationOptions.map((opt) => (
-                <option key={opt.key} value={opt.key}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </label>
+              placeholder={
+                !picked
+                  ? "SELECIONE A ENTIDADE ALVO"
+                  : relationOptions.length === 0
+                  ? "NENHUMA RELAÇÃO COMPATÍVEL"
+                  : "—"
+              }
+              options={
+                !picked
+                  ? [{ value: "", label: "SELECIONE A ENTIDADE ALVO" }]
+                  : relationOptions.length === 0
+                  ? [{ value: "", label: "NENHUMA RELAÇÃO COMPATÍVEL" }]
+                  : relationOptions.map((opt) => ({
+                      value: opt.key,
+                      label: opt.label,
+                    }))
+              }
+            />
+          </div>
 
           <label className="form-field">
             <span>NOTA (OPCIONAL)</span>

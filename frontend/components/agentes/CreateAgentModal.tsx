@@ -6,6 +6,7 @@ import { QRCodeSVG } from "qrcode.react";
 import { createUser, type CreatedUser } from "@/lib/users-api";
 import type { ApiError } from "@/lib/api";
 import type { RoleCode } from "@/lib/types";
+import Select from "../shared/Select";
 
 const TOTP_ISSUER = "Tevunah";
 
@@ -140,19 +141,17 @@ export default function CreateAgentModal({ onClose, onCreated }: Props) {
               </div>
             </fieldset>
 
-            <label className="form-field">
+            <div className="form-field">
               <span>NÍVEL DE CLEARANCE</span>
-              <select
-                value={clearance}
-                onChange={(e) => setClearance(Number(e.target.value))}
-              >
-                {[1, 2, 3, 4, 5].map((n) => (
-                  <option key={n} value={n}>
-                    CL-0{n}
-                  </option>
-                ))}
-              </select>
-            </label>
+              <Select
+                value={String(clearance)}
+                onChange={(v) => setClearance(Number(v))}
+                options={[1, 2, 3, 4, 5].map((n) => ({
+                  value: String(n),
+                  label: `CL-0${n}`,
+                }))}
+              />
+            </div>
 
             {err && <div className="banner banner-error">⚠ {err}</div>}
 

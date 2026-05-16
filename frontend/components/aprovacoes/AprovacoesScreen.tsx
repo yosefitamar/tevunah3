@@ -20,6 +20,7 @@ import { ROLE_LABEL, clearanceLabel, type RoleCode, type User } from "@/lib/type
 import { formatBR } from "@/lib/format";
 import type { ApiError } from "@/lib/api";
 import SortHeader, { type SortState } from "../shared/SortHeader";
+import Select from "../shared/Select";
 
 type TabId = "pending_for_me" | "mine" | "all";
 
@@ -136,17 +137,19 @@ export default function AprovacoesScreen() {
 
         <label className="filter-field" style={{ minWidth: 180 }}>
           <span>STATUS</span>
-          <select
+          <Select
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as "" | ApprovalStatus)}
-          >
-            <option value="">TODOS</option>
-            <option value="pending">{STATUS_LABEL.pending}</option>
-            <option value="approved">{STATUS_LABEL.approved}</option>
-            <option value="rejected">{STATUS_LABEL.rejected}</option>
-            <option value="expired">{STATUS_LABEL.expired}</option>
-            <option value="cancelled">{STATUS_LABEL.cancelled}</option>
-          </select>
+            onChange={(v) => setStatusFilter(v as "" | ApprovalStatus)}
+            placeholder="TODOS"
+            options={[
+              { value: "", label: "TODOS" },
+              { value: "pending", label: STATUS_LABEL.pending },
+              { value: "approved", label: STATUS_LABEL.approved },
+              { value: "rejected", label: STATUS_LABEL.rejected },
+              { value: "expired", label: STATUS_LABEL.expired },
+              { value: "cancelled", label: STATUS_LABEL.cancelled },
+            ]}
+          />
         </label>
       </div>
 

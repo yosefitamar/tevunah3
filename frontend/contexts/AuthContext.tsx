@@ -99,6 +99,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => window.clearTimeout(id);
   }, [sessionExpiresAt]);
 
+  // Heartbeat defensivo: o setTimeout acima pode ser pausado por throttling
+  // do browser (aba inativa, sleep do laptop) e ressuscitar atrasado. Esse
+  // tick reavalia o relógio a cada 2s e, ao detectar expiração já estourada,
+  // dispara o overlay imediatamente. Sem rede, custo desprezível.
+  useEffect(() => {
+    if (!sessionExpiresAt || !user || sessionExpired) return;
+    const tick = () => {
+      if (sessionExpiresAt.getTime() <= Date.now()) setSessionExpired(true);
+    };
+    const id = window.setInterval(tick, 2000);
+    return () => window.clearInterval(id);
+  }, [sessionExpiresAt, user, sessionExpired]);
+
+  // Sleep do laptop / aba em background congelam timers; quando o usuário
+  // volta ao foco, reavaliamos o relógio na hora pra não esperar o próximo
+  // tick do heartbeat.
+  useEffect(() => {
+    if (!user) return;
+    const onVis = () => {
+      if (document.visibilityState !== "visible") return;
+      if (sessionExpiresAt && sessionExpiresAt.getTime() <= Date.now()) {
+        setSessionExpired(true);
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("focus", onVis);
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("focus", onVis);
+    };
+  }, [user, sessionExpiresAt]);
+
   const login = useCallback(async (input: LoginInput) => {
     setError(null);
     const data = await api<{ user: User; token: string; expires_in: number }>("/api/auth/login", {

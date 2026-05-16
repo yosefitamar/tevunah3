@@ -838,6 +838,24 @@ body::after {
   padding: 24px;
   animation: modal-fade-in 160ms ease-out;
 }
+
+/* Lock de privacidade quando a sessão expira: borramos e desabilitamos toda
+   interação no conteúdo de fundo enquanto a re-auth está pendente. Cobre o
+   Shell e qualquer portal aberto (GraphModal, EntidadeDrawer, modais futuros)
+   sem desmontar — preserva estado de formulários e scroll. O próprio overlay
+   (.session-overlay-root) é o único filho do body excluído da regra, então
+   permanece nítido e clicável. */
+body.session-locked > *:not(.session-overlay-root) {
+  filter: blur(10px) saturate(0.55) brightness(0.7);
+  pointer-events: none !important;
+  user-select: none;
+  transition: filter 180ms ease;
+}
+.session-overlay-root {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+}
 .session-overlay-card {
   animation: modal-pop-in 180ms ease-out;
 }
@@ -3383,6 +3401,18 @@ body::after {
   align-items: center;
   gap: 6px;
 }
+.graph-modal__ctrls-sep {
+  display: inline-block;
+  width: 1px;
+  height: 18px;
+  background: var(--line);
+  margin: 0 6px;
+}
+.graph-modal__ctrls .quick-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
 .graph-modal__label {
   font-size: 9.5px;
   letter-spacing: 0.18em;
@@ -3577,6 +3607,176 @@ body::after {
   width: 6px;
   height: 6px;
   border: none;
+}
+
+/* Pills no rodapé do cartão da pessoa — propriedades não-promovidas
+   aparecem como badges compactos pra dar contexto sem inflar o grafo. */
+.graph-node__pills {
+  margin-top: auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  padding-top: 6px;
+}
+.graph-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 5px;
+  border-radius: 2px;
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+  color: var(--fg-2);
+  font-size: 8.5px;
+  letter-spacing: 0.1em;
+  font-weight: 600;
+  line-height: 1.1;
+  max-width: 100%;
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color 100ms ease, color 100ms ease, background 100ms ease;
+}
+.graph-pill:hover {
+  border-color: var(--accent-dim);
+  color: var(--fg-0);
+  background: var(--bg-2);
+}
+.graph-pill__txt {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 70px;
+}
+.graph-pill--vehicle {
+  border-color: var(--line-2);
+}
+.graph-pill--place {
+  border-color: var(--line-2);
+}
+.graph-pill--more {
+  color: var(--fg-3);
+  background: transparent;
+  border-style: dashed;
+}
+
+/* ─── Nó compacto: asset compartilhado (veículo/endereço com 2+ donos) ─── */
+
+.graph-asset {
+  position: relative;
+  width: 110px;
+  height: 96px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 6px 8px;
+  border: 1px dashed var(--line-2);
+  background: var(--bg-2);
+  color: var(--fg-1);
+  border-radius: 2px;
+  cursor: pointer;
+  transition: border-color 120ms ease, transform 120ms ease;
+}
+.graph-asset:hover {
+  border-color: var(--accent-dim);
+  border-style: solid;
+  transform: translateY(-1px);
+}
+.graph-asset--center {
+  border-color: var(--accent);
+  border-style: solid;
+  box-shadow: 0 0 0 1px var(--accent), 0 0 18px var(--accent-glow);
+}
+/* Asset com 2+ donos visíveis no grafo — borda accent contínua + badge. */
+.graph-asset--shared {
+  border-style: solid;
+  border-color: var(--accent-dim);
+}
+.graph-asset__badge {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+  background: var(--accent);
+  color: var(--bg-0);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  line-height: 1;
+  box-shadow: 0 0 0 1.5px var(--bg-0);
+}
+.graph-asset__icon {
+  color: var(--fg-3);
+}
+.graph-asset__meta {
+  width: 100%;
+  text-align: center;
+  min-width: 0;
+}
+.graph-asset__label {
+  font-size: 10px;
+  color: var(--fg-0);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1.15;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.graph-asset__sublabel {
+  font-size: 8.5px;
+  color: var(--fg-3);
+  letter-spacing: 0.12em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 1px;
+}
+
+/* Lista de propriedades demovidas exibida no painel lateral da pessoa. */
+.graph-side__assets {
+  margin-top: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.graph-side__assets-hd {
+  font-size: 9.5px;
+  letter-spacing: 0.2em;
+  color: var(--fg-3);
+  text-transform: uppercase;
+}
+.graph-side__assets-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.graph-side__asset {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  background: var(--bg-2);
+  color: var(--fg-1);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+}
+.graph-side__asset svg {
+  color: var(--fg-3);
+  flex-shrink: 0;
 }
 
 /* Painel lateral — campos extras */

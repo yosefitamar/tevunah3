@@ -22,6 +22,7 @@ import {
   type Edge,
   type Node,
   type NodeProps,
+  type ReactFlowInstance,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { Bike, Building2, Car, MapPin, Network, RotateCw, UserCircle2, X } from "lucide-react";
@@ -56,6 +57,15 @@ type Props = {
 // Cartão 3:4 (140×186) — foto domina o topo, com 3 linhas de metadado abaixo.
 const NODE_W = 150;
 const NODE_H = 200;
+// Nó compacto p/ propriedades (veículo/endereço) promovidas. Ícone grande no
+// topo e 1–2 linhas de identificação abaixo.
+const ASSET_W = 110;
+const ASSET_H = 96;
+
+// Tipos de propriedade que respondem aos toggles do header. Person/org são
+// sempre renderizados como cartão grande.
+type AssetKind = "vehicle" | "place";
+type AssetToggles = Record<AssetKind, boolean>;
 
 export default function GraphModal({ entityId, entityName, onClose }: Props) {
   const [centerId, setCenterId] = useState(entityId);
@@ -65,6 +75,16 @@ export default function GraphModal({ entityId, entityName, onClose }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Toggles de promoção de propriedades a nó. OFF (default) = propriedade
+  // sempre vira pill no cartão da pessoa-dona; ON = compartilhadas (2+ donos
+  // visíveis) viram nó compacto, as exclusivas continuam pill.
+  const [assetToggles, setAssetToggles] = useState<AssetToggles>({
+    vehicle: false,
+    place: false,
+  });
+  // Instância capturada via onInit pra disparar fitView() em runtime quando
+  // os toggles mudam (a prop fitView só atua no mount).
+  const [rfInstance, setRfInstance] = useState<ReactFlowInstance | null>(null);
   // dossierId aberto = drawer sobreposto. Não fecha o modal — quando o
   // usuário fecha o dossiê, volta direto pro grafo no mesmo estado.
   const [dossierId, setDossierId] = useState<string | null>(null);
@@ -108,15 +128,37 @@ export default function GraphModal({ entityId, entityName, onClose }: Props) {
     return () => window.removeEventListener("keydown", onKey);
   }, [selectedId, dossierId, onClose]);
 
-  const { rfNodes, rfEdges } = useMemo(
-    () => buildFlow(graph, centerId),
-    [graph, centerId],
+  const { rfNodes, rfEdges, pillsByOwner } = useMemo(
+    () => buildFlow(graph, centerId, assetToggles, setSelectedId),
+    [graph, centerId, assetToggles],
   );
 
   const onNodeClick = useCallback(
     (_: unknown, node: Node) => setSelectedId(node.id),
     [],
   );
+
+  // Se o nó selecionado sumiu do grafo (recentragem ou mudança de profundidade
+  // o removeu por completo), limpa a seleção. Importante: assets demovidos a
+  // pill *continuam* em graph.nodes — só não estão em rfNodes — e o usuário
+  // pode ter selecionado um deles clicando na pill; nesse caso preservamos.
+  useEffect(() => {
+    if (!selectedId) return;
+    if (graph && !graph.nodes.some((n) => n.id === selectedId)) {
+      setSelectedId(null);
+    }
+  }, [graph, selectedId]);
+
+  // Recentra o viewport ao alternar VEÍCULOS/ENDEREÇOS — o conjunto de nós
+  // muda de tamanho/quantidade e o fit anterior fica desalinhado. RAF dá
+  // tempo do ReactFlow aplicar os novos rfNodes antes do cálculo do bounds.
+  useEffect(() => {
+    if (!rfInstance) return;
+    const raf = requestAnimationFrame(() => {
+      rfInstance.fitView({ padding: 0.2, maxZoom: 1.1, duration: 280 });
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [assetToggles, rfInstance]);
 
   const selectedNode = useMemo(() => {
     if (!graph || !selectedId) return null;
@@ -146,6 +188,30 @@ export default function GraphModal({ entityId, entityName, onClose }: Props) {
           )}
         </div>
         <div className="graph-modal__ctrls">
+          <span className="graph-modal__label">CAMADAS</span>
+          <button
+            type="button"
+            className={`quick-chip${assetToggles.vehicle ? " quick-chip--on" : ""}`}
+            onClick={() =>
+              setAssetToggles((t) => ({ ...t, vehicle: !t.vehicle }))
+            }
+            aria-pressed={assetToggles.vehicle}
+            title="Mostra veículos como nó no grafo (default: pill no cartão da pessoa)"
+          >
+            <Car size={11} strokeWidth={1.8} />
+            <span>VEÍCULOS</span>
+          </button>
+          <button
+            type="button"
+            className={`quick-chip${assetToggles.place ? " quick-chip--on" : ""}`}
+            onClick={() => setAssetToggles((t) => ({ ...t, place: !t.place }))}
+            aria-pressed={assetToggles.place}
+            title="Mostra endereços como nó no grafo (default: pill no cartão da pessoa)"
+          >
+            <MapPin size={11} strokeWidth={1.8} />
+            <span>ENDEREÇOS</span>
+          </button>
+          <span className="graph-modal__ctrls-sep" aria-hidden="true" />
           <span className="graph-modal__label">PROFUNDIDADE</span>
           {([1, 2, 3] as GraphDepth[]).map((d) => (
             <button
@@ -184,6 +250,7 @@ export default function GraphModal({ entityId, entityName, onClose }: Props) {
               nodes={rfNodes}
               edges={rfEdges}
               nodeTypes={nodeTypes}
+              onInit={setRfInstance}
               onNodeClick={onNodeClick}
               onPaneClick={() => setSelectedId(null)}
               fitView
@@ -226,6 +293,7 @@ export default function GraphModal({ entityId, entityName, onClose }: Props) {
             <SidePanel
               node={selectedNode}
               isCenter={selectedNode.id === centerId}
+              pills={pillsByOwner.get(selectedNode.id) ?? []}
               onRecenter={() => {
                 setCenterId(selectedNode.id);
                 setSelectedId(null);
@@ -264,11 +332,13 @@ export default function GraphModal({ entityId, entityName, onClose }: Props) {
 function SidePanel({
   node,
   isCenter,
+  pills,
   onRecenter,
   onOpenDossier,
 }: {
   node: GraphNode;
   isCenter: boolean;
+  pills: AssetPill[];
   onRecenter: () => void;
   onOpenDossier: () => void;
 }) {
@@ -293,6 +363,25 @@ function SidePanel({
         {isCenter && <span className="graph-side__hint">· CENTRO ATUAL</span>}
       </div>
 
+      {pills.length > 0 && (
+        <div className="graph-side__assets">
+          <div className="graph-side__assets-hd">
+            PROPRIEDADES ({pills.length})
+          </div>
+          <ul className="graph-side__assets-list">
+            {pills.map((p) => (
+              <li
+                key={p.id}
+                className={`graph-side__asset graph-side__asset--${p.kind}`}
+              >
+                <PillIcon kind={p.kind} vehicleCategory={p.vehicleCategory} />
+                <span>{p.label.toUpperCase()}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <div className="graph-side__actions">
         <button
           type="button"
@@ -313,6 +402,13 @@ function SidePanel({
 
 // ───────────────────────── Node component ─────────────────────────
 
+type AssetPill = {
+  id: string;
+  kind: AssetKind;
+  label: string;        // texto curto (placa OU primeira linha)
+  vehicleCategory?: "car" | "motorcycle";
+};
+
 type EntityNodeData = {
   kind: EntityKind;
   name: string;
@@ -321,6 +417,17 @@ type EntityNodeData = {
   photoUrl?: string;
   vehicleCategory?: "car" | "motorcycle";
   isCenter: boolean;
+  pills: AssetPill[];   // assets demovidos exibidos no rodapé do cartão
+  onPillClick?: (assetID: string) => void;
+};
+
+type CompactNodeData = {
+  kind: AssetKind;
+  label: string;
+  sublabel?: string;
+  vehicleCategory?: "car" | "motorcycle";
+  isCenter: boolean;
+  ownerCount: number;   // ≥2 quando compartilhado entre múltiplos donos
 };
 
 function PlaceholderIcon({ kind, vehicleCategory }: {
@@ -339,8 +446,26 @@ function PlaceholderIcon({ kind, vehicleCategory }: {
   return <UserCircle2 size={28} strokeWidth={1.2} />;
 }
 
+function PillIcon({ kind, vehicleCategory }: {
+  kind: AssetKind;
+  vehicleCategory?: "car" | "motorcycle";
+}) {
+  if (kind === "vehicle") {
+    return vehicleCategory === "motorcycle" ? (
+      <Bike size={10} strokeWidth={2} />
+    ) : (
+      <Car size={10} strokeWidth={2} />
+    );
+  }
+  return <MapPin size={10} strokeWidth={2} />;
+}
+
+const MAX_VISIBLE_PILLS = 3;
+
 function EntityNode({ data }: NodeProps) {
   const d = data as unknown as EntityNodeData;
+  const visiblePills = d.pills.slice(0, MAX_VISIBLE_PILLS);
+  const extraPills = d.pills.length - visiblePills.length;
   return (
     <div
       className={`graph-node graph-node--${d.kind}${d.isCenter ? " graph-node--center" : ""}`}
@@ -376,29 +501,246 @@ function EntityNode({ data }: NodeProps) {
             ORCRIM {d.orcrim.toUpperCase()}
           </div>
         )}
+        {d.pills.length > 0 && (
+          <div className="graph-node__pills">
+            {visiblePills.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                className={`graph-pill graph-pill--${p.kind}`}
+                title={p.label}
+                // stopPropagation: o clique não pode "vazar" pro ReactFlow,
+                // senão selecionaria o cartão da pessoa em vez do asset.
+                onClick={(e) => {
+                  e.stopPropagation();
+                  d.onPillClick?.(p.id);
+                }}
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                <PillIcon kind={p.kind} vehicleCategory={p.vehicleCategory} />
+                <span className="graph-pill__txt">{p.label.toUpperCase()}</span>
+              </button>
+            ))}
+            {extraPills > 0 && (
+              <span className="graph-pill graph-pill--more" title={`Mais ${extraPills}`}>
+                +{extraPills}
+              </span>
+            )}
+          </div>
+        )}
       </div>
       <Handle type="source" position={Position.Bottom} id="bs" className="graph-node__handle" />
     </div>
   );
 }
 
-const nodeTypes = { entity: EntityNode };
+function CompactAssetNode({ data }: NodeProps) {
+  const d = data as unknown as CompactNodeData;
+  const shared = d.ownerCount >= 2;
+  return (
+    <div
+      className={`graph-asset graph-asset--${d.kind}${d.isCenter ? " graph-asset--center" : ""}${shared ? " graph-asset--shared" : ""}`}
+    >
+      {shared && (
+        <span className="graph-asset__badge" title={`${d.ownerCount} donos vinculados`}>
+          {d.ownerCount}×
+        </span>
+      )}
+      <Handle type="target" position={Position.Top} id="tt" className="graph-node__handle" />
+      <div className="graph-asset__icon">
+        {d.kind === "vehicle" ? (
+          d.vehicleCategory === "motorcycle" ? (
+            <Bike size={22} strokeWidth={1.4} />
+          ) : (
+            <Car size={22} strokeWidth={1.4} />
+          )
+        ) : (
+          <MapPin size={22} strokeWidth={1.4} />
+        )}
+      </div>
+      <div className="graph-asset__meta">
+        <div className="graph-asset__label" title={d.label}>
+          {d.label.toUpperCase()}
+        </div>
+        {d.sublabel && (
+          <div className="graph-asset__sublabel" title={d.sublabel}>
+            {d.sublabel.toUpperCase()}
+          </div>
+        )}
+      </div>
+      <Handle type="source" position={Position.Bottom} id="bs" className="graph-node__handle" />
+    </div>
+  );
+}
+
+const nodeTypes = { entity: EntityNode, asset: CompactAssetNode };
 
 // ───────────────────────── Layout (dagre) ─────────────────────────
+
+// Rótulo curto pra pill/nó compacto:
+//   - veículo: placa, ou marca+modelo se não houver placa
+//   - endereço: nome livre (primeira parte antes de vírgula)
+function shortAssetLabel(n: GraphNode): string {
+  if (n.kind === "vehicle") {
+    const plate = n.vehicle?.plate?.trim();
+    if (plate) return plate;
+    const brand = n.vehicle?.brand?.trim();
+    const model = n.vehicle?.model?.trim();
+    const head = [brand, model].filter(Boolean).join(" ");
+    return head || n.name;
+  }
+  return n.name.split(",")[0]?.trim() || n.name;
+}
+
+function compactSublabel(n: GraphNode): string | undefined {
+  if (n.kind === "vehicle") {
+    const plate = n.vehicle?.plate?.trim();
+    if (!plate) return undefined;
+    const brand = n.vehicle?.brand?.trim();
+    const model = n.vehicle?.model?.trim();
+    const head = [brand, model].filter(Boolean).join(" ");
+    return head || undefined;
+  }
+  return undefined;
+}
 
 function buildFlow(
   graph: EntityGraph | null,
   centerId: string,
-): { rfNodes: Node[]; rfEdges: Edge[] } {
-  if (!graph) return { rfNodes: [], rfEdges: [] };
+  assetToggles: AssetToggles,
+  onPillClick: (assetID: string) => void,
+): { rfNodes: Node[]; rfEdges: Edge[]; pillsByOwner: Map<string, AssetPill[]> } {
+  if (!graph) return { rfNodes: [], rfEdges: [], pillsByOwner: new Map() };
 
   // Mapa id→kind pra estilizar as edges com base no par de pontas.
   const kindByID = new Map<string, EntityKind>();
-  for (const n of graph.nodes) kindByID.set(n.id, n.kind);
+  const nodeByID = new Map<string, GraphNode>();
+  for (const n of graph.nodes) {
+    kindByID.set(n.id, n.kind);
+    nodeByID.set(n.id, n);
+  }
 
-  const positions = layoutWithDagre(graph.nodes, graph.edges, kindByID, centerId);
+  // ─── Decisão de promoção/demoção dos assets ────────────────────────
+  //
+  // Para cada vehicle/place (≠ centro):
+  //   - levanta donos = vizinhos cujo kind ∈ {person, organization}
+  //   - se toggle do tipo está ON E há ≥2 donos → vira NÓ COMPACTO
+  //   - senão, se há ≥1 dono → vira PILL no cartão do primeiro dono
+  //     (preferindo o centro, depois pessoas, depois orgs)
+  //   - senão (nenhum dono visível) → some
+  //
+  // Edges que terminam em assets demovidos são descartadas; nas que viram
+  // nó compacto, mantemos a aresta normalmente.
+  const ownersByAsset = new Map<string, string[]>();
+  for (const e of graph.edges) {
+    const fk = kindByID.get(e.from);
+    const tk = kindByID.get(e.to);
+    const fromIsAsset = fk === "vehicle" || fk === "place";
+    const toIsAsset = tk === "vehicle" || tk === "place";
+    if (fromIsAsset && (tk === "person" || tk === "organization")) {
+      ownersByAsset.set(e.from, [...(ownersByAsset.get(e.from) ?? []), e.to]);
+    } else if (toIsAsset && (fk === "person" || fk === "organization")) {
+      ownersByAsset.set(e.to, [...(ownersByAsset.get(e.to) ?? []), e.from]);
+    }
+  }
 
-  const rfNodes: Node[] = graph.nodes.map((n) => {
+  const demotedAssetIDs = new Set<string>();   // viram pill
+  const droppedAssetIDs = new Set<string>();   // somem
+  const pillOwnerOf = new Map<string, string>(); // assetID → personID que recebe a pill
+  const ownerCountOf = new Map<string, number>(); // assetID → nº de donos visíveis
+
+  for (const n of graph.nodes) {
+    if (n.kind !== "vehicle" && n.kind !== "place") continue;
+    if (n.id === centerId) continue;
+    const owners = ownersByAsset.get(n.id) ?? [];
+    const uniqueOwners = Array.from(new Set(owners));
+    ownerCountOf.set(n.id, uniqueOwners.length);
+    const toggleOn = assetToggles[n.kind];
+    // Toggle ON → asset SEMPRE vira nó (compartilhamento só vira badge).
+    if (toggleOn) continue;
+    // Toggle OFF e sem dono → some (nenhum cartão pra hospedar a pill).
+    if (uniqueOwners.length === 0) {
+      droppedAssetIDs.add(n.id);
+      continue;
+    }
+    // Toggle OFF: vira pill. Escolhe um dono pra hospedar.
+    // Preferência: centro > primeira pessoa > primeira org.
+    let owner: string | undefined;
+    if (uniqueOwners.includes(centerId)) owner = centerId;
+    if (!owner) owner = uniqueOwners.find((id) => kindByID.get(id) === "person");
+    if (!owner) owner = uniqueOwners[0];
+    if (owner) {
+      demotedAssetIDs.add(n.id);
+      pillOwnerOf.set(n.id, owner);
+    } else {
+      droppedAssetIDs.add(n.id);
+    }
+  }
+
+  // Coleta pills por dono pra renderizar no cartão e no painel lateral.
+  const pillsByOwner = new Map<string, AssetPill[]>();
+  for (const [assetID, ownerID] of pillOwnerOf) {
+    const a = nodeByID.get(assetID);
+    if (!a) continue;
+    const pill: AssetPill = {
+      id: assetID,
+      kind: a.kind as AssetKind,
+      label: shortAssetLabel(a),
+      vehicleCategory: a.vehicle?.category,
+    };
+    pillsByOwner.set(ownerID, [...(pillsByOwner.get(ownerID) ?? []), pill]);
+  }
+
+  // Conjunto final de nós que vão pro grafo.
+  const survivingNodes = graph.nodes.filter(
+    (n) => !demotedAssetIDs.has(n.id) && !droppedAssetIDs.has(n.id),
+  );
+  const isSurviving = new Set(survivingNodes.map((n) => n.id));
+  const survivingEdges = graph.edges.filter(
+    (e) => isSurviving.has(e.from) && isSurviving.has(e.to),
+  );
+
+  // Mapa de dimensões por nó: pessoas/orgs/centro = NODE_*, compactos = ASSET_*.
+  const sizeByID = new Map<string, { w: number; h: number }>();
+  for (const n of survivingNodes) {
+    const isCompact =
+      (n.kind === "vehicle" || n.kind === "place") && n.id !== centerId;
+    sizeByID.set(
+      n.id,
+      isCompact
+        ? { w: ASSET_W, h: ASSET_H }
+        : { w: NODE_W, h: NODE_H },
+    );
+  }
+
+  const positions = layoutWithDagre(
+    survivingNodes,
+    survivingEdges,
+    kindByID,
+    centerId,
+    sizeByID,
+  );
+
+  const rfNodes: Node[] = survivingNodes.map((n) => {
+    const isCompact =
+      (n.kind === "vehicle" || n.kind === "place") && n.id !== centerId;
+    if (isCompact) {
+      return {
+        id: n.id,
+        type: "asset",
+        position: positions[n.id] ?? { x: 0, y: 0 },
+        data: {
+          kind: n.kind as AssetKind,
+          label: shortAssetLabel(n),
+          sublabel: compactSublabel(n),
+          vehicleCategory: n.vehicle?.category,
+          isCenter: false,
+          ownerCount: ownerCountOf.get(n.id) ?? 0,
+        } satisfies CompactNodeData,
+        width: ASSET_W,
+        height: ASSET_H,
+      };
+    }
     const displayName =
       n.kind === "vehicle" ? vehicleListLabel(n.vehicle, n.name) : n.name;
     return {
@@ -413,13 +755,15 @@ function buildFlow(
         photoUrl: n.has_photo ? photoURL(n.id, n.version) : undefined,
         vehicleCategory: n.vehicle?.category,
         isCenter: n.id === centerId,
+        pills: pillsByOwner.get(n.id) ?? [],
+        onPillClick,
       } satisfies EntityNodeData,
       width: NODE_W,
       height: NODE_H,
     };
   });
 
-  const rfEdges: Edge[] = graph.edges.map((e: GraphEdge) => {
+  const rfEdges: Edge[] = survivingEdges.map((e: GraphEdge) => {
     const fromKind = kindByID.get(e.from);
     const toKind = kindByID.get(e.to);
     const fromPos = positions[e.from];
@@ -510,7 +854,7 @@ function buildFlow(
     };
   });
 
-  return { rfNodes, rfEdges };
+  return { rfNodes, rfEdges, pillsByOwner };
 }
 
 // layoutWithDagre roda o algoritmo de camadas top-down do dagre. Atribui peso
@@ -521,12 +865,16 @@ function layoutWithDagre(
   edges: GraphEdge[],
   kindByID: Map<string, EntityKind>,
   centerId: string,
+  sizeByID: Map<string, { w: number; h: number }>,
 ): Record<string, { x: number; y: number }> {
   const g = new dagre.graphlib.Graph();
   g.setGraph({ rankdir: "TB", nodesep: 120, ranksep: 110, marginx: 24, marginy: 24 });
   g.setDefaultEdgeLabel(() => ({}));
 
-  for (const n of nodes) g.setNode(n.id, { width: NODE_W, height: NODE_H });
+  for (const n of nodes) {
+    const s = sizeByID.get(n.id) ?? { w: NODE_W, h: NODE_H };
+    g.setNode(n.id, { width: s.w, height: s.h });
+  }
   // Pesos do dagre influenciam ranks e roteamento:
   //   - parental    → minlen=1, weight 10 (define hierarquia vertical)
   //   - spouse      → minlen=1, weight 8  (camada seguinte, mas colado)
@@ -556,11 +904,17 @@ function layoutWithDagre(
 
   dagre.layout(g);
 
+  // Helpers locais — todos os cálculos pós-dagre operam sobre o tamanho real
+  // do nó (cartão grande vs. asset compacto).
+  const sizeOf = (id: string) =>
+    sizeByID.get(id) ?? { w: NODE_W, h: NODE_H };
+
   const out: Record<string, { x: number; y: number }> = {};
   for (const n of nodes) {
     const p = g.node(n.id);
     if (!p) continue;
-    out[n.id] = { x: p.x - NODE_W / 2, y: p.y - NODE_H / 2 };
+    const s = sizeOf(n.id);
+    out[n.id] = { x: p.x - s.w / 2, y: p.y - s.h / 2 };
   }
 
   // ─── Layout familiar: irmãos | alvo+esposa+filhos ───────────────────
@@ -649,10 +1003,12 @@ function layoutWithDagre(
   const ASSET_GAP_V = 70;  // distância vertical entre linha dos filhos e faixa de propriedades
   const ASSET_GAP_H = 40;  // folga horizontal entre propriedades do mesmo dono
 
+  const anchorSize = sizeOf(centerId);
+
   // 1. Esposa → mesma altura do âncora, à direita. Move o sub-cluster
   //    da esposa.
   if (spouseID && out[spouseID]) {
-    const targetX = anchor.x + NODE_W + SPOUSE_GAP;
+    const targetX = anchor.x + anchorSize.w + SPOUSE_GAP;
     const targetY = anchor.y;
     const s = out[spouseID];
     const dx = targetX - s.x;
@@ -661,48 +1017,62 @@ function layoutWithDagre(
   }
 
   // 2. Filhos → linha abaixo, centralizados sob (âncora + esposa).
-  const childRowY = anchor.y + NODE_H + CHILD_GAP_V;
+  const childRowY = anchor.y + anchorSize.h + CHILD_GAP_V;
   if (childIDs.length > 0) {
     const sortedChildren = [...childIDs]
       .filter((id) => out[id])
       .sort((a, b) => out[a].x - out[b].x);
-    const coupleMidX = spouseID && out[spouseID]
-      ? (anchor.x + out[spouseID].x + NODE_W) / 2
-      : anchor.x + NODE_W / 2;
-    const total = sortedChildren.length * NODE_W + (sortedChildren.length - 1) * CHILD_GAP;
+    const spouseSize = spouseID ? sizeOf(spouseID) : null;
+    const coupleMidX = spouseID && out[spouseID] && spouseSize
+      ? (anchor.x + out[spouseID].x + spouseSize.w) / 2
+      : anchor.x + anchorSize.w / 2;
+    const childWidths = sortedChildren.map((id) => sizeOf(id).w);
+    const total =
+      childWidths.reduce((sum, w) => sum + w, 0) +
+      Math.max(0, sortedChildren.length - 1) * CHILD_GAP;
     let cursor = coupleMidX - total / 2;
     for (const childID of sortedChildren) {
       const c = out[childID];
       if (!c) continue;
+      const w = sizeOf(childID).w;
       const dx = cursor - c.x;
       const dy = childRowY - c.y;
       translate(subCluster(childID), dx, dy);
-      cursor += NODE_W + CHILD_GAP;
+      cursor += w + CHILD_GAP;
     }
   }
 
   // 3. Irmãos → coluna vertical à ESQUERDA do âncora (lado oposto da
   //    esposa). Cada irmão com sua subárvore.
   if (siblingIDs.length > 0) {
-    const sibX = anchor.x - SIB_GAP_H - NODE_W;
-    siblingIDs.forEach((sibID, i) => {
+    let stackY = anchor.y;
+    siblingIDs.forEach((sibID) => {
       const s = out[sibID];
       if (!s) return;
-      const targetX = sibX;
-      const targetY = anchor.y + i * (NODE_H + SIB_GAP_V);
+      const sibSize = sizeOf(sibID);
+      const targetX = anchor.x - SIB_GAP_H - sibSize.w;
+      const targetY = stackY;
       const dx = targetX - s.x;
       const dy = targetY - s.y;
       translate(subCluster(sibID), dx, dy);
+      stackY += sibSize.h + SIB_GAP_V;
     });
   }
 
   // 4. Propriedades (veículos, lugares) → faixa abaixo dos filhos. Cada
   //    propriedade é ancorada na coluna do seu dono. Evita sobreposição
   //    com filhos quando esposa/irmãos têm carros próprios.
+  //
+  // Aqui só entram assets *promovidos* (i.e. presentes em `nodes`); os
+  // demovidos já viraram pill antes do dagre. Largura usada é a real do
+  // asset (ASSET_W), não NODE_W.
   const family = new Set<string>(
     [centerId, spouseID, ...childIDs, ...siblingIDs].filter((id): id is string => !!id),
   );
-  const assetRowY = childRowY + NODE_H + ASSET_GAP_V;
+  // Altura da faixa de assets baseada na maior altura possível na linha
+  // dos filhos (cartão grande). Se não há filhos, usa altura do âncora.
+  const childRowH = childIDs.length > 0 ? NODE_H : anchorSize.h;
+  const assetRowY = childRowY + childRowH + ASSET_GAP_V;
   const assetsByOwner = new Map<string, string[]>();
   for (const n of nodes) {
     if (family.has(n.id)) continue;
@@ -725,14 +1095,19 @@ function layoutWithDagre(
   for (const [ownerID, assetIDs] of assetsByOwner) {
     const ownerPos = out[ownerID];
     if (!ownerPos) continue;
-    const total = assetIDs.length * NODE_W + (assetIDs.length - 1) * ASSET_GAP_H;
-    let cursor = ownerPos.x + NODE_W / 2 - total / 2;
+    const ownerSize = sizeOf(ownerID);
+    const widths = assetIDs.map((id) => sizeOf(id).w);
+    const total =
+      widths.reduce((sum, w) => sum + w, 0) +
+      Math.max(0, assetIDs.length - 1) * ASSET_GAP_H;
+    let cursor = ownerPos.x + ownerSize.w / 2 - total / 2;
     for (const aID of assetIDs) {
       const a = out[aID];
       if (!a) continue;
+      const w = sizeOf(aID).w;
       a.x = cursor;
       a.y = assetRowY;
-      cursor += NODE_W + ASSET_GAP_H;
+      cursor += w + ASSET_GAP_H;
     }
   }
 

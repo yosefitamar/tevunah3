@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
+import { createPortal } from "react-dom";
 import { LogIn } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import type { ApiError } from "@/lib/api";
@@ -24,6 +25,14 @@ export default function SessionExpiredOverlay() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  // body.session-locked: gatilho do CSS que aplica blur + pointer-events:none
+  // em todos os filhos do body EXCETO o próprio overlay. Cobre o Shell e
+  // qualquer portal aberto (GraphModal, EntidadeDrawer, modais futuros).
+  useEffect(() => {
+    document.body.classList.add("session-locked");
+    return () => document.body.classList.remove("session-locked");
+  }, []);
+
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setErr(null);
@@ -38,7 +47,12 @@ export default function SessionExpiredOverlay() {
     }
   }
 
-  return (
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
+    // session-overlay-root: marcador que o seletor CSS usa pra excluir este
+    // nó do blur. Mantém o overlay nítido e interativo.
+    <div className="session-overlay-root">
     <div className="session-overlay" role="dialog" aria-modal="true" aria-label="Sessão expirada">
       <form className="login-card session-overlay-card" onSubmit={onSubmit} autoComplete="off">
         <div className="login-brand">
@@ -102,5 +116,7 @@ export default function SessionExpiredOverlay() {
         </div>
       </form>
     </div>
+    </div>,
+    document.body,
   );
 }

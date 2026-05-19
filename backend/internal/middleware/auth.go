@@ -72,6 +72,17 @@ func RequireAuth(store *session.Store, repo *users.Repo) func(http.Handler) http
 				httpx.Error(w, http.StatusForbidden, "usuário inativo")
 				return
 			}
+			// Gate de credenciais pendentes: enquanto a flag não for limpa, o
+			// agente só pode usar rotas auxiliares (me/logout) e o endpoint
+			// específico pra resolver o pendente. Bloqueia o resto.
+			if u.MustSetupTOTP && !isTOTPSetupAllowed(r.URL.Path) {
+				httpx.Error(w, http.StatusForbidden, "setup de TOTP pendente")
+				return
+			}
+			if u.MustChangePassword && !isPasswordChangeAllowed(r.URL.Path) {
+				httpx.Error(w, http.StatusForbidden, "troca de senha pendente")
+				return
+			}
 			// Refresh TTL idle.
 			if err := store.Touch(r.Context(), sess); err != nil {
 				httpx.Error(w, http.StatusInternalServerError, "erro ao renovar sessão")
@@ -85,6 +96,26 @@ func RequireAuth(store *session.Store, repo *users.Repo) func(http.Handler) http
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
+}
+
+// Rotas permitidas enquanto must_setup_totp=true. O agente precisa resolver
+// o enrollment antes de acessar qualquer outro endpoint da aplicação.
+func isTOTPSetupAllowed(path string) bool {
+	switch path {
+	case "/api/auth/me", "/api/auth/logout", "/api/auth/totp/setup":
+		return true
+	}
+	return false
+}
+
+// Rotas permitidas enquanto must_change_password=true. Análogo ao acima
+// mas pra troca de senha forçada após reset por admin.
+func isPasswordChangeAllowed(path string) bool {
+	switch path {
+	case "/api/auth/me", "/api/auth/logout", "/api/auth/password/change":
+		return true
+	}
+	return false
 }
 
 // tokenFrom extrai o token de sessão, preferindo Authorization: Bearer (para CLIs/testes)

@@ -5,6 +5,7 @@ import AdminScreen from "./admin/AdminScreen";
 import AprovacoesScreen from "./aprovacoes/AprovacoesScreen";
 import AuditoriaScreen from "./auditoria/AuditoriaScreen";
 import EntidadesScreen from "./entidades/EntidadesScreen";
+import RelatoriosScreen from "./relatorios/RelatoriosScreen";
 
 type PlaceholderProps = {
   tag: string;
@@ -32,3 +33,5 @@ export const ScreenAprovacoes = AprovacoesScreen;
 export const ScreenAuditoria = AuditoriaScreen;
 
 export const ScreenAdmin = AdminScreen;
+
+export const ScreenRelatorios = RelatoriosScreen;

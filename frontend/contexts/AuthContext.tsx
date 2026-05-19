@@ -18,7 +18,14 @@ import {
 } from "@/lib/api";
 import type { User } from "@/lib/types";
 
-type LoginInput = { email: string; password: string; totp_code: string };
+type LoginInput = { email: string; password: string; totp_code?: string };
+
+// Dados retornados pelo backend quando o agente precisa configurar TOTP
+// no primeiro login (após reset por admin). Frontend usa pra montar o QR.
+export type PendingTOTPSetup = {
+  secret: string;
+  email: string;
+};
 
 type AuthState = {
   user: User | null;
@@ -28,8 +35,12 @@ type AuthState = {
   sessionExpired: boolean;
   /** Quando a sessão atual expira por inatividade (atualizado a cada call). */
   sessionExpiresAt: Date | null;
+  /** Setup TOTP pendente (devolvido pelo login) — usado pela tela de enrollment. */
+  pendingTOTPSetup: PendingTOTPSetup | null;
+  clearPendingTOTPSetup: () => void;
   login: (input: LoginInput) => Promise<void>;
   logout: () => Promise<void>;
+  refreshUser: () => Promise<void>;
 };
 
 const AuthCtx = createContext<AuthState | null>(null);
@@ -40,6 +51,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [sessionExpired, setSessionExpired] = useState(false);
   const [sessionExpiresAt, setSessionExpiresAt] = useState<Date | null>(null);
+  const [pendingTOTPSetup, setPendingTOTPSetup] = useState<PendingTOTPSetup | null>(null);
 
   // Ref pra ler o estado atual dentro do handler global (evita rebind).
   const userRef = useRef<User | null>(null);
@@ -133,16 +145,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(async (input: LoginInput) => {
     setError(null);
-    const data = await api<{ user: User; token: string; expires_in: number }>("/api/auth/login", {
+    const data = await api<{
+      user: User;
+      token: string;
+      expires_in: number;
+      totp_setup?: PendingTOTPSetup;
+    }>("/api/auth/login", {
       method: "POST",
       body: JSON.stringify(input),
     });
     setUser(data.user);
     setSessionExpired(false);
-    // Estima a expiração a partir do expires_in retornado pelo login. Será
-    // sobrescrita pela próxima chamada autenticada via header.
     setSessionExpiresAt(new Date(Date.now() + data.expires_in * 1000));
+    setPendingTOTPSetup(data.totp_setup ?? null);
   }, []);
+
+  const refreshUser = useCallback(async () => {
+    const data = await api<{ user: User }>("/api/auth/me");
+    setUser(data.user);
+  }, []);
+
+  const clearPendingTOTPSetup = useCallback(() => setPendingTOTPSetup(null), []);
 
   const logout = useCallback(async () => {
     try {
@@ -153,6 +176,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
     setSessionExpired(false);
     setSessionExpiresAt(null);
+    setPendingTOTPSetup(null);
   }, []);
 
   const value = useMemo<AuthState>(
@@ -162,10 +186,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       error,
       sessionExpired,
       sessionExpiresAt,
+      pendingTOTPSetup,
+      clearPendingTOTPSetup,
       login,
       logout,
+      refreshUser,
     }),
-    [user, loading, error, sessionExpired, sessionExpiresAt, login, logout],
+    [
+      user,
+      loading,
+      error,
+      sessionExpired,
+      sessionExpiresAt,
+      pendingTOTPSetup,
+      clearPendingTOTPSetup,
+      login,
+      logout,
+      refreshUser,
+    ],
   );
 
   return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>;

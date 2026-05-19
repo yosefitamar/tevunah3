@@ -9,6 +9,8 @@ import Sidebar from "./Sidebar";
 import Topbar from "./Topbar";
 import PaletteSwitcher from "./PaletteSwitcher";
 import LoginScreen from "./LoginScreen";
+import TOTPSetupScreen from "./TOTPSetupScreen";
+import ChangePasswordScreen from "./ChangePasswordScreen";
 import SessionExpiredOverlay from "./SessionExpiredOverlay";
 import Dashboard from "./dashboard/Dashboard";
 import {
@@ -17,12 +19,14 @@ import {
   ScreenAprovacoes,
   ScreenAuditoria,
   ScreenEntidades,
+  ScreenRelatorios,
 } from "./screens";
 import SandboxModais from "./sandbox/SandboxModais";
 
 const VIEWS: Record<ModuleId, React.ComponentType> = {
   dashboard: Dashboard,
   entidades: ScreenEntidades,
+  relatorios: ScreenRelatorios,
   agentes: ScreenAgentes,
   aprovacoes: ScreenAprovacoes,
   auditoria: ScreenAuditoria,
@@ -82,9 +86,13 @@ function AuthenticatedShell() {
 }
 
 function AuthGate() {
-  const { user, loading } = useAuth();
+  const { user, loading, pendingTOTPSetup } = useAuth();
   if (loading) return <div className="gate-loading">// AUTENTICANDO SESSÃO…</div>;
   if (!user) return <LoginScreen />;
+  // Setup pendente de TOTP toma precedência — sem secret confirmado o agente
+  // não tem 2FA ativo; só libera o shell após confirmar o enrollment.
+  if (user.must_setup_totp && pendingTOTPSetup) return <TOTPSetupScreen />;
+  if (user.must_change_password) return <ChangePasswordScreen />;
   return <AuthenticatedShell />;
 }
 

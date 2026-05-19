@@ -13,6 +13,7 @@ export type ModuleId =
   | "dashboard"
   | "entidades"
   | "agentes"
+  | "relatorios"
   | "aprovacoes"
   | "auditoria"
   | "admin"
@@ -22,11 +23,12 @@ export const NAV: NavEntry[] = [
   { group: "OPERACIONAL" },
   { id: "dashboard", key: "01", lbl: "DASHBOARD", glyph: "▦" },
   { id: "entidades", key: "02", lbl: "ENTIDADES", glyph: "◇" },
-  { id: "agentes", key: "03", lbl: "AGENTES", glyph: "◬" },
+  { id: "relatorios", key: "03", lbl: "RELATÓRIOS", glyph: "▥" },
+  { id: "agentes", key: "04", lbl: "AGENTES", glyph: "◬" },
 
   { group: "SUPERVISÃO" },
-  { id: "aprovacoes", key: "04", lbl: "APROVAÇÕES", glyph: "✓" },
-  { id: "auditoria", key: "05", lbl: "AUDITORIA", glyph: "▤" },
+  { id: "aprovacoes", key: "05", lbl: "APROVAÇÕES", glyph: "✓" },
+  { id: "auditoria", key: "06", lbl: "AUDITORIA", glyph: "▤" },
 
   { group: "SISTEMA" },
   { id: "admin", key: "99", lbl: "ADMIN", glyph: "⚙" },
@@ -36,6 +38,7 @@ export const NAV: NavEntry[] = [
 export const MODULE_TITLES: Record<ModuleId, string> = {
   dashboard: "DASHBOARD",
   entidades: "ENTIDADES",
+  relatorios: "RELATÓRIOS",
   agentes: "AGENTES",
   aprovacoes: "APROVAÇÕES",
   auditoria: "AUDITORIA",

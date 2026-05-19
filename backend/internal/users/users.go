@@ -23,17 +23,19 @@ var ErrAlreadyInactive = errors.New("usuário já inativo")
 
 // User é a representação do agente no domínio app.
 type User struct {
-	ID             string
-	Code           string
-	Email          string
-	DisplayName    string
-	PasswordHash   string
-	TOTPSecret     string
-	ClearanceLevel int
-	Status         string
-	LastLoginAt    *time.Time
-	CreatedAt      time.Time
-	Roles          []string // codenames (agente | analista | gestor | administrador)
+	ID                 string
+	Code               string
+	Email              string
+	DisplayName        string
+	PasswordHash       string
+	TOTPSecret         string
+	ClearanceLevel     int
+	Status             string
+	LastLoginAt        *time.Time
+	CreatedAt          time.Time
+	Roles              []string // codenames (agente | analista | gestor | administrador)
+	MustChangePassword bool     // admin resetou a senha → trocar no próximo login
+	MustSetupTOTP      bool     // admin resetou o TOTP → escanear novo QR no próximo login
 }
 
 // IsActive devolve true se o usuário está apto a logar.
@@ -97,7 +99,8 @@ func scanUser(row *sql.Row) (*User, error) {
 	var totp sql.NullString
 	var last sql.NullTime
 	if err := row.Scan(&u.ID, &u.Code, &u.Email, &u.DisplayName, &u.PasswordHash,
-		&totp, &u.ClearanceLevel, &u.Status, &last, &u.CreatedAt); err != nil {
+		&totp, &u.ClearanceLevel, &u.Status, &last, &u.CreatedAt,
+		&u.MustChangePassword, &u.MustSetupTOTP); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
@@ -113,7 +116,8 @@ func scanUser(row *sql.Row) (*User, error) {
 
 const userSelectFields = `
 	id, code, email, display_name, password_hash,
-	COALESCE(totp_secret, ''), clearance_level, status, last_login_at, created_at`
+	COALESCE(totp_secret, ''), clearance_level, status, last_login_at, created_at,
+	must_change_password, must_setup_totp`
 
 // FindByEmail busca um usuário ativo (não soft-deleted) por e-mail.
 func (r *Repo) FindByEmail(ctx context.Context, email string) (*User, error) {
@@ -276,6 +280,133 @@ func (r *Repo) UpdateDisplayName(ctx context.Context, id, displayName string) er
 	return nil
 }
 
+// UpdateProfile atualiza display_name e/ou email do usuário. Email é
+// lowercased; viola ErrDuplicate se outro agente já usa o endereço. Passe
+// nil pros campos que não devem mudar.
+func (r *Repo) UpdateProfile(ctx context.Context, id string, displayName, email *string) error {
+	if displayName == nil && email == nil {
+		return errors.New("nenhum campo para atualizar")
+	}
+	args := []any{id}
+	sets := []string{"updated_at = now()"}
+	if displayName != nil {
+		args = append(args, *displayName)
+		sets = append(sets, fmt.Sprintf("display_name = $%d", len(args)))
+	}
+	if email != nil {
+		args = append(args, strings.ToLower(*email))
+		sets = append(sets, fmt.Sprintf("email = $%d", len(args)))
+	}
+	query := "UPDATE app.users SET " + strings.Join(sets, ", ") + " WHERE id = $1"
+	res, err := r.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		if isUniqueViolation(err) {
+			return ErrDuplicate
+		}
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// SetPassword grava o hash da senha. Se mustChange=true, marca a flag pra
+// forçar troca no próximo login (uso típico: admin gerou senha temporária).
+func (r *Repo) SetPassword(ctx context.Context, id, passwordHash string, mustChange bool) error {
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE app.users
+		    SET password_hash = $1,
+		        must_change_password = $2,
+		        updated_at = now()
+		  WHERE id = $3`,
+		passwordHash, mustChange, id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// ResetTOTP apaga o secret do agente e marca must_setup_totp=true. O agente
+// recebe um novo QR no próximo login (gerado pelo handler de login).
+func (r *Repo) ResetTOTP(ctx context.Context, id string) error {
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE app.users
+		    SET totp_secret = NULL,
+		        totp_enrolled_at = NULL,
+		        must_setup_totp = true,
+		        updated_at = now()
+		  WHERE id = $1`,
+		id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// SetPendingTOTPSecret grava o secret recém-gerado mas mantém a flag
+// must_setup_totp=true. Só vira definitivo quando o agente confirma o
+// código no setup endpoint (CompleteTOTPSetup).
+func (r *Repo) SetPendingTOTPSecret(ctx context.Context, id, secret string) error {
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE app.users
+		    SET totp_secret = $1, updated_at = now()
+		  WHERE id = $2 AND must_setup_totp = true`,
+		secret, id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// CompleteTOTPSetup confirma o enrollment — o agente validou o primeiro
+// código gerado pelo authenticator. Limpa must_setup_totp e carimba
+// totp_enrolled_at.
+func (r *Repo) CompleteTOTPSetup(ctx context.Context, id string) error {
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE app.users
+		    SET must_setup_totp = false,
+		        totp_enrolled_at = now(),
+		        updated_at = now()
+		  WHERE id = $1`,
+		id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// ClearMustChangePassword limpa a flag depois que o agente troca a senha.
+func (r *Repo) ClearMustChangePassword(ctx context.Context, id string) error {
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE app.users SET must_change_password = false, updated_at = now() WHERE id = $1`, id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // GenerateCode devolve uma string "NNNN" (4 dígitos) única em app.users,
 // gerada com crypto/rand. Tenta até 20 vezes; falha se não conseguir.
 func (r *Repo) GenerateCode(ctx context.Context) (string, error) {
@@ -404,6 +535,7 @@ func (r *Repo) List(ctx context.Context, opts ListOpts) (*ListResult, error) {
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT u.id, u.code, u.email, u.display_name, u.clearance_level, u.status,
 		       u.last_login_at, u.created_at,
+		       u.must_change_password, u.must_setup_totp,
 		       COALESCE(string_agg(ur.role_code, ',' ORDER BY ur.role_code), '') AS roles_csv
 		  FROM app.users u
 		  LEFT JOIN app.user_roles ur ON ur.user_id = u.id
@@ -428,7 +560,8 @@ func (r *Repo) List(ctx context.Context, opts ListOpts) (*ListResult, error) {
 		var last sql.NullTime
 		var rolesCSV string
 		if err := rows.Scan(&u.ID, &u.Code, &u.Email, &u.DisplayName,
-			&u.ClearanceLevel, &u.Status, &last, &u.CreatedAt, &rolesCSV); err != nil {
+			&u.ClearanceLevel, &u.Status, &last, &u.CreatedAt,
+			&u.MustChangePassword, &u.MustSetupTOTP, &rolesCSV); err != nil {
 			return nil, err
 		}
 		if last.Valid {

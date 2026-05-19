@@ -31,3 +31,15 @@ export const canEditEntities = canCreateEntities;
 export const canDeleteEntities = (u: User | null) =>
   hasRole(u, "gestor", "administrador");
 export const canRestoreEntities = canDeleteEntities;
+
+// Relatórios — espelha a matriz da migration 00027_reports.
+export const canReadReports = (u: User | null) =>
+  hasRole(u, "agente", "analista", "gestor", "administrador");
+export const canCreateReports = (u: User | null) =>
+  hasRole(u, "analista", "gestor", "administrador");
+export const canEditReports = canCreateReports;
+export const canDiffuseReports = (u: User | null) =>
+  hasRole(u, "gestor", "administrador");
+export const canArchiveReports = canDiffuseReports;
+export const canDownloadReports = (u: User | null) =>
+  hasRole(u, "analista", "gestor", "administrador");

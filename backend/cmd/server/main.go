@@ -23,6 +23,7 @@ import (
 	"github.com/belia/tevunah/backend/internal/crypt"
 	idb "github.com/belia/tevunah/backend/internal/db"
 	"github.com/belia/tevunah/backend/internal/entities"
+	"github.com/belia/tevunah/backend/internal/reports"
 	"github.com/belia/tevunah/backend/internal/httpx"
 	"github.com/belia/tevunah/backend/internal/middleware"
 	"github.com/belia/tevunah/backend/internal/permissions"
@@ -43,6 +44,7 @@ type app struct {
 	approvals   *approvals.Repo
 	perms       *permissions.Repo
 	entities    *entities.Repo
+	reports     *reports.Repo
 }
 
 func main() {
@@ -72,6 +74,7 @@ func main() {
 		approvals:   approvals.New(appDB),
 		perms:       permissions.New(appDB),
 		entities:    entities.New(appDB),
+		reports:     reports.New(appDB),
 	}
 
 	mux := http.NewServeMux()
@@ -81,12 +84,16 @@ func main() {
 	auth := middleware.RequireAuth(a.sessions, a.users)
 	mux.Handle("GET /api/auth/me", auth(http.HandlerFunc(a.handleMe)))
 	mux.Handle("POST /api/auth/logout", auth(http.HandlerFunc(a.handleLogout)))
+	mux.Handle("POST /api/auth/password/change", auth(http.HandlerFunc(a.handlePasswordChange)))
+	mux.Handle("POST /api/auth/totp/setup", auth(http.HandlerFunc(a.handleTOTPSetup)))
 
 	mux.Handle("GET /api/users", auth(http.HandlerFunc(a.handleUsersList)))
 	mux.Handle("POST /api/users", auth(http.HandlerFunc(a.handleUserCreate)))
 	mux.Handle("GET /api/users/{id}", auth(http.HandlerFunc(a.handleUserDetail)))
 	mux.Handle("PATCH /api/users/{id}", auth(http.HandlerFunc(a.handleUserUpdate)))
 	mux.Handle("POST /api/users/{id}/deactivate", auth(http.HandlerFunc(a.handleUserDeactivate)))
+	mux.Handle("POST /api/users/{id}/password/reset", auth(http.HandlerFunc(a.handleUserPasswordReset)))
+	mux.Handle("POST /api/users/{id}/totp/reset", auth(http.HandlerFunc(a.handleUserTOTPReset)))
 	mux.Handle("POST /api/users/{id}/roles", auth(http.HandlerFunc(a.handleUserSetRoles)))
 	mux.Handle("POST /api/users/{id}/clearance", auth(http.HandlerFunc(a.handleUserSetClearance)))
 
@@ -118,6 +125,15 @@ func main() {
 	mux.Handle("POST /api/entities/{id}/addresses", auth(http.HandlerFunc(a.handlePersonAddressCreate)))
 	mux.Handle("PATCH /api/entities/{id}/addresses/{aid}", auth(http.HandlerFunc(a.handlePersonAddressUpdate)))
 	mux.Handle("DELETE /api/entities/{id}/addresses/{aid}", auth(http.HandlerFunc(a.handlePersonAddressDelete)))
+
+	mux.Handle("GET /api/reports", auth(http.HandlerFunc(a.handleReportsList)))
+	mux.Handle("POST /api/reports", auth(http.HandlerFunc(a.handleReportCreate)))
+	mux.Handle("GET /api/reports/{id}", auth(http.HandlerFunc(a.handleReportDetail)))
+	mux.Handle("PATCH /api/reports/{id}", auth(http.HandlerFunc(a.handleReportUpdate)))
+	mux.Handle("POST /api/reports/{id}/diffuse", auth(http.HandlerFunc(a.handleReportDiffuse)))
+	mux.Handle("POST /api/reports/{id}/archive", auth(http.HandlerFunc(a.handleReportArchive)))
+	mux.Handle("POST /api/reports/{id}/qualifications", auth(http.HandlerFunc(a.handleReportQualificationCreate)))
+	mux.Handle("DELETE /api/reports/{id}/qualifications/{qid}", auth(http.HandlerFunc(a.handleReportQualificationDelete)))
 
 	mux.Handle("GET /api/approvals", auth(http.HandlerFunc(a.handleApprovalsList)))
 	mux.Handle("GET /api/approvals/{id}", auth(http.HandlerFunc(a.handleApprovalDetail)))
@@ -202,14 +218,16 @@ type loginRequest struct {
 }
 
 type publicUser struct {
-	ID             string     `json:"id"`
-	Code           string     `json:"code"`
-	Email          string     `json:"email"`
-	DisplayName    string     `json:"display_name"`
-	ClearanceLevel int        `json:"clearance_level"`
-	Status         string     `json:"status"`
-	Roles          []string   `json:"roles"`
-	LastLoginAt    *time.Time `json:"last_login_at,omitempty"`
+	ID                 string     `json:"id"`
+	Code               string     `json:"code"`
+	Email              string     `json:"email"`
+	DisplayName        string     `json:"display_name"`
+	ClearanceLevel     int        `json:"clearance_level"`
+	Status             string     `json:"status"`
+	Roles              []string   `json:"roles"`
+	LastLoginAt        *time.Time `json:"last_login_at,omitempty"`
+	MustChangePassword bool       `json:"must_change_password,omitempty"`
+	MustSetupTOTP      bool       `json:"must_setup_totp,omitempty"`
 }
 
 func toPublic(u *users.User) publicUser {
@@ -221,6 +239,8 @@ func toPublic(u *users.User) publicUser {
 		ID: u.ID, Code: u.Code, Email: u.Email, DisplayName: u.DisplayName,
 		ClearanceLevel: u.ClearanceLevel, Status: u.Status,
 		Roles: roles, LastLoginAt: u.LastLoginAt,
+		MustChangePassword: u.MustChangePassword,
+		MustSetupTOTP:      u.MustSetupTOTP,
 	}
 }
 
@@ -230,8 +250,8 @@ func (a *app) handleLogin(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusBadRequest, "corpo inválido")
 		return
 	}
-	if req.Email == "" || req.Password == "" || req.TOTPCode == "" {
-		httpx.Error(w, http.StatusBadRequest, "email, senha e código TOTP são obrigatórios")
+	if req.Email == "" || req.Password == "" {
+		httpx.Error(w, http.StatusBadRequest, "email e senha são obrigatórios")
 		return
 	}
 
@@ -271,15 +291,40 @@ func (a *app) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if u.TOTPSecret == "" {
-		logDenied(&u.ID, "TOTP não configurado")
-		httpx.Error(w, http.StatusUnauthorized, "credenciais inválidas")
-		return
-	}
-	if !totp.Validate(req.TOTPCode, u.TOTPSecret) {
-		logDenied(&u.ID, "código TOTP inválido")
-		httpx.Error(w, http.StatusUnauthorized, "credenciais inválidas")
-		return
+	// Setup pendente do TOTP: pula a validação do código. Gera o secret se
+	// ainda não foi gerado (primeira tentativa após reset). Persiste como
+	// pending — só vira definitivo quando o agente confirma no setup.
+	var pendingTOTPSecret string
+	if u.MustSetupTOTP {
+		if u.TOTPSecret == "" {
+			secret, err := crypt.NewTOTPSecret()
+			if err != nil {
+				httpx.Error(w, http.StatusInternalServerError, "erro ao gerar TOTP")
+				return
+			}
+			if err := a.users.SetPendingTOTPSecret(ctx, u.ID, secret); err != nil {
+				log.Printf("set pending totp: %v", err)
+				httpx.Error(w, http.StatusInternalServerError, "erro ao iniciar setup TOTP")
+				return
+			}
+			u.TOTPSecret = secret
+		}
+		pendingTOTPSecret = u.TOTPSecret
+	} else {
+		if u.TOTPSecret == "" {
+			logDenied(&u.ID, "TOTP não configurado")
+			httpx.Error(w, http.StatusUnauthorized, "credenciais inválidas")
+			return
+		}
+		if req.TOTPCode == "" {
+			httpx.Error(w, http.StatusBadRequest, "código TOTP obrigatório")
+			return
+		}
+		if !totp.Validate(req.TOTPCode, u.TOTPSecret) {
+			logDenied(&u.ID, "código TOTP inválido")
+			httpx.Error(w, http.StatusUnauthorized, "credenciais inválidas")
+			return
+		}
 	}
 
 	sess, err := a.sessions.Create(ctx, u.ID, ip)
@@ -300,11 +345,20 @@ func (a *app) handleLogin(w http.ResponseWriter, r *http.Request) {
 		After:          map[string]any{"email": u.Email, "roles": u.Roles},
 	})
 
-	httpx.OK(w, map[string]any{
+	resp := map[string]any{
 		"token":      sess.Token,
 		"expires_in": int(a.sessions.TTL().Seconds()),
 		"user":       toPublic(u),
-	})
+	}
+	if pendingTOTPSecret != "" {
+		// Agente usa esse secret pra montar QR/inserir no authenticator.
+		// Frontend confirma via POST /api/auth/totp/setup.
+		resp["totp_setup"] = map[string]any{
+			"secret": pendingTOTPSecret,
+			"email":  u.Email,
+		}
+	}
+	httpx.OK(w, resp)
 }
 
 func (a *app) handleMe(w http.ResponseWriter, r *http.Request) {

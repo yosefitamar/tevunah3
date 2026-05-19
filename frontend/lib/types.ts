@@ -20,6 +20,10 @@ export type User = {
   status: UserStatus;
   roles: RoleCode[];
   last_login_at?: string;
+  // Backend devolve flags pendentes. Quando true, frontend gateia para
+  // telas dedicadas (setup TOTP ou troca de senha forçada).
+  must_change_password?: boolean;
+  must_setup_totp?: boolean;
 };
 
 export const STATUS_LABEL: Record<UserStatus, string> = {

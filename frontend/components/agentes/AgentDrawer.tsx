@@ -14,7 +14,14 @@ import {
   type UserStatus,
 } from "@/lib/types";
 import { formatBR } from "@/lib/format";
-import { deactivateUser, getUser } from "@/lib/users-api";
+import {
+  changeOwnPassword,
+  deactivateUser,
+  getUser,
+  resetUserPassword,
+  resetUserTOTP,
+  updateUserProfile,
+} from "@/lib/users-api";
 import {
   canCreateUsers,
   canRequestClearanceChange,
@@ -34,7 +41,14 @@ type Props = {
   onChanged: () => void;
 };
 
-type ActionMode = "deactivate" | "set_roles" | "set_clearance";
+type ActionMode =
+  | "deactivate"
+  | "set_roles"
+  | "set_clearance"
+  | "edit_profile"
+  | "reset_password"
+  | "change_password"
+  | "reset_totp";
 
 export default function AgentDrawer({ userId, onClose, onChanged }: Props) {
   const { user: me } = useAuth();
@@ -175,13 +189,53 @@ export default function AgentDrawer({ userId, onClose, onChanged }: Props) {
                   />
                 )}
 
+                {mode === "edit_profile" && (
+                  <EditProfileBlock
+                    user={data}
+                    onCancel={closeAction}
+                    onDone={() => afterMutation("PERFIL ATUALIZADO.")}
+                  />
+                )}
+
+                {mode === "reset_password" && (
+                  <ResetPasswordBlock
+                    user={data}
+                    onCancel={closeAction}
+                    onDone={() => afterMutation("SENHA RESETADA · TEMPORÁRIA EMITIDA.")}
+                  />
+                )}
+
+                {mode === "change_password" && (
+                  <ChangePasswordBlock
+                    onCancel={closeAction}
+                    onDone={() => afterMutation("SENHA ALTERADA.")}
+                  />
+                )}
+
+                {mode === "reset_totp" && (
+                  <ResetTOTPBlock
+                    user={data}
+                    onCancel={closeAction}
+                    onDone={() => afterMutation("TOTP RESETADO · O AGENTE RECEBERÁ O NOVO QR NO PRÓXIMO LOGIN.")}
+                  />
+                )}
+
                 {mode === null && (
                   <div className="action-list">
                     <ActionRow
                       icon={<Pencil size={14} />}
                       label="EDITAR PERFIL"
-                      hint="EM BREVE · APENAS PRÓPRIO"
-                      disabled
+                      hint={
+                        isSelf
+                          ? "PRÓPRIO · NOME DE EXIBIÇÃO + E-MAIL"
+                          : !isAdmin
+                            ? "REQUER ADMINISTRADOR"
+                            : !targetActive
+                              ? "AGENTE DESATIVADO"
+                              : "ADMIN · NOME + E-MAIL"
+                      }
+                      disabled={!isSelf && (!isAdmin || !targetActive)}
+                      onClick={() => setMode("edit_profile")}
                     />
                     <ActionRow
                       icon={<Shield size={14} />}
@@ -213,17 +267,42 @@ export default function AgentDrawer({ userId, onClose, onChanged }: Props) {
                       disabled={!canClr || isSelf || !targetActive}
                       onClick={() => setMode("set_clearance")}
                     />
-                    <ActionRow
-                      icon={<KeyRound size={14} />}
-                      label="RESETAR SENHA"
-                      hint="EM BREVE"
-                      disabled
-                    />
+                    {isSelf ? (
+                      <ActionRow
+                        icon={<KeyRound size={14} />}
+                        label="TROCAR SENHA"
+                        hint="PRÓPRIO · INFORMAR SENHA ATUAL"
+                        onClick={() => setMode("change_password")}
+                      />
+                    ) : (
+                      <ActionRow
+                        icon={<KeyRound size={14} />}
+                        label="RESETAR SENHA"
+                        hint={
+                          !isAdmin
+                            ? "REQUER ADMINISTRADOR"
+                            : !targetActive
+                              ? "AGENTE DESATIVADO"
+                              : "ADMIN · GERA TEMPORÁRIA · TROCA OBRIGATÓRIA"
+                        }
+                        disabled={!isAdmin || !targetActive}
+                        onClick={() => setMode("reset_password")}
+                      />
+                    )}
                     <ActionRow
                       icon={<KeyRound size={14} />}
                       label="RESETAR TOTP"
-                      hint="EM BREVE · 4-EYES · APROVAÇÃO DO GESTOR"
-                      disabled
+                      hint={
+                        !isAdmin
+                          ? "REQUER ADMINISTRADOR"
+                          : !targetActive
+                            ? "AGENTE DESATIVADO"
+                            : isSelf
+                              ? "ADMIN · VOCÊ RECEBERÁ NOVO QR NO PRÓXIMO LOGIN"
+                              : "ADMIN · O AGENTE RECEBE QR NO PRÓXIMO LOGIN"
+                      }
+                      disabled={!isAdmin || !targetActive}
+                      onClick={() => setMode("reset_totp")}
                     />
                     <ActionRow
                       icon={<Ban size={14} />}
@@ -507,5 +586,312 @@ function ActionRow({ icon, label, hint, destructive, disabled, onClick }: Action
       <span className="action-row-label">{label}</span>
       <span className="action-row-hint">{hint}</span>
     </button>
+  );
+}
+
+// ─────────────────────────── EditProfileBlock ────────────────────────────
+
+function EditProfileBlock({
+  user,
+  onCancel,
+  onDone,
+}: {
+  user: User;
+  onCancel: () => void;
+  onDone: () => void;
+}) {
+  const { refreshUser, user: me } = useAuth();
+  const isSelf = me?.id === user.id;
+  const [name, setName] = useState(user.display_name);
+  const [email, setEmail] = useState(user.email);
+  const [acting, setActing] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function doIt() {
+    setErr(null);
+    const payload: { display_name?: string; email?: string } = {};
+    const trimName = name.trim();
+    const trimEmail = email.trim().toLowerCase();
+    if (trimName === "") {
+      setErr("Nome de exibição não pode ser vazio");
+      return;
+    }
+    if (trimEmail === "" || !trimEmail.includes("@")) {
+      setErr("E-mail inválido");
+      return;
+    }
+    if (trimName !== user.display_name) payload.display_name = trimName;
+    if (trimEmail !== user.email) payload.email = trimEmail;
+    if (Object.keys(payload).length === 0) {
+      setErr("Nenhuma mudança para gravar");
+      return;
+    }
+    setActing(true);
+    try {
+      await updateUserProfile(user.id, payload);
+      if (isSelf) {
+        await refreshUser();
+      }
+      onDone();
+    } catch (e) {
+      setErr((e as ApiError).message || "Falha ao atualizar");
+    } finally {
+      setActing(false);
+    }
+  }
+
+  return (
+    <div className="confirm-block">
+      <div className="confirm-msg">
+        Editar perfil de <b>{user.code} · {user.display_name.toUpperCase()}</b>.
+        A ação é registrada no audit log.
+      </div>
+      <label className="form-field">
+        <span>NOME DE EXIBIÇÃO</span>
+        <input
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          maxLength={120}
+        />
+      </label>
+      <label className="form-field">
+        <span>E-MAIL</span>
+        <input
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          autoComplete="off"
+        />
+      </label>
+      {err && <div className="banner banner-error">⚠ {err}</div>}
+      <div className="confirm-actions">
+        <button type="button" className="btn btn-ghost" onClick={onCancel} disabled={acting}>
+          CANCELAR
+        </button>
+        <button type="button" className="btn btn-primary" onClick={doIt} disabled={acting}>
+          <Pencil size={14} /> {acting ? "GRAVANDO…" : "GRAVAR"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────── ResetPasswordBlock ──────────────────────────
+
+function ResetPasswordBlock({
+  user,
+  onCancel,
+  onDone,
+}: {
+  user: User;
+  onCancel: () => void;
+  onDone: () => void;
+}) {
+  const [acting, setActing] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [temp, setTemp] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  async function doIt() {
+    setErr(null);
+    setActing(true);
+    try {
+      const r = await resetUserPassword(user.id);
+      setTemp(r.temp_password);
+    } catch (e) {
+      setErr((e as ApiError).message || "Falha ao resetar senha");
+    } finally {
+      setActing(false);
+    }
+  }
+
+  async function copyTemp() {
+    if (!temp) return;
+    try {
+      await navigator.clipboard.writeText(temp);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  if (temp) {
+    return (
+      <div className="confirm-block">
+        <div className="banner banner-info">
+          ✓ Senha temporária gerada. Repasse de forma segura ao agente.
+          Sessões ativas foram revogadas.
+        </div>
+        <div className="totp-setup-secret">
+          <span className="totp-setup-secret-label">// SENHA TEMPORÁRIA</span>
+          <code>{temp}</code>
+          <button type="button" className="action-btn" onClick={copyTemp} title="Copiar">
+            {copied ? "✓" : "⧉"}
+          </button>
+        </div>
+        <div className="confirm-actions">
+          <button type="button" className="btn btn-primary" onClick={onDone}>
+            ENTENDIDO
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="confirm-block">
+      <div className="confirm-msg">
+        ⚠ Confirme o reset de senha de <b>{user.code} · {user.display_name.toUpperCase()}</b>.
+        Uma senha temporária será gerada e exibida UMA vez. O agente deverá
+        trocá-la no próximo login. Todas as sessões ativas serão revogadas.
+      </div>
+      {err && <div className="banner banner-error">⚠ {err}</div>}
+      <div className="confirm-actions">
+        <button type="button" className="btn btn-ghost" onClick={onCancel} disabled={acting}>
+          CANCELAR
+        </button>
+        <button type="button" className="btn btn-danger" onClick={doIt} disabled={acting}>
+          <KeyRound size={14} /> {acting ? "GERANDO…" : "RESETAR SENHA"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────── ChangePasswordBlock ─────────────────────────
+
+function ChangePasswordBlock({
+  onCancel,
+  onDone,
+}: {
+  onCancel: () => void;
+  onDone: () => void;
+}) {
+  const [current, setCurrent] = useState("");
+  const [next, setNext] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [acting, setActing] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function doIt() {
+    setErr(null);
+    if (next.length < 12) {
+      setErr("A nova senha deve ter ao menos 12 caracteres");
+      return;
+    }
+    if (next !== confirm) {
+      setErr("A confirmação não confere");
+      return;
+    }
+    if (next === current) {
+      setErr("A nova senha deve ser diferente da atual");
+      return;
+    }
+    setActing(true);
+    try {
+      await changeOwnPassword(current, next);
+      onDone();
+    } catch (e) {
+      setErr((e as ApiError).message || "Falha ao trocar senha");
+    } finally {
+      setActing(false);
+    }
+  }
+
+  return (
+    <div className="confirm-block">
+      <div className="confirm-msg">
+        Trocar a própria senha. Informe a senha atual e a nova (mínimo 12
+        caracteres). A ação é registrada no audit log.
+      </div>
+      <label className="form-field">
+        <span>SENHA ATUAL</span>
+        <input
+          type="password"
+          value={current}
+          onChange={(e) => setCurrent(e.target.value)}
+          autoComplete="current-password"
+        />
+      </label>
+      <label className="form-field">
+        <span>NOVA SENHA</span>
+        <input
+          type="password"
+          value={next}
+          onChange={(e) => setNext(e.target.value)}
+          autoComplete="new-password"
+          minLength={12}
+        />
+      </label>
+      <label className="form-field">
+        <span>CONFIRMAR NOVA SENHA</span>
+        <input
+          type="password"
+          value={confirm}
+          onChange={(e) => setConfirm(e.target.value)}
+          autoComplete="new-password"
+          minLength={12}
+        />
+      </label>
+      {err && <div className="banner banner-error">⚠ {err}</div>}
+      <div className="confirm-actions">
+        <button type="button" className="btn btn-ghost" onClick={onCancel} disabled={acting}>
+          CANCELAR
+        </button>
+        <button type="button" className="btn btn-primary" onClick={doIt} disabled={acting}>
+          <KeyRound size={14} /> {acting ? "GRAVANDO…" : "TROCAR SENHA"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────── ResetTOTPBlock ──────────────────────────────
+
+function ResetTOTPBlock({
+  user,
+  onCancel,
+  onDone,
+}: {
+  user: User;
+  onCancel: () => void;
+  onDone: () => void;
+}) {
+  const [acting, setActing] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function doIt() {
+    setErr(null);
+    setActing(true);
+    try {
+      await resetUserTOTP(user.id);
+      onDone();
+    } catch (e) {
+      setErr((e as ApiError).message || "Falha ao resetar TOTP");
+    } finally {
+      setActing(false);
+    }
+  }
+
+  return (
+    <div className="confirm-block">
+      <div className="confirm-msg">
+        ⚠ Confirme o reset de TOTP de <b>{user.code} · {user.display_name.toUpperCase()}</b>.
+        O secret atual será apagado e o agente receberá um novo QR no
+        próximo login. O admin <b>não vê</b> o novo secret — apenas o
+        agente, no momento do enrollment. Sessões ativas serão revogadas.
+      </div>
+      {err && <div className="banner banner-error">⚠ {err}</div>}
+      <div className="confirm-actions">
+        <button type="button" className="btn btn-ghost" onClick={onCancel} disabled={acting}>
+          CANCELAR
+        </button>
+        <button type="button" className="btn btn-danger" onClick={doIt} disabled={acting}>
+          <KeyRound size={14} /> {acting ? "RESETANDO…" : "RESETAR TOTP"}
+        </button>
+      </div>
+    </div>
   );
 }

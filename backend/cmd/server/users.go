@@ -330,20 +330,24 @@ func (a *app) handleUserDeactivate(w http.ResponseWriter, r *http.Request) {
 
 type updateUserRequest struct {
 	DisplayName *string `json:"display_name"`
+	Email       *string `json:"email"`
 }
 
 func (a *app) handleUserUpdate(w http.ResponseWriter, r *http.Request) {
 	me := middleware.UserFrom(r.Context())
 	id := r.PathValue("id")
-	if id != me.ID {
-		// Edição de outros usuários é coberta por ações específicas
-		// (assign role, set clearance, etc.) com 4-eyes — fora deste handler.
-		httpx.Error(w, http.StatusForbidden,
-			"somente edição do próprio perfil é permitida por este endpoint")
-		return
-	}
-	if !a.requirePerm(w, r, "user.update.self") {
-		return
+	isSelf := id == me.ID
+
+	// Permissão: próprio usuário só precisa de user.update.self; editar
+	// outro agente requer user.update.others (admin).
+	if isSelf {
+		if !a.requirePerm(w, r, "user.update.self") {
+			return
+		}
+	} else {
+		if !a.requirePerm(w, r, "user.update.others") {
+			return
+		}
 	}
 
 	var req updateUserRequest
@@ -351,20 +355,50 @@ func (a *app) handleUserUpdate(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusBadRequest, "corpo inválido")
 		return
 	}
-	if req.DisplayName == nil {
+	if req.DisplayName == nil && req.Email == nil {
 		httpx.Error(w, http.StatusBadRequest, "nenhum campo para atualizar")
 		return
 	}
-	name := strings.TrimSpace(*req.DisplayName)
-	if name == "" {
-		httpx.Error(w, http.StatusBadRequest, "display_name não pode ser vazio")
-		return
+	var displayPtr *string
+	var emailPtr *string
+	if req.DisplayName != nil {
+		name := strings.TrimSpace(*req.DisplayName)
+		if name == "" {
+			httpx.Error(w, http.StatusBadRequest, "display_name não pode ser vazio")
+			return
+		}
+		displayPtr = &name
+	}
+	if req.Email != nil {
+		email := strings.TrimSpace(strings.ToLower(*req.Email))
+		if email == "" || !strings.Contains(email, "@") {
+			httpx.Error(w, http.StatusBadRequest, "email inválido")
+			return
+		}
+		emailPtr = &email
 	}
 
-	before := me.DisplayName
-	if err := a.users.UpdateDisplayName(r.Context(), me.ID, name); err != nil {
+	target, err := a.users.FindByID(r.Context(), id)
+	if err != nil {
 		if errors.Is(err, users.ErrNotFound) {
 			httpx.Error(w, http.StatusNotFound, "usuário não encontrado")
+			return
+		}
+		httpx.Error(w, http.StatusInternalServerError, "erro ao buscar usuário")
+		return
+	}
+	before := map[string]any{
+		"display_name": target.DisplayName,
+		"email":        target.Email,
+	}
+
+	if err := a.users.UpdateProfile(r.Context(), id, displayPtr, emailPtr); err != nil {
+		if errors.Is(err, users.ErrNotFound) {
+			httpx.Error(w, http.StatusNotFound, "usuário não encontrado")
+			return
+		}
+		if errors.Is(err, users.ErrDuplicate) {
+			httpx.Error(w, http.StatusConflict, "email já cadastrado")
 			return
 		}
 		log.Printf("users update: %v", err)
@@ -372,20 +406,31 @@ func (a *app) handleUserUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	action := "user.update.self"
+	if !isSelf {
+		action = "user.update.others"
+	}
+	after := map[string]any{}
+	if displayPtr != nil {
+		after["display_name"] = *displayPtr
+	}
+	if emailPtr != nil {
+		after["email"] = *emailPtr
+	}
 	aid, sid, ip, ua := a.actorInfo(r)
 	_ = a.audit.Log(r.Context(), audit.Entry{
 		ActorUserID:    aid,
 		ActorSessionID: sid,
 		ActorIP:        ip,
 		ActorUserAgent: ua,
-		Action:         "user.update.self",
+		Action:         action,
 		ResourceType:   audit.Ptr("user"),
-		ResourceID:     audit.Ptr(me.ID),
-		Before:         map[string]any{"display_name": before},
-		After:          map[string]any{"display_name": name},
+		ResourceID:     audit.Ptr(id),
+		Before:         before,
+		After:          after,
 	})
 
-	u, err := a.users.FindByID(r.Context(), me.ID)
+	u, err := a.users.FindByID(r.Context(), id)
 	if err != nil {
 		httpx.Error(w, http.StatusInternalServerError, "erro ao recarregar usuário")
 		return

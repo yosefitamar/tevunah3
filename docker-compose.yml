@@ -27,6 +27,23 @@ services:
     networks:
       - tevunah
 
+  gotenberg:
+    # Conversor HTML → PDF (Chromium headless). Backend chama via HTTP na
+    # rede docker; não expomos ao host. ~300 MB de imagem; isolado pra não
+    # poluir o container do backend.
+    image: gotenberg/gotenberg:8
+    container_name: tevunah-gotenberg
+    restart: unless-stopped
+    command:
+      - "gotenberg"
+      - "--api-port=3000"
+      - "--api-timeout=30s"
+      # Permitimos rede pra carregar fontes/assets servidos pelo backend
+      # (web fonts institucionais, brasão, etc.) — escopo restrito à rede docker.
+      - "--chromium-allow-list=^http://backend:.*"
+    networks:
+      - tevunah
+
   redis:
     image: redis:7-alpine
     container_name: tevunah-redis
@@ -70,6 +87,7 @@ services:
       # Timeout idle de sessão em minutos. Default 15 (alinhado a NIST AAL2 /
       # OWASP para apps com dados sensíveis). Clamp [1, 60] no servidor.
       SESSION_IDLE_MINUTES:    "${SESSION_IDLE_MINUTES:-15}"
+      GOTENBERG_URL:           "http://gotenberg:3000"
       # Seed dev — só usado pelo `admin seed-dev` quando APP_ENV=development
       DEV_ADMIN_EMAIL:    ${DEV_ADMIN_EMAIL:-admin@tevunah.local}
       DEV_ADMIN_NAME:     ${DEV_ADMIN_NAME:-Administrador Dev}

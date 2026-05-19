@@ -82,9 +82,11 @@ export default function LoginScreen() {
               maxLength={6}
               value={totp}
               onChange={(e) => setTotp(e.target.value.replace(/\D/g, ""))}
-              required
               autoComplete="one-time-code"
             />
+            <small className="muted" style={{ fontSize: 9, letterSpacing: "0.14em" }}>
+              // DEIXE VAZIO SE ADMIN SOLICITOU RESET DE TOTP
+            </small>
           </label>
 
           {err && <div className="login-error">⚠ {err}</div>}

@@ -138,7 +138,12 @@ func (c *Client) Render(ctx context.Context, d ReportData) ([]byte, error) {
 	args := []string{
 		"--page-size", "A4",
 		"--margin-top", "50mm",
-		"--margin-bottom", "40mm",
+		// 40mm cabia o footer mas deixava a última linha do corpo colada na
+		// borda da caixa do aviso (lei 12.527). 50mm reserva mais espaço; a
+		// caixa do aviso é empurrada pra baixo dentro do footer via
+		// margin-top em .safe (template), gerando ~10mm de respiro entre o
+		// fim do corpo e o topo da caixa.
+		"--margin-bottom", "50mm",
 		"--margin-left", "0",
 		"--margin-right", "0",
 		"--header-html", headerPath,

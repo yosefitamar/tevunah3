@@ -55,6 +55,15 @@ Banco e bootstrap:
   seed:dev            Cria o admin de desenvolvimento (idempotente; só se APP_ENV=development)
   setup               up + aguarda DB + migrate up + seed:dev
 
+Importação do legado:
+  import:load-mysql <sql>     Sobe MySQL temp, carrega o dump e replica via pgloader
+                              pro schema legacy.* do Postgres (etapa 1)
+  import:legacy     <bundle>  Orquestra a importação completa: load-mysql + transformação
+                              + cópia de mídias. Bundle deve conter data.sql + media/ + pdfs/
+  import:media      <bundle>  Sincroniza só mídias (fotos) pra entidades já importadas.
+                              Use se a importação inicial rodou sem o media/
+  import:teardown             Derruba mysql-legacy/pgloader e libera recursos
+
 Limpeza:
   db:reset            Apaga só o volume do Postgres (init script re-roda na próxima subida)
   prune               Remove TODOS volumes nomeados do projeto (cache go/node, db, etc.)
@@ -202,6 +211,108 @@ case "$cmd" in
     echo "✓ Setup concluído."
     echo "  • Frontend: http://localhost:${FRONTEND_PORT:-3000}"
     echo "  • Backend : http://localhost:${BACKEND_PORT:-8080}/api/health"
+    ;;
+
+  import:load-mysql)
+    sqlfile="${1:-}"
+    if [ -z "$sqlfile" ] || [ ! -f "$sqlfile" ]; then
+      echo "❌ Uso: ./tevunah import:load-mysql <arquivo.sql>"
+      exit 1
+    fi
+    IMPORT_COMPOSE="$DC --profile import -f docker-compose.yml"
+    echo "▶ Subindo mysql-legacy…"
+    $IMPORT_COMPOSE up -d mysql-legacy
+    echo "▶ Aguardando MySQL pronto (pode levar ~30s no primeiro start)…"
+    tries=0
+    until $IMPORT_COMPOSE exec -T mysql-legacy mysql -uroot -plegacy -e 'SELECT 1' >/dev/null 2>&1; do
+      tries=$((tries + 1))
+      if [ "$tries" -gt 60 ]; then
+        echo "❌ MySQL não respondeu em 120s"
+        exit 1
+      fi
+      sleep 2
+    done
+    echo "▶ Limpando banco legacy no MySQL temp (caso já tenha dados)…"
+    $IMPORT_COMPOSE exec -T mysql-legacy mysql -uroot -plegacy \
+      -e "DROP DATABASE IF EXISTS legacy; CREATE DATABASE legacy CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" \
+      || { echo "❌ não consegui recriar database legacy"; exit 1; }
+    echo "▶ Carregando dump no MySQL temporário…"
+    if ! $IMPORT_COMPOSE exec -T mysql-legacy mysql -uroot -plegacy legacy < "$sqlfile"; then
+      echo "❌ Falha ao carregar dump no MySQL"
+      exit 1
+    fi
+    echo "▶ Limpando schema legacy.* do Postgres (se existir)…"
+    $COMPOSE exec -T postgres psql -U "${POSTGRES_USER:-tevunah}" -d "${POSTGRES_DB:-tevunah}" \
+      -c "DROP SCHEMA IF EXISTS legacy CASCADE;" >/dev/null
+    echo "▶ Rodando pgloader (mysql → postgres legacy.*)…"
+    if ! $IMPORT_COMPOSE run --rm pgloader; then
+      echo "❌ pgloader falhou"
+      exit 1
+    fi
+    # Sanity check: alguma tabela esperada chegou no schema legacy?
+    nrows=$($COMPOSE exec -T postgres psql -U "${POSTGRES_USER:-tevunah}" -d "${POSTGRES_DB:-tevunah}" -Atc "SELECT COUNT(*) FROM legacy.users" 2>/dev/null || echo 0)
+    if [ "$nrows" = "0" ] || [ -z "$nrows" ]; then
+      echo "❌ pgloader rodou mas legacy.users está vazio — verifique logs acima"
+      exit 1
+    fi
+    echo ""
+    echo "✓ Schema legacy.* populado no Postgres (legacy.users = $nrows linhas)."
+    echo "  Próximo: ./tevunah import:legacy <bundle-dir> pra transformar pra app.*"
+    ;;
+
+  import:legacy)
+    bundle="${1:-}"
+    if [ -z "$bundle" ] || [ ! -d "$bundle" ]; then
+      echo "❌ Uso: ./tevunah import:legacy <bundle-dir>"
+      echo "   Bundle esperado: <dir>/data.sql + <dir>/media/ + <dir>/pdfs/"
+      exit 1
+    fi
+    if [ ! -f "$bundle/data.sql" ]; then
+      echo "❌ $bundle/data.sql não encontrado"
+      exit 1
+    fi
+    # Etapa 1: carrega dump no MySQL temp e replica pro schema legacy.* do Postgres
+    "$0" import:load-mysql "$bundle/data.sql"
+    # Etapa 2: roda o transformador Go (lê legacy.*, popula app.*, copia mídias).
+    # Usa `run --rm` em vez de `exec` porque precisamos montar o bundle ad-hoc
+    # (o serviço backend permanente não tem o bundle mapeado).
+    echo ""
+    echo "▶ Rodando transformador (legacy.* → app.*)…"
+    bundle_abs="$(cd "$bundle" && pwd)"
+    $COMPOSE run --rm --no-deps \
+      -v "$bundle_abs":/mnt/legacy-bundle:ro \
+      -e LEGACY_BUNDLE_PATH="/mnt/legacy-bundle" \
+      backend go run ./cmd/import-legacy
+    ;;
+
+  import:media)
+    # Sincroniza só os arquivos físicos (foto primária + galeria) pras
+    # entidades já mapeadas via import_map. Use quando a importação inicial
+    # rodou sem mídias e agora você completou o bundle/media/.
+    bundle="${1:-}"
+    if [ -z "$bundle" ] || [ ! -d "$bundle" ]; then
+      echo "❌ Uso: ./tevunah import:media <bundle-dir>"
+      echo "   Bundle deve conter <dir>/media/ com a estrutura do storage legado"
+      exit 1
+    fi
+    if [ ! -d "$bundle/media" ]; then
+      echo "❌ $bundle/media/ não encontrado"
+      exit 1
+    fi
+    bundle_abs="$(cd "$bundle" && pwd)"
+    echo "▶ Rodando media sync (legacy → PHOTO_DIR)…"
+    $COMPOSE run --rm --no-deps \
+      -v "$bundle_abs":/mnt/legacy-bundle:ro \
+      -e LEGACY_BUNDLE_PATH="/mnt/legacy-bundle" \
+      -e IMPORT_MEDIA_ONLY=1 \
+      backend go run ./cmd/import-legacy
+    ;;
+
+  import:teardown)
+    IMPORT_COMPOSE="$DC --profile import -f docker-compose.yml"
+    echo "▶ Derrubando serviços de importação…"
+    $IMPORT_COMPOSE rm -fsv mysql-legacy pgloader 2>/dev/null || true
+    echo "✓ Serviços removidos. Schema legacy.* no Postgres permanece (DROP manual se quiser)."
     ;;
 
   db:reset)

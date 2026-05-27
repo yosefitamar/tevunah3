@@ -37,6 +37,7 @@ import UndiffuseModal from "./UndiffuseModal";
 import RelatorioPreviewModal from "./RelatorioPreviewModal";
 import VisibilityFieldset from "./VisibilityFieldset";
 import Select from "../shared/Select";
+import EntidadeDrawer from "../entidades/EntidadeDrawer";
 import { Camera, Trash2 } from "lucide-react";
 import {
   deleteQualification,
@@ -75,6 +76,10 @@ export default function RelatorioDrawer({ reportId, onClose, onChanged }: Props)
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
   const [undiffuseOpen, setUndiffuseOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
+  // ID da entidade aberta como overlay sobre o drawer do relatório. Permite
+  // que o usuário inspecione a pessoa qualificada sem perder o contexto do
+  // RI — fechar o overlay devolve a folha do relatório intacta.
+  const [entityOverlayId, setEntityOverlayId] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -465,8 +470,31 @@ export default function RelatorioDrawer({ reportId, onClose, onChanged }: Props)
                       : hasMilPhoto
                         ? qualificationPhotoURL(data.id, q.id, q.id)
                         : "";
+                    const clickableCivil = q.kind === "civil" && !!q.entity_id;
                     return (
-                      <div key={q.id} className="qual-row">
+                      <div
+                        key={q.id}
+                        className={
+                          "qual-row" + (clickableCivil ? " qual-row--clickable" : "")
+                        }
+                        onClick={
+                          clickableCivil
+                            ? () => setEntityOverlayId(q.entity_id!)
+                            : undefined
+                        }
+                        role={clickableCivil ? "button" : undefined}
+                        tabIndex={clickableCivil ? 0 : undefined}
+                        onKeyDown={
+                          clickableCivil
+                            ? (ev) => {
+                                if (ev.key === "Enter" || ev.key === " ") {
+                                  ev.preventDefault();
+                                  setEntityOverlayId(q.entity_id!);
+                                }
+                              }
+                            : undefined
+                        }
+                      >
                         <span
                           className={
                             "pill " + (q.kind === "militar" ? "active" : "hold")
@@ -496,7 +524,8 @@ export default function RelatorioDrawer({ reportId, onClose, onChanged }: Props)
                             className="action-btn"
                             aria-label={hasMilPhoto ? "Trocar foto" : "Adicionar foto"}
                             title={hasMilPhoto ? "Trocar foto" : "Adicionar foto"}
-                            onClick={() => {
+                            onClick={(ev) => {
+                              ev.stopPropagation();
                               const input = document.createElement("input");
                               input.type = "file";
                               input.accept = "image/jpeg,image/png";
@@ -529,7 +558,8 @@ export default function RelatorioDrawer({ reportId, onClose, onChanged }: Props)
                             type="button"
                             className="action-btn"
                             aria-label="Remover qualificação"
-                            onClick={async () => {
+                            onClick={async (ev) => {
+                              ev.stopPropagation();
                               const ok = await modal.confirm({
                                 title: "REMOVER QUALIFICAÇÃO",
                                 message: "Esta qualificação será removida do relatório. Confirmar?",
@@ -722,6 +752,22 @@ export default function RelatorioDrawer({ reportId, onClose, onChanged }: Props)
         reportNumber={data.number}
         canDownload={canDownload}
         onClose={() => setPreviewOpen(false)}
+      />
+    )}
+    {/* Overlay da entidade clicada na lista de qualificações. Renderiza depois
+        do drawer do relatório no DOM: como ambos usam .drawer-backdrop com
+        z-index 1200, o último pintado fica visualmente em cima. Fechar este
+        overlay devolve o drawer do RI exatamente como estava. */}
+    {entityOverlayId && (
+      <EntidadeDrawer
+        entityId={entityOverlayId}
+        onClose={() => setEntityOverlayId(null)}
+        onChanged={() => {
+          // Edições no overlay podem ter renomeado a pessoa — recarrega o RI
+          // pra atualizar os snapshots das qualificações (data.nome etc.).
+          reload();
+        }}
+        onOpenEntity={(id) => setEntityOverlayId(id)}
       />
     )}
     </>

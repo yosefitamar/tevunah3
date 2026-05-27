@@ -333,6 +333,12 @@ body {
     font-family: Arial, Helvetica, sans-serif;
     color: #000;
     width: 100%;
+    /* padding-top empurra o conteúdo do rodapé (warningborder + sigilo) pra
+       baixo dentro do canvas de 50mm (--margin-bottom no wkhtmltopdf),
+       criando ~10mm de respiro entre a última linha do corpo e a caixa do
+       aviso. Usamos padding em vez de margin pra evitar margin-collapse
+       com o primeiro filho (o margin-top colapsaria pra cima e sumiria). */
+    padding-top: 10mm;
 }
 /* .safe é o wrapper centralizado pro conteúdo "normal" do rodapé (caixa do
    aviso e SECRETO). Como body é 210mm (margens do wkhtmltopdf zeradas),

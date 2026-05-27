@@ -4,6 +4,7 @@ import { useState, type FormEvent } from "react";
 import { CheckCircle2, Copy, Smartphone } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { useAuth } from "@/contexts/AuthContext";
+import { useSystemSettings } from "@/contexts/SystemSettingsContext";
 import { setupTOTP } from "@/lib/users-api";
 import type { ApiError } from "@/lib/api";
 import TevunahLogo from "./TevunahLogo";
@@ -23,6 +24,8 @@ function otpauthURI(secret: string, account: string): string {
  */
 export default function TOTPSetupScreen() {
   const { user, pendingTOTPSetup, clearPendingTOTPSetup, refreshUser, logout } = useAuth();
+  const { settings } = useSystemSettings();
+  const agencyLabel = settings?.agency_name || "—";
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -63,7 +66,7 @@ export default function TOTPSetupScreen() {
   return (
     <div className="login-shell">
       <div className="classification">
-        <span>◆ SAI 2º BPRAIO</span>
+        <span>◆ {agencyLabel}</span>
         <span className="sep">//</span>
         <span>TEVUNAH</span>
         <span className="sep">//</span>
@@ -152,7 +155,7 @@ export default function TOTPSetupScreen() {
       </div>
 
       <div className="classification bottom">
-        <span>◆ SAI 2º BPRAIO // TEVUNAH</span>
+        <span>◆ {agencyLabel} // TEVUNAH</span>
         <span className="sep">//</span>
         <span>USO MONITORADO</span>
       </div>

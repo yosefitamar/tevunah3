@@ -1,17 +1,18 @@
 "use client";
 
 import { useState } from "react";
-import { ShieldAlert, SlidersHorizontal, Monitor } from "lucide-react";
+import { Building2, ShieldAlert, SlidersHorizontal, Monitor } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { canAccessAdmin } from "@/lib/permissions";
+import AgencySettings from "./AgencySettings";
 import PermissionsMatrix from "./PermissionsMatrix";
 import DevicesPlaceholder from "./DevicesPlaceholder";
 
-type Tab = "matriz" | "dispositivos";
+type Tab = "agencia" | "matriz" | "dispositivos";
 
 export default function AdminScreen() {
   const { user: me } = useAuth();
-  const [tab, setTab] = useState<Tab>("matriz");
+  const [tab, setTab] = useState<Tab>("agencia");
 
   if (!canAccessAdmin(me)) {
     return (
@@ -38,6 +39,14 @@ export default function AdminScreen() {
       <div className="admin-tabs">
         <button
           type="button"
+          className={"admin-tab" + (tab === "agencia" ? " admin-tab--on" : "")}
+          onClick={() => setTab("agencia")}
+        >
+          <Building2 size={13} strokeWidth={1.6} />
+          <span>AGÊNCIA</span>
+        </button>
+        <button
+          type="button"
           className={"admin-tab" + (tab === "matriz" ? " admin-tab--on" : "")}
           onClick={() => setTab("matriz")}
         >
@@ -55,6 +64,7 @@ export default function AdminScreen() {
         </button>
       </div>
 
+      {tab === "agencia" && <AgencySettings />}
       {tab === "matriz" && <PermissionsMatrix />}
       {tab === "dispositivos" && <DevicesPlaceholder />}
     </div>

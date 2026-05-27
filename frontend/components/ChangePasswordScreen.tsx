@@ -3,6 +3,7 @@
 import { useState, type FormEvent } from "react";
 import { KeyRound } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import { useSystemSettings } from "@/contexts/SystemSettingsContext";
 import { changeOwnPassword } from "@/lib/users-api";
 import type { ApiError } from "@/lib/api";
 import TevunahLogo from "./TevunahLogo";
@@ -15,6 +16,8 @@ import TevunahLogo from "./TevunahLogo";
  */
 export default function ChangePasswordScreen() {
   const { logout, refreshUser } = useAuth();
+  const { settings } = useSystemSettings();
+  const agencyLabel = settings?.agency_name || "—";
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -51,7 +54,7 @@ export default function ChangePasswordScreen() {
   return (
     <div className="login-shell">
       <div className="classification">
-        <span>◆ SAI 2º BPRAIO</span>
+        <span>◆ {agencyLabel}</span>
         <span className="sep">//</span>
         <span>TEVUNAH</span>
         <span className="sep">//</span>
@@ -138,7 +141,7 @@ export default function ChangePasswordScreen() {
       </div>
 
       <div className="classification bottom">
-        <span>◆ SAI 2º BPRAIO // TEVUNAH</span>
+        <span>◆ {agencyLabel} // TEVUNAH</span>
         <span className="sep">//</span>
         <span>USO MONITORADO</span>
       </div>

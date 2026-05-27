@@ -455,6 +455,42 @@ func (r *Repo) Archive(ctx context.Context, id, actor string) (*Report, error) {
 	return r.FindByID(ctx, id)
 }
 
+// ListYears devolve os anos distintos (year IS NOT NULL) que têm relatórios
+// visíveis ao usuário, em ordem desc. Admin vê todos; senão filtra pelo
+// mesmo predicado de visibilidade do List.
+func (r *Repo) ListYears(ctx context.Context, userID string, isAdmin bool) ([]int, error) {
+	vis := "TRUE"
+	args := []any{}
+	if !isAdmin {
+		vis = `(
+			r.visibility = 'aberto'
+			OR r.created_by = $1
+			OR EXISTS (SELECT 1 FROM app.report_viewers v WHERE v.report_id = r.id AND v.user_id = $1)
+		)`
+		args = append(args, userID)
+	}
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT DISTINCT r.year
+		  FROM app.reports r
+		 WHERE r.deleted_at IS NULL
+		   AND r.year IS NOT NULL
+		   AND `+vis+`
+		 ORDER BY r.year DESC`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]int, 0)
+	for rows.Next() {
+		var y int
+		if err := rows.Scan(&y); err != nil {
+			return nil, err
+		}
+		out = append(out, y)
+	}
+	return out, rows.Err()
+}
+
 // ─── Listagem ──────────────────────────────────────────────────────────
 
 type ListOpts struct {
@@ -462,6 +498,7 @@ type ListOpts struct {
 	Offset int
 	Status string // "", "criado", "difundido", "arquivado"
 	Search string // substring em subject (ILIKE)
+	Year   int    // 0 = todos os anos; >0 = filtra year exato (inclui rascunhos com year)
 
 	// Filtro de visibilidade (obrigatório nos endpoints HTTP — vem do middleware
 	// de auth). Se IsAdmin=true, ignora o filtro e devolve todos os relatórios.
@@ -486,10 +523,10 @@ func (r *Repo) List(ctx context.Context, opts ListOpts) (*ListResult, error) {
 	search := "%" + opts.Search + "%"
 
 	// Predicado de visibilidade — true pra admin (vê tudo), senão filtra
-	// pelo autor + report_viewers. Placeholders diferentes pra count ($4) e
-	// list ($6, depois do limit/offset), por isso duas strings.
-	countArgs := []any{opts.Status, opts.Search, search}
-	listArgs := []any{opts.Status, opts.Search, search, opts.Limit, opts.Offset}
+	// pelo autor + report_viewers. Placeholders diferentes pra count ($5) e
+	// list ($7, depois do limit/offset), por isso duas strings.
+	countArgs := []any{opts.Status, opts.Search, search, opts.Year}
+	listArgs := []any{opts.Status, opts.Search, search, opts.Year, opts.Limit, opts.Offset}
 	countVis := "TRUE"
 	listVis := "TRUE"
 	if !opts.IsAdmin {
@@ -497,13 +534,13 @@ func (r *Repo) List(ctx context.Context, opts ListOpts) (*ListResult, error) {
 		listArgs = append(listArgs, opts.UserID)
 		countVis = `(
 			r.visibility = 'aberto'
-			OR r.created_by = $4
-			OR EXISTS (SELECT 1 FROM app.report_viewers v WHERE v.report_id = r.id AND v.user_id = $4)
+			OR r.created_by = $5
+			OR EXISTS (SELECT 1 FROM app.report_viewers v WHERE v.report_id = r.id AND v.user_id = $5)
 		)`
 		listVis = `(
 			r.visibility = 'aberto'
-			OR r.created_by = $6
-			OR EXISTS (SELECT 1 FROM app.report_viewers v WHERE v.report_id = r.id AND v.user_id = $6)
+			OR r.created_by = $7
+			OR EXISTS (SELECT 1 FROM app.report_viewers v WHERE v.report_id = r.id AND v.user_id = $7)
 		)`
 	}
 
@@ -514,6 +551,7 @@ func (r *Repo) List(ctx context.Context, opts ListOpts) (*ListResult, error) {
 		 WHERE r.deleted_at IS NULL
 		   AND ($1 = '' OR r.status = $1)
 		   AND ($2 = '' OR r.subject ILIKE $3)
+		   AND ($4 = 0  OR r.year = $4)
 		   AND `+countVis,
 		countArgs...,
 	).Scan(&total); err != nil {
@@ -526,9 +564,10 @@ func (r *Repo) List(ctx context.Context, opts ListOpts) (*ListResult, error) {
 		 WHERE r.deleted_at IS NULL
 		   AND ($1 = '' OR r.status = $1)
 		   AND ($2 = '' OR r.subject ILIKE $3)
+		   AND ($4 = 0  OR r.year = $4)
 		   AND `+listVis+`
 		 ORDER BY r.doc_date DESC, r.created_at DESC
-		 LIMIT $4 OFFSET $5`, listArgs...)
+		 LIMIT $5 OFFSET $6`, listArgs...)
 	if err != nil {
 		return nil, err
 	}

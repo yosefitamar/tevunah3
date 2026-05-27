@@ -27,6 +27,60 @@ services:
     networks:
       - tevunah
 
+  # ─── Importação do legado (profile "import") ─────────────────────────
+  # Serviços sob `profiles: [import]` ficam dormentes em `./tevunah up` e
+  # só sobem quando o fluxo de importação é disparado. Liberam recursos
+  # quando a migração estiver consolidada.
+
+  mysql-legacy:
+    # MySQL temporário pra receber o dump do sistema legado (Laravel). É
+    # uma estação intermediária — pgloader lê daqui e converte pro Postgres.
+    # tmpfs porque os dados não precisam persistir entre execuções.
+    # Pin em 8.0: o 8.4+ removeu a opção default-authentication-plugin (movida
+    # pra authentication_policy) e mudou defaults — manter 8.0 evita surpresa
+    # e cobre o pgloader sem ajustes adicionais.
+    image: mysql:8.0
+    container_name: tevunah-mysql-legacy
+    profiles: [import]
+    restart: "no"
+    # pgloader não suporta o plugin caching_sha2_password (default no MySQL 8) —
+    # forçamos o plugin clássico mysql_native_password pra autenticação.
+    command:
+      - "--default-authentication-plugin=mysql_native_password"
+    environment:
+      MYSQL_ROOT_PASSWORD: legacy
+      MYSQL_DATABASE: legacy
+    tmpfs:
+      - /var/lib/mysql
+    healthcheck:
+      # mysqladmin ping volta OK antes do root estar realmente pronto pra
+      # accept connections com senha. Validamos com SELECT real.
+      test: ["CMD-SHELL", "mysql -uroot -plegacy -e 'SELECT 1' >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 3s
+      retries: 40
+      start_period: 30s
+    networks:
+      - tevunah
+
+  pgloader:
+    # Conversor MySQL → Postgres. Roda one-shot (--rm) durante o import,
+    # populando o schema `legacy` do Postgres a partir do MySQL temporário.
+    image: dimitri/pgloader:latest
+    container_name: tevunah-pgloader
+    profiles: [import]
+    restart: "no"
+    depends_on:
+      mysql-legacy:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./backend/db/import:/etc/pgloader:ro
+    command: ["pgloader", "/etc/pgloader/mysql-to-postgres.load"]
+    networks:
+      - tevunah
+
   redis:
     image: redis:7-alpine
     container_name: tevunah-redis

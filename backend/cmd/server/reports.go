@@ -102,6 +102,23 @@ func toPublicQualification(q *reports.Qualification) publicQualification {
 	}
 }
 
+// ─── GET /api/reports/years ────────────────────────────────────────────
+// Devolve a lista de anos distintos que têm relatórios visíveis ao usuário.
+// Usada pelo dropdown de filtro no frontend.
+func (a *app) handleReportsYears(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePerm(w, r, "report.read") {
+		return
+	}
+	me := middleware.UserFrom(r.Context())
+	years, err := a.reports.ListYears(r.Context(), me.ID, hasRole(me.Roles, "administrador"))
+	if err != nil {
+		log.Printf("reports years: %v", err)
+		httpx.Error(w, http.StatusInternalServerError, "erro ao listar anos")
+		return
+	}
+	httpx.OK(w, map[string]any{"years": years})
+}
+
 // ─── GET /api/reports ──────────────────────────────────────────────────
 
 func (a *app) handleReportsList(w http.ResponseWriter, r *http.Request) {
@@ -112,11 +129,13 @@ func (a *app) handleReportsList(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	limit, _ := strconv.Atoi(q.Get("limit"))
 	offset, _ := strconv.Atoi(q.Get("offset"))
+	year, _ := strconv.Atoi(q.Get("year"))
 	res, err := a.reports.List(r.Context(), reports.ListOpts{
 		Limit:   limit,
 		Offset:  offset,
 		Status:  strings.TrimSpace(q.Get("status")),
 		Search:  strings.TrimSpace(q.Get("search")),
+		Year:    year,
 		UserID:  me.ID,
 		IsAdmin: hasRole(me.Roles, "administrador"),
 	})

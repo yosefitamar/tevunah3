@@ -9,6 +9,12 @@ dist/
 # Go
 backend/bin/
 backend/tmp/
+# Binários compilados na raiz do backend (build de sanidade do importer etc.)
+backend/import-legacy
+
+# Dumps do legado — dados reais do cliente, não vão pro repo
+u645012242_*.sql
+*-legacy_db*.sql
 
 # OS
 .DS_Store

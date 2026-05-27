@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { X } from "lucide-react";
 import {
   CONFIDENTIALITY_LABEL,
@@ -8,6 +8,7 @@ import {
   type ReportConfidentiality,
 } from "@/lib/reports-api";
 import type { ApiError } from "@/lib/api";
+import { useSystemSettings } from "@/contexts/SystemSettingsContext";
 import DateInput from "../shared/DateInput";
 import Select from "../shared/Select";
 
@@ -23,9 +24,19 @@ type Props = {
  */
 export default function CreateRelatorioModal({ onClose, onCreated }: Props) {
   const today = new Date().toISOString().slice(0, 10);
+  const { settings, loading: settingsLoading } = useSystemSettings();
   const [docDate, setDocDate] = useState(today);
   const [subject, setSubject] = useState("");
-  const [origin, setOrigin] = useState("CCINT/ASINT/PMCE");
+  // Origin é inicializado vazio e populado quando as settings chegam — o
+  // usuário ainda pode sobrescrever manualmente. Se o admin não configurou
+  // document_title, o campo abre vazio (sem o default antigo "CCINT/ASINT/PMCE",
+  // que agora vive em system_settings).
+  const [origin, setOrigin] = useState("");
+  const [originTouched, setOriginTouched] = useState(false);
+  useEffect(() => {
+    if (originTouched) return;
+    if (settings?.document_title) setOrigin(settings.document_title);
+  }, [settings, originTouched]);
   const [diffusion, setDiffusion] = useState("");
   const [confidentiality, setConfidentiality] = useState<ReportConfidentiality>("secreto");
   const [busy, setBusy] = useState(false);
@@ -90,7 +101,11 @@ export default function CreateRelatorioModal({ onClose, onCreated }: Props) {
               <input
                 type="text"
                 value={origin}
-                onChange={(e) => setOrigin(e.target.value)}
+                onChange={(e) => {
+                  setOriginTouched(true);
+                  setOrigin(e.target.value);
+                }}
+                placeholder={settingsLoading ? "carregando…" : "ex.: CCINT/ASINT/PMCE"}
                 maxLength={120}
               />
             </label>

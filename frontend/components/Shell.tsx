@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { MODULE_TITLES, type ModuleId } from "@/lib/nav";
 import { type PaletteId } from "@/lib/palettes";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
+import { SystemSettingsProvider, useSystemSettings } from "@/contexts/SystemSettingsContext";
 import { ModalProvider } from "@/contexts/ModalContext";
 import Sidebar from "./Sidebar";
 import Topbar from "./Topbar";
@@ -36,10 +37,12 @@ const VIEWS: Record<ModuleId, React.ComponentType> = {
 
 function AuthenticatedShell() {
   const { sessionExpired } = useAuth();
+  const { settings } = useSystemSettings();
   const [active, setActive] = useState<ModuleId>("dashboard");
   const [collapsed, setCollapsed] = useState(false);
   const [palette, setPalette] = useState<PaletteId>("phosphor");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const agencyLabel = settings?.agency_name || "—";
 
   useEffect(() => {
     document.documentElement.setAttribute("data-palette", palette);
@@ -51,7 +54,7 @@ function AuthenticatedShell() {
   return (
     <div className="shell" style={{ ["--side-w" as string]: sideW } as React.CSSProperties}>
       <div className="classification">
-        <span>◆ SAI 2º BPRAIO</span>
+        <span>◆ {agencyLabel}</span>
         <span className="sep">//</span>
         <span>TEVUNAH</span>
       </div>
@@ -72,7 +75,7 @@ function AuthenticatedShell() {
       </div>
 
       <div className="classification bottom">
-        <span>◆ SAI 2º BPRAIO // TEVUNAH</span>
+        <span>◆ {agencyLabel} // TEVUNAH</span>
         <span className="sep">//</span>
         <span>SESSÃO 0x4F-A91C · TERM-04 · 192.168.42.18</span>
         <span className="sep">//</span>
@@ -99,9 +102,11 @@ function AuthGate() {
 export default function Shell() {
   return (
     <AuthProvider>
-      <ModalProvider>
-        <AuthGate />
-      </ModalProvider>
+      <SystemSettingsProvider>
+        <ModalProvider>
+          <AuthGate />
+        </ModalProvider>
+      </SystemSettingsProvider>
     </AuthProvider>
   );
 }

@@ -3,11 +3,14 @@
 import { useState, type FormEvent } from "react";
 import { LogIn } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import { useSystemSettings } from "@/contexts/SystemSettingsContext";
 import type { ApiError } from "@/lib/api";
 import TevunahLogo from "./TevunahLogo";
 
 export default function LoginScreen() {
   const { login } = useAuth();
+  const { settings } = useSystemSettings();
+  const agencyLabel = settings?.agency_name || "—";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [totp, setTotp] = useState("");
@@ -31,7 +34,7 @@ export default function LoginScreen() {
   return (
     <div className="login-shell">
       <div className="classification">
-        <span>◆ SAI 2º BPRAIO</span>
+        <span>◆ {agencyLabel}</span>
         <span className="sep">//</span>
         <span>TEVUNAH</span>
         <span className="sep">//</span>
@@ -103,7 +106,7 @@ export default function LoginScreen() {
       </div>
 
       <div className="classification bottom">
-        <span>◆ SAI 2º BPRAIO // TEVUNAH</span>
+        <span>◆ {agencyLabel} // TEVUNAH</span>
         <span className="sep">//</span>
         <span>USO MONITORADO</span>
       </div>

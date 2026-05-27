@@ -1,0 +1,29 @@
+-- Config do pgloader: replica as tabelas de domínio do MySQL legado
+-- (banco `legacy` rodando no container mysql-legacy) pro schema `legacy.*`
+-- do Postgres. O importer Go consome dali e transforma pra app.*.
+--
+-- Tabelas Laravel de infra (sessions/jobs/cache/migrations) são excluídas —
+-- só nos interessam as tabelas de negócio.
+--
+-- Estratégia de tipos: tinyint(1) → boolean (flags is_dead/is_arrested);
+-- demais defaults do pgloader são adequados (text/timestamp/bigint).
+
+LOAD DATABASE
+     FROM      mysql://root:legacy@mysql-legacy/legacy
+     INTO      postgresql://tevunah:tevunah@postgres/tevunah
+
+  WITH include drop, create tables, create indexes, reset sequences,
+       foreign keys, downcase identifiers
+
+  -- drop typemod: pgloader por padrão emite "boolean(1)" (precisão herdada
+  -- do tinyint), que é inválido em Postgres. drop typemod tira o (1).
+  CAST type tinyint when (= precision 1) to boolean drop typemod
+       using tinyint-to-boolean
+
+  ALTER SCHEMA 'legacy' RENAME TO 'legacy'
+
+  INCLUDING ONLY TABLE NAMES MATCHING
+       'users', 'agents', 'ranks',
+       'internal_reports', 'internal_reports_suspects',
+       'suspects', 'suspect_photos'
+;

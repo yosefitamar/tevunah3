@@ -75,6 +75,7 @@ export type ListReportsOpts = {
   offset?: number;
   status?: "" | ReportStatus;
   search?: string;
+  year?: number;
 };
 
 function qs(opts: ListReportsOpts): string {
@@ -83,12 +84,17 @@ function qs(opts: ListReportsOpts): string {
   if (opts.offset) p.set("offset", String(opts.offset));
   if (opts.status) p.set("status", opts.status);
   if (opts.search) p.set("search", opts.search);
+  if (opts.year && opts.year > 0) p.set("year", String(opts.year));
   const s = p.toString();
   return s ? "?" + s : "";
 }
 
 export function listReports(opts: ListReportsOpts = {}) {
   return api<ReportsList>(`/api/reports${qs(opts)}`);
+}
+
+export function listReportYears() {
+  return api<{ years: number[] }>(`/api/reports/years`);
 }
 
 export type NewReportInput = {

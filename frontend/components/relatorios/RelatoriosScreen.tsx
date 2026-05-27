@@ -8,6 +8,7 @@ import {
   REPORT_STATUS_LABEL,
   REPORT_STATUS_PILL,
   listReports,
+  listReportYears,
   type Report,
   type ReportStatus,
   type ReportsList,
@@ -25,9 +26,12 @@ const PAGE_SIZE = 25;
 type Filters = {
   status: "" | ReportStatus;
   search: string;
+  // 0 = TODOS; default carregado é o ano atual quando há RIs no ano atual,
+  // senão TODOS (decisão tomada após o fetch de listReportYears).
+  year: number;
 };
 
-const EMPTY_FILTERS: Filters = { status: "", search: "" };
+const EMPTY_FILTERS: Filters = { status: "", search: "", year: 0 };
 
 export default function RelatoriosScreen() {
   const { user: me } = useAuth();
@@ -35,6 +39,8 @@ export default function RelatoriosScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
+  const [years, setYears] = useState<number[]>([]);
+  const [yearsLoaded, setYearsLoaded] = useState(false);
   const [page, setPage] = useState(0);
   const [sort, setSort] = useState<SortState>({ field: "doc_date", dir: "desc" });
   const [showCreate, setShowCreate] = useState(false);
@@ -43,8 +49,36 @@ export default function RelatoriosScreen() {
   const canRead = canReadReports(me);
   const canCreate = canCreateReports(me);
 
+  // Carrega os anos disponíveis e seta o filtro inicial pro ano atual quando
+  // existem RIs nesse ano. Roda uma única vez por montagem.
+  useEffect(() => {
+    if (!canRead) return;
+    let alive = true;
+    (async () => {
+      try {
+        const { years: ys } = await listReportYears();
+        if (!alive) return;
+        setYears(ys);
+        const currentYear = new Date().getFullYear();
+        if (ys.includes(currentYear)) {
+          setFilters((f) => ({ ...f, year: currentYear }));
+        }
+      } catch {
+        // Sem fatal: dropdown fica em "TODOS" e mostra todos os anos.
+      } finally {
+        if (alive) setYearsLoaded(true);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [canRead]);
+
   const reload = useCallback(async () => {
     if (!canRead) return;
+    // Espera o fetch de anos terminar antes de listar — senão fazemos uma
+    // listagem inicial sem filtro de ano e outra logo em seguida com filtro.
+    if (!yearsLoaded) return;
     setLoading(true);
     setError(null);
     try {
@@ -53,6 +87,7 @@ export default function RelatoriosScreen() {
         offset: page * PAGE_SIZE,
         status: filters.status || undefined,
         search: filters.search.trim() || undefined,
+        year: filters.year || undefined,
       });
       setData(res);
     } catch (e) {
@@ -60,7 +95,7 @@ export default function RelatoriosScreen() {
     } finally {
       setLoading(false);
     }
-  }, [canRead, filters, page]);
+  }, [canRead, yearsLoaded, filters, page]);
 
   useEffect(() => {
     reload();
@@ -82,7 +117,7 @@ export default function RelatoriosScreen() {
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   return (
-    <div className="screen">
+    <div className="screen-fill">
       <div className="toolbar">
         <div className="toolbar-search">
           <Search size={14} strokeWidth={1.6} />
@@ -109,6 +144,19 @@ export default function RelatoriosScreen() {
             { value: "criado", label: "STATUS · CRIADO" },
             { value: "difundido", label: "STATUS · DIFUNDIDO" },
             { value: "arquivado", label: "STATUS · ARQUIVADO" },
+          ]}
+        />
+        <Select
+          value={String(filters.year)}
+          onChange={(v) => {
+            setFilters({ ...filters, year: Number(v) || 0 });
+            setPage(0);
+          }}
+          className="sel--toolbar"
+          placeholder="ANO · TODOS"
+          options={[
+            { value: "0", label: "ANO · TODOS" },
+            ...years.map((y) => ({ value: String(y), label: `ANO · ${y}` })),
           ]}
         />
         <div style={{ marginLeft: "auto" }} />

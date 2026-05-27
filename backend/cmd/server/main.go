@@ -29,6 +29,7 @@ import (
 	"github.com/belia/tevunah/backend/internal/middleware"
 	"github.com/belia/tevunah/backend/internal/permissions"
 	"github.com/belia/tevunah/backend/internal/session"
+	"github.com/belia/tevunah/backend/internal/settings"
 	"github.com/belia/tevunah/backend/internal/users"
 	"github.com/pquerna/otp/totp"
 )
@@ -46,6 +47,7 @@ type app struct {
 	perms       *permissions.Repo
 	entities    *entities.Repo
 	reports     *reports.Repo
+	settings    *settings.Repo
 	pdf         *pdf.Client
 }
 
@@ -77,7 +79,8 @@ func main() {
 		perms:       permissions.New(appDB),
 		entities:    entities.New(appDB),
 		reports:     reports.New(appDB),
-		pdf: pdf.New("", photoDir()),
+		settings:    settings.New(appDB),
+		pdf:         pdf.New("", photoDir()),
 	}
 
 	mux := http.NewServeMux()
@@ -107,6 +110,11 @@ func main() {
 	mux.Handle("GET /api/admin/permissions", auth(http.HandlerFunc(a.handleAdminPermissionsList)))
 	mux.Handle("PATCH /api/admin/permissions/{role_code}/{action}", auth(http.HandlerFunc(a.handleAdminPermissionsUpdate)))
 
+	mux.HandleFunc("GET /api/system-settings", a.handleSystemSettingsGet)
+	mux.Handle("PUT /api/admin/system-settings", auth(http.HandlerFunc(a.handleSystemSettingsUpdate)))
+	mux.Handle("PUT /api/admin/system-settings/brasao", auth(http.HandlerFunc(a.handleSystemSettingsBrasaoUpload)))
+	mux.Handle("GET /api/admin/system-settings/brasao", auth(http.HandlerFunc(a.handleSystemSettingsBrasaoGet)))
+
 	mux.Handle("GET /api/entities/persons/duplicates", auth(http.HandlerFunc(a.handleEntityPersonDuplicates)))
 	mux.Handle("GET /api/entities", auth(http.HandlerFunc(a.handleEntitiesList)))
 	mux.Handle("POST /api/entities", auth(http.HandlerFunc(a.handleEntityCreate)))
@@ -131,6 +139,7 @@ func main() {
 	mux.Handle("DELETE /api/entities/{id}/addresses/{aid}", auth(http.HandlerFunc(a.handlePersonAddressDelete)))
 
 	mux.Handle("GET /api/reports", auth(http.HandlerFunc(a.handleReportsList)))
+	mux.Handle("GET /api/reports/years", auth(http.HandlerFunc(a.handleReportsYears)))
 	mux.Handle("POST /api/reports", auth(http.HandlerFunc(a.handleReportCreate)))
 	mux.Handle("GET /api/reports/{id}", auth(http.HandlerFunc(a.handleReportDetail)))
 	mux.Handle("PATCH /api/reports/{id}", auth(http.HandlerFunc(a.handleReportUpdate)))
@@ -302,6 +311,18 @@ func (a *app) handleLogin(w http.ResponseWriter, r *http.Request) {
 		logDenied(&u.ID, "senha inválida")
 		httpx.Error(w, http.StatusUnauthorized, "credenciais inválidas")
 		return
+	}
+
+	// Auto-rehash: usuários importados do legado têm hash bcrypt. Na primeira
+	// autenticação bem-sucedida, re-codificamos em argon2id e persistimos —
+	// transparente pro usuário, sem reset de senha. Falha aqui não bloqueia
+	// o login (a senha continua válida via bcrypt na próxima tentativa).
+	if crypt.NeedsRehash(u.PasswordHash) {
+		if newHash, herr := crypt.Hash(req.Password); herr == nil {
+			if err := a.users.SetPassword(ctx, u.ID, newHash, false); err != nil {
+				log.Printf("auto-rehash %s: %v", u.ID, err)
+			}
+		}
 	}
 
 	// Setup pendente do TOTP: pula a validação do código. Gera o secret se

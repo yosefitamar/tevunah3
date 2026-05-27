@@ -41,5 +41,13 @@ export const canEditReports = canCreateReports;
 export const canDiffuseReports = (u: User | null) =>
   hasRole(u, "gestor", "administrador");
 export const canArchiveReports = canDiffuseReports;
+// Reverter difusão devolve o RI pra edição — restrito a administrador.
+// Espelha a permissão report.undiffuse (migration 00028).
+export const canUndiffuseReports = (u: User | null) =>
+  hasRole(u, "administrador");
 export const canDownloadReports = (u: User | null) =>
+  hasRole(u, "analista", "gestor", "administrador");
+// Destruir (soft delete) rascunho — só faz sentido pra quem cria/edita.
+// O backend ainda exige que o caller seja autor OU admin.
+export const canDestroyReports = (u: User | null) =>
   hasRole(u, "analista", "gestor", "administrador");

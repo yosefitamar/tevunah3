@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { FileText, Plus, Search, ShieldAlert } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import {
+  CONFIDENTIALITY_LABEL,
   REPORT_STATUS_LABEL,
   REPORT_STATUS_PILL,
   listReports,
@@ -131,8 +132,9 @@ export default function RelatoriosScreen() {
               <tr>
                 <SortHeader field="number" label="Nº / ANO" sort={sort} onChange={setSort} width={120} />
                 <SortHeader field="status" label="STATUS" sort={sort} onChange={setSort} width={120} />
-                <SortHeader field="doc_date" label="DATA" sort={sort} onChange={setSort} width={110} />
+                <SortHeader field="doc_date" label="DATA" sort={sort} onChange={setSort} width={135} />
                 <SortHeader field="subject" label="ASSUNTO" sort={sort} onChange={setSort} />
+                <SortHeader field="confidentiality" label="CONFIDENCIALIDADE" sort={sort} onChange={setSort} width={160} />
                 <SortHeader field="diffusion" label="DIFUSÃO" sort={sort} onChange={setSort} width={200} />
                 <SortHeader field="updated_at" label="ATUALIZADO" sort={sort} onChange={setSort} width={140} />
               </tr>
@@ -140,14 +142,14 @@ export default function RelatoriosScreen() {
             <tbody>
               {loading && (
                 <tr>
-                  <td colSpan={6} className="muted" style={{ textAlign: "center", padding: 32 }}>
+                  <td colSpan={7} className="muted" style={{ textAlign: "center", padding: 32 }}>
                     // CARREGANDO…
                   </td>
                 </tr>
               )}
               {!loading && items.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="muted" style={{ textAlign: "center", padding: 32 }}>
+                  <td colSpan={7} className="muted" style={{ textAlign: "center", padding: 32 }}>
                     // NENHUM RELATÓRIO ENCONTRADO
                   </td>
                 </tr>
@@ -230,13 +232,18 @@ function Row({ report, onOpen }: { report: Report; onOpen: () => void }) {
           {REPORT_STATUS_LABEL[report.status]}
         </span>
       </td>
-      <td>{formatBR(report.doc_date)}</td>
+      <td style={{ whiteSpace: "nowrap" }}>{formatBR(report.doc_date)}</td>
       <td style={{ color: "var(--fg-0)" }}>
         {report.subject ? (
           report.subject.toUpperCase()
         ) : (
           <span className="muted">(sem assunto)</span>
         )}
+      </td>
+      <td>
+        <span className={"pill conf-" + report.confidentiality}>
+          {CONFIDENTIALITY_LABEL[report.confidentiality]}
+        </span>
       </td>
       <td className="muted">
         {report.diffusion ? report.diffusion.toUpperCase() : "—"}

@@ -23,6 +23,7 @@ import (
 	"github.com/belia/tevunah/backend/internal/crypt"
 	idb "github.com/belia/tevunah/backend/internal/db"
 	"github.com/belia/tevunah/backend/internal/entities"
+	"github.com/belia/tevunah/backend/internal/pdf"
 	"github.com/belia/tevunah/backend/internal/reports"
 	"github.com/belia/tevunah/backend/internal/httpx"
 	"github.com/belia/tevunah/backend/internal/middleware"
@@ -45,6 +46,7 @@ type app struct {
 	perms       *permissions.Repo
 	entities    *entities.Repo
 	reports     *reports.Repo
+	pdf         *pdf.Client
 }
 
 func main() {
@@ -75,6 +77,7 @@ func main() {
 		perms:       permissions.New(appDB),
 		entities:    entities.New(appDB),
 		reports:     reports.New(appDB),
+		pdf: pdf.New("", photoDir()),
 	}
 
 	mux := http.NewServeMux()
@@ -88,6 +91,7 @@ func main() {
 	mux.Handle("POST /api/auth/totp/setup", auth(http.HandlerFunc(a.handleTOTPSetup)))
 
 	mux.Handle("GET /api/users", auth(http.HandlerFunc(a.handleUsersList)))
+	mux.Handle("GET /api/users/lookup", auth(http.HandlerFunc(a.handleUsersLookup)))
 	mux.Handle("POST /api/users", auth(http.HandlerFunc(a.handleUserCreate)))
 	mux.Handle("GET /api/users/{id}", auth(http.HandlerFunc(a.handleUserDetail)))
 	mux.Handle("PATCH /api/users/{id}", auth(http.HandlerFunc(a.handleUserUpdate)))
@@ -130,10 +134,19 @@ func main() {
 	mux.Handle("POST /api/reports", auth(http.HandlerFunc(a.handleReportCreate)))
 	mux.Handle("GET /api/reports/{id}", auth(http.HandlerFunc(a.handleReportDetail)))
 	mux.Handle("PATCH /api/reports/{id}", auth(http.HandlerFunc(a.handleReportUpdate)))
+	mux.Handle("DELETE /api/reports/{id}", auth(http.HandlerFunc(a.handleReportDestroy)))
 	mux.Handle("POST /api/reports/{id}/diffuse", auth(http.HandlerFunc(a.handleReportDiffuse)))
+	mux.Handle("POST /api/reports/{id}/undiffuse", auth(http.HandlerFunc(a.handleReportUndiffuse)))
 	mux.Handle("POST /api/reports/{id}/archive", auth(http.HandlerFunc(a.handleReportArchive)))
+	mux.Handle("GET /api/reports/{id}/download", auth(http.HandlerFunc(a.handleReportDownload)))
+	mux.Handle("PUT /api/reports/{id}/visibility", auth(http.HandlerFunc(a.handleReportSetVisibility)))
+	mux.Handle("GET /api/reports/{id}/viewers", auth(http.HandlerFunc(a.handleReportViewersList)))
+	mux.Handle("PUT /api/reports/{id}/viewers", auth(http.HandlerFunc(a.handleReportSetViewers)))
 	mux.Handle("POST /api/reports/{id}/qualifications", auth(http.HandlerFunc(a.handleReportQualificationCreate)))
 	mux.Handle("DELETE /api/reports/{id}/qualifications/{qid}", auth(http.HandlerFunc(a.handleReportQualificationDelete)))
+	mux.Handle("POST /api/reports/{id}/qualifications/{qid}/photo", auth(http.HandlerFunc(a.handleQualificationPhotoUpload)))
+	mux.Handle("GET /api/reports/{id}/qualifications/{qid}/photo", auth(http.HandlerFunc(a.handleQualificationPhotoGet)))
+	mux.Handle("DELETE /api/reports/{id}/qualifications/{qid}/photo", auth(http.HandlerFunc(a.handleQualificationPhotoDelete)))
 
 	mux.Handle("GET /api/approvals", auth(http.HandlerFunc(a.handleApprovalsList)))
 	mux.Handle("GET /api/approvals/{id}", auth(http.HandlerFunc(a.handleApprovalDetail)))

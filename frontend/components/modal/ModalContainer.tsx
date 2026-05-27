@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   AlertOctagon,
   AlertTriangle,
@@ -33,13 +33,32 @@ export type ConfirmInstance = {
   danger: boolean;
 };
 
+export type PromptInstance = {
+  id: string;
+  type: "prompt";
+  variant: "info" | "warning";
+  title?: string;
+  message?: ReactNode;
+  label?: string;
+  placeholder?: string;
+  initialValue: string;
+  inputType: "text" | "url" | "textarea";
+  confirmLabel: string;
+  cancelLabel: string;
+  validate?: (value: string) => string | null;
+};
+
 export type LoadingInstance = {
   id: string;
   type: "loading";
   message: string;
 };
 
-export type ModalInstance = AlertInstance | ConfirmInstance | LoadingInstance;
+export type ModalInstance =
+  | AlertInstance
+  | ConfirmInstance
+  | PromptInstance
+  | LoadingInstance;
 
 type Props = {
   stack: ModalInstance[];
@@ -49,7 +68,7 @@ type Props = {
 // ─────────────────────────── Container ────────────────────────────
 
 export default function ModalContainer({ stack, onClose }: Props) {
-  // ESC fecha o topo (apenas alert/confirm — loading não pode ser cancelado).
+  // ESC fecha o topo (apenas alert/confirm/prompt — loading não cancela).
   useEffect(() => {
     if (stack.length === 0) return;
     const top = stack[stack.length - 1];
@@ -58,6 +77,7 @@ export default function ModalContainer({ stack, onClose }: Props) {
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
         if (top.type === "confirm") onClose(top.id, false);
+        else if (top.type === "prompt") onClose(top.id, null);
         else onClose(top.id);
       }
     }
@@ -90,6 +110,7 @@ const VARIANT_HEADER: Record<string, string> = {
   warning: "// ATENÇÃO",
   error: "// ERRO",
   loading: "// OPERAÇÃO EM ANDAMENTO",
+  prompt: "// ENTRADA",
 };
 
 function VariantIcon({ variant }: { variant: string }) {
@@ -126,11 +147,14 @@ function ModalView({
   const variant = instance.type === "loading" ? "loading" : instance.variant;
   const isLoading = instance.type === "loading";
   const isConfirm = instance.type === "confirm";
+  const isPrompt = instance.type === "prompt";
+  const headerKey = isPrompt ? "prompt" : variant;
 
   function clickBackdrop() {
     if (!topmost) return;
     if (isLoading) return; // loading não pode ser cancelado pelo backdrop
     if (isConfirm) onClose(instance.id, false);
+    else if (isPrompt) onClose(instance.id, null);
     else onClose(instance.id);
   }
 
@@ -151,7 +175,7 @@ function ModalView({
         aria-labelledby={`mhd-${instance.id}`}
       >
         <div className="modal-hd" id={`mhd-${instance.id}`}>
-          <span>{VARIANT_HEADER[variant] ?? "// AVISO"}</span>
+          <span>{VARIANT_HEADER[headerKey] ?? "// AVISO"}</span>
         </div>
 
         {isLoading ? (
@@ -161,6 +185,12 @@ function ModalView({
               <div className="modal-loading-message">{instance.message}</div>
             )}
           </div>
+        ) : isPrompt ? (
+          <PromptBody
+            instance={instance as PromptInstance}
+            onClose={onClose}
+            topmost={topmost}
+          />
         ) : (
           <div className="modal-bd">
             <div className={"modal-icon modal-icon--" + variant}>
@@ -175,7 +205,7 @@ function ModalView({
           </div>
         )}
 
-        {!isLoading && (
+        {!isLoading && !isPrompt && (
           <div className="modal-ft">
             {isConfirm ? (
               <>
@@ -209,5 +239,114 @@ function ModalView({
         )}
       </div>
     </div>
+  );
+}
+
+// ─────────────────────────── PromptBody ────────────────────────────
+
+function PromptBody({
+  instance,
+  onClose,
+  topmost,
+}: {
+  instance: PromptInstance;
+  onClose: (id: string, result?: unknown) => void;
+  topmost: boolean;
+}) {
+  const [value, setValue] = useState(instance.initialValue);
+  const [err, setErr] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
+
+  useEffect(() => {
+    if (topmost) inputRef.current?.focus();
+  }, [topmost]);
+
+  function submit() {
+    const v = instance.inputType === "textarea" ? value : value.trim();
+    if (instance.validate) {
+      const e = instance.validate(v);
+      if (e) {
+        setErr(e);
+        return;
+      }
+    }
+    onClose(instance.id, v);
+  }
+
+  function onKey(e: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) {
+    // Enter envia em input/url; em textarea só com Cmd/Ctrl+Enter.
+    if (e.key === "Enter") {
+      if (instance.inputType === "textarea" && !(e.metaKey || e.ctrlKey)) return;
+      e.preventDefault();
+      submit();
+    }
+  }
+
+  return (
+    <>
+      <div className="modal-bd">
+        <div className={"modal-icon modal-icon--" + instance.variant}>
+          <VariantIcon variant={instance.variant} />
+        </div>
+        <div className="modal-content">
+          {instance.title && (
+            <div className="modal-title">{instance.title}</div>
+          )}
+          {instance.message && (
+            <div className="modal-message">{instance.message}</div>
+          )}
+          <label className="form-field" style={{ marginTop: 10 }}>
+            {instance.label && <span>{instance.label}</span>}
+            {instance.inputType === "textarea" ? (
+              <textarea
+                ref={(el) => {
+                  inputRef.current = el;
+                }}
+                value={value}
+                rows={4}
+                placeholder={instance.placeholder}
+                onChange={(e) => {
+                  setValue(e.target.value);
+                  if (err) setErr(null);
+                }}
+                onKeyDown={onKey}
+              />
+            ) : (
+              <input
+                ref={(el) => {
+                  inputRef.current = el;
+                }}
+                type={instance.inputType}
+                value={value}
+                placeholder={instance.placeholder}
+                onChange={(e) => {
+                  setValue(e.target.value);
+                  if (err) setErr(null);
+                }}
+                onKeyDown={onKey}
+                autoComplete="off"
+              />
+            )}
+          </label>
+          {err && (
+            <div className="banner banner-error" style={{ marginTop: 8 }}>
+              ⚠ {err}
+            </div>
+          )}
+        </div>
+      </div>
+      <div className="modal-ft">
+        <button
+          type="button"
+          className="btn btn-ghost"
+          onClick={() => onClose(instance.id, null)}
+        >
+          {instance.cancelLabel}
+        </button>
+        <button type="button" className="btn btn-primary" onClick={submit}>
+          {instance.confirmLabel}
+        </button>
+      </div>
+    </>
   );
 }

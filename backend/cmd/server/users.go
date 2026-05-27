@@ -438,3 +438,43 @@ func (a *app) handleUserUpdate(w http.ResponseWriter, r *http.Request) {
 	httpx.OK(w, map[string]any{"user": toPublic(u)})
 }
 
+
+// ─── GET /api/users/lookup ─────────────────────────────────────────────
+//
+// Endpoint leve pra picker — devolve apenas { id, code, display_name } dos
+// usuários ATIVOS, ordenado por display_name, limitado a 50. Não exige a
+// permissão user.list (que é restrita a admin/gestor): qualquer usuário
+// autenticado pode lookuppar pra compartilhar um relatório com colegas.
+//
+// Filtros: ?search= (substring em code/display_name/email). Sem paginação;
+// se a busca não devolver o usuário desejado, refinar com mais caracteres.
+func (a *app) handleUsersLookup(w http.ResponseWriter, r *http.Request) {
+	// Qualquer usuário autenticado pode usar — middleware já garantiu auth.
+	q := r.URL.Query()
+	search := strings.TrimSpace(q.Get("search"))
+	res, err := a.users.List(r.Context(), users.ListOpts{
+		Limit:   50,
+		Status:  "active",
+		Search:  search,
+		SortBy:  "display_name",
+		SortDir: "asc",
+	})
+	if err != nil {
+		log.Printf("users lookup: %v", err)
+		httpx.Error(w, http.StatusInternalServerError, "erro ao buscar usuários")
+		return
+	}
+	type lookupItem struct {
+		ID          string `json:"id"`
+		Code        string `json:"code"`
+		DisplayName string `json:"display_name"`
+	}
+	items := make([]lookupItem, 0, len(res.Items))
+	for i := range res.Items {
+		u := &res.Items[i]
+		items = append(items, lookupItem{
+			ID: u.ID, Code: u.Code, DisplayName: u.DisplayName,
+		})
+	}
+	httpx.OK(w, map[string]any{"items": items})
+}

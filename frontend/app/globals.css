@@ -1066,6 +1066,43 @@ body.session-locked > *:not(.session-overlay-root) {
   border-color: var(--line-2);
 }
 .rte-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.rte-select {
+  appearance: none;
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+  color: var(--fg-1);
+  font: inherit;
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  padding: 3px 6px;
+  height: 22px;
+  cursor: pointer;
+  outline: none;
+}
+.rte-select:hover:not(:disabled) {
+  border-color: var(--line-2);
+  color: var(--fg-0);
+}
+.rte-select:focus { border-color: var(--accent); }
+.rte-select:disabled { opacity: 0.4; cursor: not-allowed; }
+.rte-color {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.rte-color input[type="color"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 24px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--line);
+  background: var(--bg-1);
+  cursor: pointer;
+}
+.rte-color input[type="color"]::-webkit-color-swatch-wrapper { padding: 2px; }
+.rte-color input[type="color"]::-webkit-color-swatch { border: 0; }
+.rte-color input[type="color"]:disabled { opacity: 0.4; cursor: not-allowed; }
 .rte-sep {
   width: 1px;
   height: 18px;
@@ -1092,18 +1129,14 @@ body.session-locked > *:not(.session-overlay-root) {
 }
 .rte-content .ProseMirror h2 {
   font-size: 14px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--accent);
+  font-weight: 700;
+  color: var(--fg-0);
   margin: 12px 0 6px;
 }
 .rte-content .ProseMirror h3 {
-  font-size: 12.5px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--fg-1);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--fg-0);
   margin: 10px 0 6px;
 }
 .rte-content .ProseMirror ul,
@@ -1126,6 +1159,41 @@ body.session-locked > *:not(.session-overlay-root) {
   max-width: 100%;
   height: auto;
   border: 1px solid var(--line);
+}
+.rte-content .ProseMirror .rte-img {
+  position: relative;
+  display: inline-block;
+  line-height: 0;
+  max-width: 100%;
+  margin: 6px 0;
+}
+.rte-content .ProseMirror .rte-img img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+.rte-content .ProseMirror .rte-img--selected img {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.rte-content .ProseMirror .rte-img-handle {
+  position: absolute;
+  right: -5px;
+  bottom: -5px;
+  width: 12px;
+  height: 12px;
+  background: var(--accent);
+  border: 1px solid var(--bg-0);
+  border-radius: 2px;
+  cursor: nwse-resize;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+.rte-content .ProseMirror .rte-img:hover .rte-img-handle,
+.rte-content .ProseMirror .rte-img--selected .rte-img-handle {
+  opacity: 1;
+  pointer-events: auto;
 }
 .rte-content .ProseMirror table {
   border-collapse: collapse;
@@ -2415,6 +2483,185 @@ body.session-locked > *:not(.session-overlay-root) {
   cursor: not-allowed;
 }
 
+/* Picker e listagem de qualificações no drawer do relatório */
+.qual-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.qual-picker-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.qual-picker-panel {
+  border: 1px solid var(--line-2);
+  background: var(--bg-2);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+}
+.qual-picker-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  color: var(--accent);
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+.qual-picker-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+  padding: 4px 8px;
+}
+.qual-picker-search input {
+  flex: 1;
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--fg-0);
+  outline: none;
+  font: inherit;
+  font-size: 12.5px;
+  padding: 4px 0;
+}
+.qual-picker-results {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.qual-picker-row {
+  position: relative;
+  appearance: none;
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+  color: var(--fg-0);
+  text-align: left;
+  padding: 6px 10px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-rows: auto auto;
+  column-gap: 8px;
+  align-items: center;
+  cursor: pointer;
+  font: inherit;
+}
+.qual-picker-row:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--bg-2);
+}
+.qual-picker-row:disabled { opacity: 0.5; cursor: not-allowed; }
+.qual-picker-row-name {
+  font-size: 11.5px;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  grid-column: 1;
+  grid-row: 1;
+}
+.qual-picker-row-meta {
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--fg-3);
+  grid-column: 1;
+  grid-row: 2;
+}
+.qual-picker-row-add {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  color: var(--accent);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.qual-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  background: var(--bg-2);
+  margin-bottom: 4px;
+}
+.qual-row-info { flex: 1; min-width: 0; }
+/* Thumbnail flutuante na qualificação (CIVIL): aparece quando o mouse passa
+   sobre o nome. Posicionada à esquerda da linha, fora do fluxo. */
+.qual-thumb {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  right: 8px;
+  width: 96px;
+  height: 96px;
+  object-fit: cover;
+  border: 1px solid var(--accent);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+  background: var(--bg-1);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(4px);
+  transition: opacity 120ms ease, transform 120ms ease;
+  z-index: 1400;
+}
+.qual-row:hover .qual-thumb,
+.qual-picker-row:hover .qual-thumb {
+  opacity: 1;
+  transform: translateY(0);
+}
+/* Picker de foto da qualificação militar (form de criação) */
+.qual-photo-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--line);
+}
+.qual-photo-preview {
+  width: 96px;
+  height: 128px;
+  border: 1px solid var(--line);
+  background: var(--bg-1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.qual-photo-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.qual-photo-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.qual-row-name {
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  color: var(--fg-0);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.qual-row-meta {
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--fg-3);
+  margin-top: 2px;
+}
+
 /* Confirmação destrutiva inline */
 .confirm-block {
   border: 1px solid var(--crit);
@@ -2443,6 +2690,26 @@ body.session-locked > *:not(.session-overlay-root) {
 .btn-danger:hover:not(:disabled) {
   box-shadow: 0 0 10px rgba(255,59,59,0.4);
   color: var(--bg-0);
+}
+
+/* Bloco de aviso usado em diálogos destrutivos (ex.: reverter difusão). */
+.undiffuse-warn {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  align-items: start;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--crit) 45%, var(--line-2));
+  background: color-mix(in srgb, var(--crit) 10%, var(--bg-2));
+  color: var(--fg-1);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+.undiffuse-warn-icon {
+  color: var(--crit);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 /* ───────── Modal ───────── */
@@ -2493,6 +2760,47 @@ body.session-locked > *:not(.session-overlay-root) {
   border-top: 1px solid var(--line);
   margin-top: 4px;
 }
+
+/* ───────── PDF preview modal ─────────
+   Variante grande, fluida — iframe ocupa o body inteiro sem padding pra o
+   viewer nativo do navegador renderizar com espaço útil. */
+.modal--pdf-preview {
+  max-width: 1100px;
+  width: 92vw;
+  max-height: 92vh;
+}
+.modal-bd--flush {
+  padding: 0;
+  gap: 0;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.pdf-preview-frame {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 60vh;
+  border: 0;
+  background: #525659;
+}
+.modal-ft--preview {
+  padding: 8px 14px;
+  justify-content: space-between;
+  align-items: center;
+  border-top: 1px solid var(--line);
+  background: var(--bg-2);
+  margin-top: 0;
+}
+.pdf-preview-meta {
+  display: flex;
+  gap: 14px;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: var(--fg-2);
+  font-family: var(--mono, ui-monospace, Menlo, Consolas, monospace);
+}
+.pdf-preview-meta .muted { color: var(--fg-3); }
 
 /* ───────── Form fields ───────── */
 .form-field { display: flex; flex-direction: column; gap: 6px; }
@@ -3094,6 +3402,8 @@ body.session-locked > *:not(.session-overlay-root) {
 
 /* Auditoria — drawer largo + before/after lado a lado */
 .drawer--wide { max-width: 880px; }
+/* Relatórios — drawer ainda mais largo pro editor + campos */
+.drawer--xl { max-width: 1100px; }
 
 .mono {
   font-family: var(--font-mono);
@@ -4079,4 +4389,172 @@ body.session-locked > *:not(.session-overlay-root) {
 .react-flow__edge.selected .react-flow__edge-path,
 .react-flow__edge:focus-visible .react-flow__edge-path {
   stroke: var(--accent);
+}
+
+/* ───────── Visibilidade / viewers (RelatorioDrawer) ───────── */
+.visibility-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.vis-pill {
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+  color: var(--fg-2);
+  padding: 4px 10px;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  cursor: pointer;
+  transition: background 80ms, color 80ms, border-color 80ms;
+}
+.vis-pill:hover:not(:disabled) { color: var(--fg-0); border-color: var(--accent); }
+.vis-pill--on {
+  background: var(--accent-glow);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.vis-pill:disabled { opacity: 0.5; cursor: not-allowed; }
+.vis-pill--readonly { cursor: default; }
+.vis-pill--readonly:hover { color: var(--accent); border-color: var(--accent); }
+.visibility-hint {
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
+  color: var(--fg-3);
+}
+.viewers-block { margin-top: 10px; }
+.viewers-block-hd {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 9.5px;
+  letter-spacing: 0.18em;
+  color: var(--fg-2);
+  margin-bottom: 6px;
+}
+.btn-sm {
+  font-size: 9.5px;
+  padding: 3px 8px;
+  letter-spacing: 0.14em;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.viewers-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.viewer-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+  padding: 3px 4px 3px 8px;
+  font-size: 11px;
+}
+.viewer-code {
+  color: var(--accent);
+  letter-spacing: 0.1em;
+  font-size: 10px;
+}
+.viewer-name { color: var(--fg-0); }
+.viewer-remove {
+  background: transparent;
+  border: 0;
+  color: var(--fg-3);
+  cursor: pointer;
+  padding: 0 2px;
+}
+.viewer-remove:hover { color: var(--crit); }
+
+/* Picker de usuários */
+.picker-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line);
+  padding: 0 8px;
+  background: var(--bg-0);
+}
+.picker-search input {
+  flex: 1;
+  background: transparent;
+  border: 0;
+  outline: none;
+  color: var(--fg-0);
+  font-size: 12px;
+  padding: 6px 0;
+  letter-spacing: 0.04em;
+}
+.picker-results {
+  list-style: none;
+  margin: 8px 0 0 0;
+  padding: 0;
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+}
+.picker-item {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  padding: 7px 10px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+.picker-item:last-child { border-bottom: 0; }
+.picker-item:hover { background: var(--accent-glow); }
+.picker-code {
+  color: var(--accent);
+  letter-spacing: 0.1em;
+  font-size: 10.5px;
+  min-width: 70px;
+}
+.picker-name { color: var(--fg-0); }
+
+/* Pills de confidencialidade na lista de relatórios. */
+.pill.conf-sigiloso {
+  background: rgba(245, 158, 11, 0.12);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+}
+.pill.conf-secreto {
+  background: rgba(239, 68, 68, 0.10);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+}
+.pill.conf-ultrassecreto {
+  background: rgba(220, 38, 38, 0.18);
+  color: #fca5a5;
+  border: 1px solid rgba(220, 38, 38, 0.55);
+  font-weight: 700;
+}
+
+/* Variante inline da action-list: botões lado a lado em vez de empilhados.
+   Usada no drawer de relatório onde várias ações coexistem (visualizar,
+   baixar, difundir, destruir). Cada botão fica compacto — só ícone + label,
+   sem hint — e quebra linha conforme largura do drawer. */
+.action-list--inline {
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.action-list--inline .action-row {
+  grid-template-columns: 16px auto;
+  gap: 8px;
+  padding: 8px 12px;
+  flex: 0 0 auto;
+}
+.action-list--inline .action-row-hint {
+  display: none;
+}
+.action-list--inline .action-row-label {
+  font-size: 10.5px;
+  white-space: nowrap;
 }

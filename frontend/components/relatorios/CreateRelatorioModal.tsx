@@ -2,9 +2,14 @@
 
 import { useState, type FormEvent } from "react";
 import { X } from "lucide-react";
-import { createReport } from "@/lib/reports-api";
+import {
+  CONFIDENTIALITY_LABEL,
+  createReport,
+  type ReportConfidentiality,
+} from "@/lib/reports-api";
 import type { ApiError } from "@/lib/api";
 import DateInput from "../shared/DateInput";
+import Select from "../shared/Select";
 
 type Props = {
   onClose: () => void;
@@ -22,6 +27,7 @@ export default function CreateRelatorioModal({ onClose, onCreated }: Props) {
   const [subject, setSubject] = useState("");
   const [origin, setOrigin] = useState("CCINT/ASINT/PMCE");
   const [diffusion, setDiffusion] = useState("");
+  const [confidentiality, setConfidentiality] = useState<ReportConfidentiality>("secreto");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -36,6 +42,7 @@ export default function CreateRelatorioModal({ onClose, onCreated }: Props) {
         subject: subject.trim(),
         origin: origin.trim(),
         diffusion: diffusion.trim(),
+        confidentiality,
       });
       onCreated(r.report.id);
     } catch (e) {
@@ -98,6 +105,19 @@ export default function CreateRelatorioModal({ onClose, onCreated }: Props) {
                 placeholder="ex.: 1ªCIA/20ºBPM"
               />
             </label>
+
+            <div className="form-field">
+              <span>CONFIDENCIALIDADE</span>
+              <Select
+                value={confidentiality}
+                onChange={(v) => setConfidentiality(v as ReportConfidentiality)}
+                options={[
+                  { value: "sigiloso", label: CONFIDENTIALITY_LABEL.sigiloso },
+                  { value: "secreto", label: CONFIDENTIALITY_LABEL.secreto },
+                  { value: "ultrassecreto", label: CONFIDENTIALITY_LABEL.ultrassecreto },
+                ]}
+              />
+            </div>
 
             {err && <div className="banner banner-error">⚠ {err}</div>}
           </div>

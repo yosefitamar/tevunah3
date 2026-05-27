@@ -1,16 +1,23 @@
 "use client";
 
 import { useEffect } from "react";
+import { useModal } from "@/contexts/ModalContext";
 import { useEditor, EditorContent, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Underline from "@tiptap/extension-underline";
 import TextAlign from "@tiptap/extension-text-align";
 import Link from "@tiptap/extension-link";
-import Image from "@tiptap/extension-image";
+import { ResizableImage } from "./ResizableImage";
 import { Table } from "@tiptap/extension-table";
 import TableRow from "@tiptap/extension-table-row";
 import TableCell from "@tiptap/extension-table-cell";
 import TableHeader from "@tiptap/extension-table-header";
+import {
+  TextStyle,
+  Color,
+  FontFamily,
+  FontSize,
+} from "@tiptap/extension-text-style";
 import {
   AlignCenter,
   AlignJustify,
@@ -32,13 +39,27 @@ import {
   Undo,
 } from "lucide-react";
 
+const FONT_FAMILIES: Array<{ label: string; css: string }> = [
+  { label: "Padrão", css: "" },
+  { label: "Arial", css: "Arial, sans-serif" },
+  { label: "Calibri", css: "Calibri, sans-serif" },
+  { label: "Times New Roman", css: "'Times New Roman', Times, serif" },
+  { label: "Courier New", css: "'Courier New', Courier, monospace" },
+  { label: "Georgia", css: "Georgia, serif" },
+  { label: "Verdana", css: "Verdana, sans-serif" },
+  { label: "Tahoma", css: "Tahoma, sans-serif" },
+];
+
+const FONT_SIZES = ["10", "11", "12", "13", "14", "16", "18", "20", "24", "28", "32"];
+
 type Props = {
   value: string;
   onChange: (html: string) => void;
   /** Read-only quando o relatório já foi difundido/arquivado. */
   disabled?: boolean;
-  /** Callback opcional pra upload de imagem. Recebe File, devolve URL
-   *  acessível pelo Gotenberg. Quando ausente, botão de imagem fica oculto. */
+  /** Callback opcional pra inserção de imagem. Recebe File, devolve a string
+   *  que será usada como `src` (data URI base64 ou URL). Quando ausente,
+   *  o botão de imagem fica oculto. */
   onUploadImage?: (file: File) => Promise<string>;
 };
 
@@ -71,14 +92,18 @@ export default function RichTextEditor({
         openOnClick: false,
         HTMLAttributes: { rel: "noopener noreferrer" },
       }),
-      Image.configure({
+      ResizableImage.configure({
         inline: false,
-        allowBase64: false,
+        allowBase64: true,
       }),
       Table.configure({ resizable: true }),
       TableRow,
       TableHeader,
       TableCell,
+      TextStyle,
+      Color,
+      FontFamily,
+      FontSize,
     ],
     content: value || "<p></p>",
     editable: !disabled,
@@ -128,11 +153,30 @@ function Toolbar({
   onUploadImage?: (file: File) => Promise<string>;
   disabled?: boolean;
 }) {
-  function addLink() {
-    const prev = editor.getAttributes("link").href as string | undefined;
-    const url = window.prompt("URL do link:", prev ?? "https://");
+  const modal = useModal();
+
+  async function addLink() {
+    const prev = (editor.getAttributes("link").href as string | undefined) ?? "";
+    const url = await modal.prompt({
+      title: "LINK",
+      label: "URL",
+      type: "url",
+      placeholder: "https://…",
+      initialValue: prev || "https://",
+      confirm: prev ? "ATUALIZAR" : "INSERIR",
+      validate: (v) => {
+        if (v.trim() === "") return null; // permite limpar
+        try {
+          // eslint-disable-next-line no-new
+          new URL(v);
+          return null;
+        } catch {
+          return "URL inválida";
+        }
+      },
+    });
     if (url === null) return;
-    if (url === "") {
+    if (url.trim() === "") {
       editor.chain().focus().extendMarkRange("link").unsetLink().run();
       return;
     }
@@ -151,8 +195,11 @@ function Toolbar({
         const url = await onUploadImage(f);
         editor.chain().focus().setImage({ src: url, alt: f.name }).run();
       } catch (e) {
-        // eslint-disable-next-line no-alert
-        alert("Falha ao subir imagem: " + (e instanceof Error ? e.message : "erro"));
+        await modal.alert({
+          variant: "error",
+          title: "FALHA AO SUBIR IMAGEM",
+          message: e instanceof Error ? e.message : "Erro desconhecido",
+        });
       }
     };
     input.click();
@@ -293,6 +340,10 @@ function Toolbar({
         <AlignJustify size={13} strokeWidth={1.8} />
       </Btn>
       <Sep />
+      <FontFamilySelect editor={editor} disabled={disabled} />
+      <FontSizeSelect editor={editor} disabled={disabled} />
+      <ColorPicker editor={editor} disabled={disabled} />
+      <Sep />
       <Btn title="Link" active={editor.isActive("link")} onClick={addLink} disabled={disabled}>
         <LinkIcon size={13} strokeWidth={1.8} />
       </Btn>
@@ -393,4 +444,76 @@ function Btn({
 
 function Sep() {
   return <span className="rte-sep" aria-hidden />;
+}
+
+function FontFamilySelect({ editor, disabled }: { editor: Editor; disabled?: boolean }) {
+  const current = (editor.getAttributes("textStyle").fontFamily as string) || "";
+  return (
+    <select
+      className="rte-select"
+      title="Fonte"
+      disabled={disabled}
+      value={current}
+      onChange={(e) => {
+        const css = e.target.value;
+        if (!css) editor.chain().focus().unsetFontFamily().run();
+        else editor.chain().focus().setFontFamily(css).run();
+      }}
+    >
+      {FONT_FAMILIES.map((f) => (
+        <option key={f.label} value={f.css}>
+          {f.label}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+function FontSizeSelect({ editor, disabled }: { editor: Editor; disabled?: boolean }) {
+  const raw = (editor.getAttributes("textStyle").fontSize as string) || "";
+  const current = raw.replace("px", "");
+  return (
+    <select
+      className="rte-select"
+      title="Tamanho"
+      disabled={disabled}
+      value={current}
+      onChange={(e) => {
+        const v = e.target.value;
+        if (!v) editor.chain().focus().unsetFontSize().run();
+        else editor.chain().focus().setFontSize(`${v}px`).run();
+      }}
+    >
+      <option value="">—</option>
+      {FONT_SIZES.map((s) => (
+        <option key={s} value={s}>
+          {s}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+function ColorPicker({ editor, disabled }: { editor: Editor; disabled?: boolean }) {
+  const current = (editor.getAttributes("textStyle").color as string) || "#000000";
+  return (
+    <span className="rte-color">
+      <input
+        type="color"
+        title="Cor do texto"
+        disabled={disabled}
+        value={current}
+        onChange={(e) => editor.chain().focus().setColor(e.target.value).run()}
+      />
+      <button
+        type="button"
+        className="rte-btn"
+        title="Remover cor"
+        disabled={disabled}
+        onClick={() => editor.chain().focus().unsetColor().run()}
+      >
+        <span style={{ fontSize: 9, letterSpacing: 0 }}>×</span>
+      </button>
+    </span>
+  );
 }

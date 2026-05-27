@@ -36,6 +36,25 @@ export type ConfirmOptions = {
   danger?: boolean;
 };
 
+export type PromptOptions = {
+  title?: string;
+  message?: ReactNode;
+  /** Variante visual; default "info". */
+  variant?: "info" | "warning";
+  /** Rótulo do campo (em CAIXA ALTA, segue padrão dos forms). */
+  label?: string;
+  /** Texto placeholder do input. */
+  placeholder?: string;
+  /** Valor inicial. */
+  initialValue?: string;
+  /** Tipo do campo. "textarea" usa multilinha. */
+  type?: "text" | "url" | "textarea";
+  confirm?: string;
+  cancel?: string;
+  /** Validação cliente. Devolva string com a mensagem de erro ou null se ok. */
+  validate?: (value: string) => string | null;
+};
+
 export type LoadingOptions = {
   message?: string;
   /** Atraso para mostrar o modal. Operações mais rápidas que isso passam invisíveis. Default 800ms. */
@@ -47,6 +66,7 @@ export type LoadingHandle = { close: () => void };
 export type ModalAPI = {
   alert: (opts: AlertOptions) => Promise<void>;
   confirm: (opts: ConfirmOptions) => Promise<boolean>;
+  prompt: (opts: PromptOptions) => Promise<string | null>;
   loading: (opts?: LoadingOptions) => LoadingHandle;
 };
 
@@ -127,6 +147,33 @@ export function ModalProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  const prompt = useCallback(
+    (opts: PromptOptions) =>
+      new Promise<string | null>((resolve) => {
+        const id = nextId();
+        resolversRef.current[id] = (v) =>
+          resolve(v === undefined ? null : (v as string | null));
+        setStack((s) => [
+          ...s,
+          {
+            id,
+            type: "prompt",
+            variant: opts.variant ?? "info",
+            title: opts.title,
+            message: opts.message,
+            label: opts.label,
+            placeholder: opts.placeholder,
+            initialValue: opts.initialValue ?? "",
+            inputType: opts.type ?? "text",
+            confirmLabel: opts.confirm ?? "CONFIRMAR",
+            cancelLabel: opts.cancel ?? "CANCELAR",
+            validate: opts.validate,
+          },
+        ]);
+      }),
+    [],
+  );
+
   const loading = useCallback((opts: LoadingOptions = {}): LoadingHandle => {
     const id = nextId();
     const threshold = opts.thresholdMs ?? 800;
@@ -155,8 +202,8 @@ export function ModalProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const api = useMemo<ModalAPI>(
-    () => ({ alert, confirm, loading }),
-    [alert, confirm, loading],
+    () => ({ alert, confirm, prompt, loading }),
+    [alert, confirm, prompt, loading],
   );
 
   return (

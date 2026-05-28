@@ -170,7 +170,10 @@ sudo -u "$APP_USER" -H bash -c "
   # (lightningcss / @tailwindcss/oxide); deletamos para resolução fresca.
   rm -f package-lock.json
   npm install --no-audit --no-fund
-  npm run build
+  # BACKEND_INTERNAL_URL é interpolado em build time no next.config.ts
+  # (vai pro routes-manifest.json), por isso precisa estar no env do build,
+  # não só no runtime.
+  BACKEND_INTERNAL_URL='http://127.0.0.1:8080' npm run build
 "
 
 # Copia o standalone output pra um diretório estável

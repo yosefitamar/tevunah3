@@ -777,8 +777,8 @@ function ChangePasswordBlock({
 
   async function doIt() {
     setErr(null);
-    if (next.length < 12) {
-      setErr("A nova senha deve ter ao menos 12 caracteres");
+    if (next.length < 8) {
+      setErr("A nova senha deve ter ao menos 8 caracteres");
       return;
     }
     if (next !== confirm) {

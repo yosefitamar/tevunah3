@@ -170,8 +170,8 @@ func (a *app) handleUserCreate(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusBadRequest, "nome obrigatório")
 		return
 	}
-	if len(req.Password) < 12 {
-		httpx.Error(w, http.StatusBadRequest, "senha deve ter ao menos 12 caracteres")
+	if len(req.Password) < 8 {
+		httpx.Error(w, http.StatusBadRequest, "senha deve ter ao menos 8 caracteres")
 		return
 	}
 	if len(req.Roles) == 0 {

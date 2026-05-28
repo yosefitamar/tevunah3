@@ -27,8 +27,8 @@ export default function ChangePasswordScreen() {
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setErr(null);
-    if (next.length < 12) {
-      setErr("A nova senha deve ter ao menos 12 caracteres");
+    if (next.length < 8) {
+      setErr("A nova senha deve ter ao menos 8 caracteres");
       return;
     }
     if (next !== confirm) {
@@ -79,7 +79,7 @@ export default function ChangePasswordScreen() {
 
           <div className="totp-setup-note">
             <KeyRound size={14} strokeWidth={1.6} /> Sua senha foi resetada
-            pelo admin. Defina uma nova senha (mínimo 12 caracteres) para
+            pelo admin. Defina uma nova senha (mínimo 8 caracteres) para
             prosseguir.
           </div>
 

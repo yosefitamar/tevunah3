@@ -129,8 +129,8 @@ func (a *app) handlePasswordChange(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusBadRequest, "current_password e new_password são obrigatórios")
 		return
 	}
-	if len(req.NewPassword) < 12 {
-		httpx.Error(w, http.StatusBadRequest, "nova senha deve ter ao menos 12 caracteres")
+	if len(req.NewPassword) < 8 {
+		httpx.Error(w, http.StatusBadRequest, "nova senha deve ter ao menos 8 caracteres")
 		return
 	}
 	if req.CurrentPassword == req.NewPassword {

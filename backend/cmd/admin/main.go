@@ -150,8 +150,8 @@ func runCreate(args []string) {
 	if pass != pass2 {
 		log.Fatal("as senhas não conferem")
 	}
-	if len(pass) < 12 {
-		log.Fatal("senha deve ter ao menos 12 caracteres")
+	if len(pass) < 8 {
+		log.Fatal("senha deve ter ao menos 8 caracteres")
 	}
 
 	conn := openDB()

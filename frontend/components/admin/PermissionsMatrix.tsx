@@ -234,12 +234,13 @@ export default function PermissionsMatrix() {
                           style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
                         >
                           {locked && (
-                            <Lock
-                              size={12}
-                              strokeWidth={1.8}
-                              style={{ color: "var(--fg-3)" }}
-                              title={lockTitle}
-                            />
+                            <span title={lockTitle} style={{ display: "inline-flex" }}>
+                              <Lock
+                                size={12}
+                                strokeWidth={1.8}
+                                style={{ color: "var(--fg-3)" }}
+                              />
+                            </span>
                           )}
                           {ROLE_LABEL[p.role_code]}
                         </span>

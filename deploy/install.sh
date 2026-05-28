@@ -223,7 +223,24 @@ systemctl enable tevunah-backend tevunah-frontend
 systemctl restart tevunah-backend
 systemctl restart tevunah-frontend
 
-# ─── 14. Resumo ──────────────────────────────────────────────────────────
+# ─── 14. Bootstrap do primeiro admin ─────────────────────────────────────
+USER_COUNT=$(sudo -u postgres psql -tAd "${POSTGRES_DB}" -c "SELECT COUNT(*) FROM app.users" 2>/dev/null | tr -d ' \n')
+if [[ "$USER_COUNT" == "0" ]]; then
+  log "Nenhum usuário no banco — vamos criar o primeiro admin agora"
+  echo
+  echo "  Você vai ser solicitado a informar email, nome, senha e motivo."
+  echo "  Ao final será exibido o SECRET TOTP — escaneie no app autenticador"
+  echo "  ANTES de fechar o terminal (só é mostrado uma vez)."
+  echo
+  sudo -u "$APP_USER" -H bash -c "
+    set -a; . '$REPO_DIR/backend.env'; set +a
+    '$REPO_DIR/bin/admin' create
+  "
+else
+  log "$USER_COUNT usuário(s) já existem; pulando bootstrap do admin"
+fi
+
+# ─── 15. Resumo ──────────────────────────────────────────────────────────
 sleep 2
 log "Status dos serviços"
 systemctl --no-pager --lines=0 status tevunah-backend  | head -3 || true
@@ -241,10 +258,10 @@ cat <<EOF
 
   Acesso interno:  http://${IP}:${FRONTEND_PORT}
 
-Próximo:
-  • Criar o primeiro admin:
-      sudo -u $APP_USER -H bash -c 'set -a; . $REPO_DIR/backend.env; set +a; $REPO_DIR/bin/admin create'
-  • Adicionar ingress rule no cloudflared apontando pra http://${IP}:${FRONTEND_PORT}
+Criar admin adicional a qualquer momento:
+    sudo -u $APP_USER -H bash -c 'set -a; . $REPO_DIR/backend.env; set +a; $REPO_DIR/bin/admin create'
+
+Adicionar ingress rule no cloudflared apontando pra http://${IP}:${FRONTEND_PORT}
 
 Pra atualizar (após git pull): rode novamente este script.
 EOF

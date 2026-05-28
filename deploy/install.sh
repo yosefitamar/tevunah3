@@ -149,6 +149,7 @@ systemctl enable --now redis-server
 # ─── 9. Build do backend ─────────────────────────────────────────────────
 log "Compilando binários Go"
 mkdir -p "$REPO_DIR/bin"
+chown -R "$APP_USER:$APP_USER" "$REPO_DIR/bin"
 sudo -u "$APP_USER" -H bash -c "
   set -e
   export PATH='/usr/local/go/bin:\$PATH'

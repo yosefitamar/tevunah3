@@ -56,6 +56,9 @@ services:
       - tevunah
 
   backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
     image: tevunah-backend:prod
     container_name: tevunah-prod-backend
     restart: unless-stopped

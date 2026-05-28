@@ -1,0 +1,107 @@
+name: tevunah-prod
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: tevunah-prod-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      APP_DB_USER: ${APP_DB_USER}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD}
+      AUDIT_DB_USER: ${AUDIT_DB_USER}
+      AUDIT_DB_PASSWORD: ${AUDIT_DB_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./backend/db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - tevunah
+
+  redis:
+    image: redis:7-alpine
+    container_name: tevunah-prod-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - tevunah
+
+  migrate:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: tevunah-backend:prod
+    container_name: tevunah-prod-migrate
+    restart: "no"
+    command: ["migrate", "up"]
+    environment:
+      MIGRATIONS_DATABASE_URL: "postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - tevunah
+
+  backend:
+    image: tevunah-backend:prod
+    container_name: tevunah-prod-backend
+    restart: unless-stopped
+    environment:
+      APP_ENV: production
+      ADDR: ":8080"
+      PHOTO_DIR: "/var/lib/tevunah/photos"
+      MIGRATIONS_DATABASE_URL: "postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable"
+      APP_DATABASE_URL:        "postgres://${APP_DB_USER}:${APP_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable"
+      AUDIT_DATABASE_URL:      "postgres://${AUDIT_DB_USER}:${AUDIT_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable"
+      REDIS_URL:               "redis://redis:6379/0"
+      SESSION_IDLE_MINUTES:    "${SESSION_IDLE_MINUTES:-15}"
+    volumes:
+      - tevunah-photos:/var/lib/tevunah/photos
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - tevunah
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: tevunah-frontend:prod
+    container_name: tevunah-prod-frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_BIND:-0.0.0.0}:${FRONTEND_PORT:-3000}:3000"
+    environment:
+      NODE_ENV: production
+      BACKEND_INTERNAL_URL: "http://backend:8080"
+    depends_on:
+      - backend
+    networks:
+      - tevunah
+
+volumes:
+  postgres-data:
+  redis-data:
+  tevunah-photos:
+
+networks:
+  tevunah:
+    driver: bridge

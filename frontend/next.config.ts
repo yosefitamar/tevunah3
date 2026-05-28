@@ -7,6 +7,7 @@ const backendURL = process.env.BACKEND_INTERNAL_URL ?? "http://backend:8080";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  output: "standalone",
   async rewrites() {
     return [{ source: "/api/:path*", destination: `${backendURL}/api/:path*` }];
   },

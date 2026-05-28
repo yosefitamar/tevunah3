@@ -2,3 +2,9 @@ tmp/
 bin/
 *.log
 .git
+.gitignore
+Dockerfile*
+.dockerignore
+.air.toml
+.env
+.env.*

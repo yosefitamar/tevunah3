@@ -4,3 +4,8 @@ out/
 dist/
 *.log
 .git
+.gitignore
+Dockerfile*
+.dockerignore
+.env
+.env.*

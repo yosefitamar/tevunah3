@@ -1,6 +1,10 @@
 FROM node:22-slim AS deps
 WORKDIR /app
-COPY package.json package-lock.json* ./
+# Não copiamos o package-lock.json de propósito: ele é gerado em darwin e
+# omite os binários nativos linux opcionais (lightningcss, @tailwindcss/oxide),
+# causando "Cannot find module lightningcss.linux-x64-gnu.node" no build.
+# Sem o lockfile, npm resolve os optionals corretamente pra plataforma alvo.
+COPY package.json ./
 RUN npm install --no-audit --no-fund
 
 FROM node:22-slim AS builder

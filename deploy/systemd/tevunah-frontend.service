@@ -1,0 +1,23 @@
+[Unit]
+Description=Tevunah Frontend (Next.js)
+After=network.target tevunah-backend.service
+Wants=tevunah-backend.service
+
+[Service]
+Type=simple
+User=tevunah
+Group=tevunah
+WorkingDirectory=/opt/tevunah/frontend-build
+EnvironmentFile=/opt/tevunah/frontend.env
+ExecStart=/usr/bin/node /opt/tevunah/frontend-build/server.js
+Restart=on-failure
+RestartSec=3
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

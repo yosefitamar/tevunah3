@@ -1,0 +1,25 @@
+[Unit]
+Description=Tevunah Backend (Go)
+After=network.target postgresql.service redis-server.service
+Wants=postgresql.service redis-server.service
+
+[Service]
+Type=simple
+User=tevunah
+Group=tevunah
+WorkingDirectory=/opt/tevunah
+EnvironmentFile=/opt/tevunah/backend.env
+ExecStart=/opt/tevunah/bin/server
+Restart=on-failure
+RestartSec=3
+LimitNOFILE=65535
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/tevunah
+
+[Install]
+WantedBy=multi-user.target

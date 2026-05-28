@@ -15,6 +15,10 @@
 
 set -euo pipefail
 
+# Evita warnings de locale em LXC minimal; C.UTF-8 está sempre disponível.
+export LC_ALL=C.UTF-8
+export LANG=C.UTF-8
+
 REPO_DIR="/opt/tevunah"
 APP_USER="tevunah"
 GO_VERSION="1.23.4"
@@ -49,7 +53,7 @@ log "Instalando pacotes apt"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y -qq \
-  ca-certificates curl wget gnupg git build-essential \
+  sudo ca-certificates curl wget gnupg git build-essential \
   postgresql-15 postgresql-client-15 \
   redis-server \
   libxrender1 libxext6 libfontconfig1 libjpeg62-turbo xfonts-base xfonts-75dpi \

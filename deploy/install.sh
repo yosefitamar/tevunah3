@@ -156,9 +156,10 @@ sudo -u "$APP_USER" -H bash -c "
   export GOCACHE='$REPO_DIR/.gocache'
   export GOPATH='$REPO_DIR/.gopath'
   cd '$REPO_DIR/backend'
-  go build -trimpath -ldflags='-s -w' -o '$REPO_DIR/bin/server'  ./cmd/server
-  go build -trimpath -ldflags='-s -w' -o '$REPO_DIR/bin/migrate' ./cmd/migrate
-  go build -trimpath -ldflags='-s -w' -o '$REPO_DIR/bin/admin'   ./cmd/admin
+  go build -trimpath -ldflags='-s -w' -o '$REPO_DIR/bin/server'        ./cmd/server
+  go build -trimpath -ldflags='-s -w' -o '$REPO_DIR/bin/migrate'       ./cmd/migrate
+  go build -trimpath -ldflags='-s -w' -o '$REPO_DIR/bin/admin'         ./cmd/admin
+  go build -trimpath -ldflags='-s -w' -o '$REPO_DIR/bin/import-legacy' ./cmd/import-legacy
 "
 
 # ─── 10. Build do frontend (Next.js standalone) ──────────────────────────

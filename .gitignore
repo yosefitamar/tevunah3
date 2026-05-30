@@ -15,6 +15,8 @@ backend/import-legacy
 # Dumps do legado — dados reais do cliente, não vão pro repo
 u645012242_*.sql
 *-legacy_db*.sql
+# Bundle de importação do legado (data.sql + media/ + pdfs/) — dados de cliente
+legacy-bundle/
 
 # OS
 .DS_Store

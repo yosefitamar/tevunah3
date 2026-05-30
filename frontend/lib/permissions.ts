@@ -51,3 +51,13 @@ export const canDownloadReports = (u: User | null) =>
 // O backend ainda exige que o caller seja autor OU admin.
 export const canDestroyReports = (u: User | null) =>
   hasRole(u, "analista", "gestor", "administrador");
+
+// Ocorrências — espelha a matriz da migration 00034_incidents.
+// Agente só lê; analista/gestor/admin criam e editam; gestor/admin excluem.
+export const canReadIncidents = (u: User | null) =>
+  hasRole(u, "agente", "analista", "gestor", "administrador");
+export const canCreateIncidents = (u: User | null) =>
+  hasRole(u, "analista", "gestor", "administrador");
+export const canEditIncidents = canCreateIncidents;
+export const canDeleteIncidents = (u: User | null) =>
+  hasRole(u, "gestor", "administrador");

@@ -20,6 +20,7 @@ import {
   ScreenAprovacoes,
   ScreenAuditoria,
   ScreenEntidades,
+  ScreenOcorrencias,
   ScreenRelatorios,
 } from "./screens";
 import SandboxModais from "./sandbox/SandboxModais";
@@ -27,6 +28,7 @@ import SandboxModais from "./sandbox/SandboxModais";
 const VIEWS: Record<ModuleId, React.ComponentType> = {
   dashboard: Dashboard,
   entidades: ScreenEntidades,
+  ocorrencias: ScreenOcorrencias,
   relatorios: ScreenRelatorios,
   agentes: ScreenAgentes,
   aprovacoes: ScreenAprovacoes,

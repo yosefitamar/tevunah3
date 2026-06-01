@@ -334,7 +334,11 @@ func (r *Repo) List(ctx context.Context, opts ListOpts) (*ListResult, error) {
 		   AND ($3 = 0  OR e.classification = $3)
 		   AND ($4 = '' OR EXISTS (SELECT 1 FROM app.entity_tags t
 		                            WHERE t.entity_id = e.id AND t.tag = $4))
-		   AND ($5 = '' OR lower(e.name) LIKE $6)`,
+		   AND ($5 = '' OR lower(e.name) LIKE $6
+		        OR EXISTS (SELECT 1 FROM app.entity_persons p
+		                    WHERE p.entity_id = e.id
+		                      AND (lower(COALESCE(p.cpf, '')) LIKE $6
+		                           OR EXISTS (SELECT 1 FROM unnest(p.aliases) al WHERE lower(al) LIKE $6))))`,
 		opts.MaxClearance, string(opts.Kind), opts.Classification,
 		strings.ToLower(opts.Tag), strings.TrimSpace(opts.Search), search,
 	).Scan(&total)
@@ -363,17 +367,24 @@ func (r *Repo) List(ctx context.Context, opts ListOpts) (*ListResult, error) {
 		         ''
 		       ) AS tags_csv,
 		       COALESCE(to_jsonb(o.aliases), 'null'::jsonb) AS org_aliases_json,
-		       v.plate, v.category, v.brand, v.model, v.color, v.photo_path
+		       v.plate, v.category, v.brand, v.model, v.color, v.photo_path,
+		       COALESCE(to_jsonb(p.aliases), 'null'::jsonb) AS person_aliases_json,
+		       p.gender, p.date_of_birth, p.mother_name, p.cpf, p.photo_path
 		  FROM app.entities e
 		  LEFT JOIN app.entity_organizations o ON o.entity_id = e.id
 		  LEFT JOIN app.entity_vehicles v ON v.entity_id = e.id
+		  LEFT JOIN app.entity_persons p ON p.entity_id = e.id
 		 WHERE `+deletedClause+`
 		   AND e.classification <= $1
 		   AND ($2 = '' OR e.kind = $2)
 		   AND ($3 = 0  OR e.classification = $3)
 		   AND ($4 = '' OR EXISTS (SELECT 1 FROM app.entity_tags t
 		                            WHERE t.entity_id = e.id AND t.tag = $4))
-		   AND ($5 = '' OR lower(e.name) LIKE $6)
+		   AND ($5 = '' OR lower(e.name) LIKE $6
+		        OR EXISTS (SELECT 1 FROM app.entity_persons p2
+		                    WHERE p2.entity_id = e.id
+		                      AND (lower(COALESCE(p2.cpf, '')) LIKE $6
+		                           OR EXISTS (SELECT 1 FROM unnest(p2.aliases) al WHERE lower(al) LIKE $6))))
 		 ORDER BY `+col+` `+dir+`, e.name ASC
 		 LIMIT $7 OFFSET $8`,
 		opts.MaxClearance, string(opts.Kind), opts.Classification,
@@ -394,11 +405,15 @@ func (r *Repo) List(ctx context.Context, opts ListOpts) (*ListResult, error) {
 		var deletedBy sql.NullString
 		var orgAliasesJSON []byte
 		var vehiclePlate, vehicleCategory, vehicleBrand, vehicleModel, vehicleColor, vehiclePhotoPath sql.NullString
+		var personAliasesJSON []byte
+		var personGender, personMother, personCPF, personPhotoPath sql.NullString
+		var personDOB sql.NullTime
 		if err := rows.Scan(
 			&e.ID, &kind, &e.Name, &description, &e.Classification, &e.Version,
 			&e.CreatedAt, &createdBy, &e.UpdatedAt, &updatedBy,
 			&deletedAt, &deletedBy, &tagsCSV, &orgAliasesJSON,
 			&vehiclePlate, &vehicleCategory, &vehicleBrand, &vehicleModel, &vehicleColor, &vehiclePhotoPath,
+			&personAliasesJSON, &personGender, &personDOB, &personMother, &personCPF, &personPhotoPath,
 		); err != nil {
 			return nil, err
 		}
@@ -439,12 +454,44 @@ func (r *Repo) List(ctx context.Context, opts ListOpts) (*ListResult, error) {
 				PhotoPath: nullStr(vehiclePhotoPath),
 			}
 		}
+		// Para pessoa, popula os attrs que a UI usa pra rótulo/busca e que o
+		// snapshot da qualificação copia (alcunhas, CPF, nascimento, mãe).
+		if e.Kind == KindPerson {
+			pa := &PersonAttrs{Aliases: []string{}}
+			if len(personAliasesJSON) > 0 && string(personAliasesJSON) != "null" {
+				_ = json.Unmarshal(personAliasesJSON, &pa.Aliases)
+			}
+			if personGender.Valid {
+				s := personGender.String
+				pa.Gender = &s
+			}
+			if personDOB.Valid {
+				t := personDOB.Time
+				pa.DateOfBirth = &t
+			}
+			if personMother.Valid {
+				s := personMother.String
+				pa.MotherName = &s
+			}
+			if personCPF.Valid {
+				s := personCPF.String
+				pa.CPF = &s
+			}
+			if personPhotoPath.Valid {
+				s := personPhotoPath.String
+				pa.PhotoPath = &s
+			}
+			e.Person = pa
+		}
 		items = append(items, e)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	// List não popula attrs polimórficos (para não fazer N+1). Detalhe via FindByID.
+	// List popula apenas os attrs leves usados em rótulo/busca/snapshot (via os
+	// LEFT JOINs acima, sem N+1): aliases da org, attrs do veículo e os campos
+	// da pessoa (alcunhas, gênero, nascimento, mãe, CPF). orcrim/endereços e
+	// demais detalhes só vêm no FindByID.
 	return &ListResult{Items: items, Total: total}, nil
 }
 

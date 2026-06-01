@@ -16,7 +16,7 @@ import {
 } from "@/lib/approvals-api";
 import { getUser } from "@/lib/users-api";
 import { hasRole } from "@/lib/permissions";
-import { ROLE_LABEL, clearanceLabel, type RoleCode, type User } from "@/lib/types";
+import { roleLabel as resolveRoleLabel, clearanceLabel, type RoleCode, type User } from "@/lib/types";
 import { formatBR } from "@/lib/format";
 import type { ApiError } from "@/lib/api";
 import SortHeader, { type SortState } from "../shared/SortHeader";
@@ -233,9 +233,7 @@ export default function AprovacoesScreen() {
 function summarizePayload(a: Approval): string {
   const p = (a.payload ?? {}) as Record<string, unknown>;
   if (a.action === "user.role.assign" && Array.isArray(p.roles)) {
-    return (p.roles as string[])
-      .map((r) => ROLE_LABEL[r as RoleCode] ?? r.toUpperCase())
-      .join(" · ");
+    return (p.roles as string[]).map((r) => resolveRoleLabel(r)).join(" · ");
   }
   if (a.action === "user.clearance.set" && typeof p.clearance_level === "number") {
     return clearanceLabel(p.clearance_level as number);
@@ -253,7 +251,7 @@ type DrawerProps = {
 };
 
 function ApprovalDrawer({ approval, userLabel, onClose, onChanged }: DrawerProps) {
-  const { user: me } = useAuth();
+  const { user: me, roleLabel } = useAuth();
   const [reason, setReason] = useState("");
   const [acting, setActing] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -332,10 +330,7 @@ function ApprovalDrawer({ approval, userLabel, onClose, onChanged }: DrawerProps
             </div>
             <div>
               <dt>APROVADOR EXIGIDO</dt>
-              <dd>
-                {ROLE_LABEL[approval.required_approver_role as RoleCode] ??
-                  approval.required_approver_role.toUpperCase()}
-              </dd>
+              <dd>{roleLabel(approval.required_approver_role)}</dd>
             </div>
             <div>
               <dt>EXPIRA EM</dt>

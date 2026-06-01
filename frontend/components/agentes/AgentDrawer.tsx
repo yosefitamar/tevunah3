@@ -4,8 +4,6 @@ import { useEffect, useState } from "react";
 import { Ban, KeyRound, Pencil, Shield, ShieldOff, UserX, X } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import {
-  ROLE_LABEL,
-  ROLES_LIST,
   STATUS_LABEL,
   STATUS_PILL,
   clearanceLabel,
@@ -51,7 +49,7 @@ type ActionMode =
   | "reset_totp";
 
 export default function AgentDrawer({ userId, onClose, onChanged }: Props) {
-  const { user: me } = useAuth();
+  const { user: me, roleLabel } = useAuth();
   const [data, setData] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -129,9 +127,7 @@ export default function AgentDrawer({ userId, onClose, onChanged }: Props) {
                   <span>{clearanceLabel(data.clearance_level)}</span>
                   <span>·</span>
                   <span>
-                    {data.roles
-                      .map((r) => ROLE_LABEL[r as RoleCode] ?? r.toUpperCase())
-                      .join(" · ")}
+                    {data.roles.map((r) => roleLabel(r)).join(" · ")}
                   </span>
                 </div>
               </div>
@@ -409,6 +405,7 @@ function SetRolesBlock({
   onCancel: () => void;
   onDone: (direct: boolean) => void;
 }) {
+  const { roles: allRoles, roleLabel } = useAuth();
   const [roles, setRoles] = useState<RoleCode[]>([...user.roles]);
   const [acting, setActing] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -449,14 +446,14 @@ function SetRolesBlock({
       <div className="form-field">
         <span>PAPÉIS</span>
         <div className="role-checks">
-          {ROLES_LIST.map((r) => (
-            <label key={r} className="role-check">
+          {allRoles.map((r) => (
+            <label key={r.code} className="role-check">
               <input
                 type="checkbox"
-                checked={roles.includes(r)}
-                onChange={() => toggle(r)}
+                checked={roles.includes(r.code)}
+                onChange={() => toggle(r.code)}
               />
-              <span>{ROLE_LABEL[r]}</span>
+              <span>{roleLabel(r.code)}</span>
             </label>
           ))}
         </div>

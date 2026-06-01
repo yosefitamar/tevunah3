@@ -147,7 +147,7 @@ func (a *app) handleUserSetRoles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, role := range req.Roles {
-		if !validRoles[role] {
+		if !a.roleExists(r.Context(), role) {
 			httpx.Error(w, http.StatusBadRequest, "papel inválido: "+role)
 			return
 		}

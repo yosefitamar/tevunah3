@@ -4,12 +4,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, Check, Loader2, RefreshCcw, Search } from "lucide-react";
 import { listPermissions, updatePermission } from "@/lib/admin-api";
 import {
-  ROLE_LABEL,
-  ROLES_LIST,
   actionGroup,
   type ActionDef,
   type Permission,
   type RoleCode,
+  type RoleRow,
 } from "@/lib/types";
 import { formatBR } from "@/lib/format";
 import type { ApiError } from "@/lib/api";
@@ -26,6 +25,7 @@ function keyOf(p: Permission): RowKey {
 
 export default function PermissionsMatrix() {
   const [items, setItems] = useState<Permission[]>([]);
+  const [rolesList, setRolesList] = useState<RoleRow[]>([]);
   const [actionsMeta, setActionsMeta] = useState<Record<string, ActionDef>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -41,6 +41,7 @@ export default function PermissionsMatrix() {
     try {
       const res = await listPermissions();
       setItems(res.items ?? []);
+      setRolesList(res.roles ?? []);
       const meta: Record<string, ActionDef> = {};
       for (const a of res.actions ?? []) meta[a.code] = a;
       setActionsMeta(meta);
@@ -58,6 +59,8 @@ export default function PermissionsMatrix() {
   const labelOf = (action: string) => actionsMeta[action]?.label ?? action;
   const groupOf = (action: string) => actionsMeta[action]?.group ?? actionGroup(action);
   const descOf = (action: string) => actionsMeta[action]?.description ?? "";
+  const roleLab = (code: string) =>
+    rolesList.find((r) => r.code === code)?.label?.toUpperCase() ?? code.toUpperCase();
 
   const filtered = useMemo(() => {
     const s = search.trim().toLowerCase();
@@ -68,7 +71,7 @@ export default function PermissionsMatrix() {
         p.action.toLowerCase().includes(s) ||
         (actionsMeta[p.action]?.label ?? "").toLowerCase().includes(s) ||
         (actionsMeta[p.action]?.group ?? actionGroup(p.action)).toLowerCase().includes(s) ||
-        ROLE_LABEL[p.role_code].toLowerCase().includes(s)
+        roleLab(p.role_code).toLowerCase().includes(s)
       );
     });
     if (!sort) return out;
@@ -76,7 +79,7 @@ export default function PermissionsMatrix() {
     const compare = (a: Permission, b: Permission): number => {
       switch (sort.field) {
         case "role":
-          return ROLE_LABEL[a.role_code].localeCompare(ROLE_LABEL[b.role_code]) * dir;
+          return roleLab(a.role_code).localeCompare(roleLab(b.role_code)) * dir;
         case "action":
           return a.action.localeCompare(b.action) * dir;
         case "group":
@@ -100,7 +103,7 @@ export default function PermissionsMatrix() {
       const c = compare(a, b);
       return c !== 0 ? c : keyOf(a).localeCompare(keyOf(b));
     });
-  }, [items, search, roleFilter, sort, actionsMeta]);
+  }, [items, search, roleFilter, sort, actionsMeta, rolesList]);
 
   async function apply(
     p: Permission,
@@ -180,9 +183,9 @@ export default function PermissionsMatrix() {
           placeholder="PAPEL · TODOS"
           options={[
             { value: "", label: "PAPEL · TODOS" },
-            ...ROLES_LIST.map((r) => ({
-              value: r,
-              label: `PAPEL · ${ROLE_LABEL[r]}`,
+            ...rolesList.map((r) => ({
+              value: r.code,
+              label: `PAPEL · ${roleLab(r.code)}`,
             })),
           ]}
         />
@@ -238,7 +241,7 @@ export default function PermissionsMatrix() {
                   return (
                     <tr key={k}>
                       <td style={{ color: "var(--fg-0)", fontWeight: 600 }}>
-                        {ROLE_LABEL[p.role_code]}
+                        {roleLab(p.role_code)}
                       </td>
                       <td title={descOf(p.action)}>
                         <span style={{ color: "var(--fg-0)" }}>{labelOf(p.action)}</span>
@@ -284,9 +287,9 @@ export default function PermissionsMatrix() {
                           }
                           options={
                             p.requires_dual_approval
-                              ? ROLES_LIST.map((r) => ({
-                                  value: r,
-                                  label: ROLE_LABEL[r],
+                              ? rolesList.map((r) => ({
+                                  value: r.code,
+                                  label: roleLab(r.code),
                                 }))
                               : [{ value: "", label: "—" }]
                           }

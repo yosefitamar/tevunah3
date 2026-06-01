@@ -1,6 +1,10 @@
-export type RoleCode = "agente" | "analista" | "gestor" | "administrador";
+// Papéis agora são dados (criáveis pelo admin), não um conjunto fechado. Por
+// isso RoleCode é string. ROLE_LABEL/ROLES_LIST permanecem como FALLBACK dos 4
+// papéis embutidos (usados antes da lista dinâmica de /api/roles carregar);
+// para labels e listas dinâmicas, prefira useAuth().roles / roleLabel().
+export type RoleCode = string;
 
-export const ROLE_LABEL: Record<RoleCode, string> = {
+export const ROLE_LABEL: Record<string, string> = {
   agente: "AGENTE",
   analista: "ANALISTA",
   gestor: "GESTOR",
@@ -8,6 +12,13 @@ export const ROLE_LABEL: Record<RoleCode, string> = {
 };
 
 export const ROLES_LIST: RoleCode[] = ["agente", "analista", "gestor", "administrador"];
+
+// roleLabel resolve o rótulo de um papel (UPPERCASE). Aceita a lista dinâmica
+// vinda de /api/roles; cai no fallback embutido e, por fim, no próprio código.
+export function roleLabel(code: string, roles?: { code: string; label: string }[]): string {
+  const dyn = roles?.find((r) => r.code === code)?.label;
+  return (dyn ?? ROLE_LABEL[code] ?? code).toUpperCase();
+}
 
 export type UserStatus = "active" | "suspended" | "deactivated";
 
@@ -68,10 +79,11 @@ export type ActionDef = {
   governance: boolean;
 };
 
-// Papel retornado pelo endpoint da matriz.
+// Papel retornado por /api/roles e pelo endpoint da matriz.
 export type RoleRow = {
   code: RoleCode;
   label: string;
+  is_system?: boolean;
 };
 
 // Payload de GET /api/admin/permissions (grade cheia + metadados).
@@ -149,10 +161,11 @@ export function actionGroup(action: string): string {
   }
 }
 
-export function primaryRole(u: User): string {
+export function primaryRole(u: User, roles?: { code: string; label: string }[]): string {
   if (u.roles.length === 0) return "—";
-  // Ordem de "patente" — gestor > administrador > analista > agente
+  // Ordem de "patente" dos embutidos — gestor > administrador > analista > agente.
+  // Papéis customizados não entram na ordenação; caem no primeiro papel do usuário.
   const order: RoleCode[] = ["gestor", "administrador", "analista", "agente"];
-  for (const r of order) if (u.roles.includes(r)) return ROLE_LABEL[r];
-  return ROLE_LABEL[u.roles[0]];
+  for (const r of order) if (u.roles.includes(r)) return roleLabel(r, roles);
+  return roleLabel(u.roles[0], roles);
 }

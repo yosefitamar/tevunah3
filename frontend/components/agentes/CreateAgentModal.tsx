@@ -6,6 +6,8 @@ import { QRCodeSVG } from "qrcode.react";
 import { createUser, type CreatedUser } from "@/lib/users-api";
 import type { ApiError } from "@/lib/api";
 import type { RoleCode } from "@/lib/types";
+import { roleLabel } from "@/lib/types";
+import { useAuth } from "@/contexts/AuthContext";
 import Select from "../shared/Select";
 
 const TOTP_ISSUER = "Tevunah";
@@ -21,14 +23,8 @@ type Props = {
   onCreated: () => void;
 };
 
-const ROLES: { code: RoleCode; label: string }[] = [
-  { code: "agente", label: "AGENTE" },
-  { code: "analista", label: "ANALISTA" },
-  { code: "gestor", label: "GESTOR" },
-  { code: "administrador", label: "ADMINISTRADOR" },
-];
-
 export default function CreateAgentModal({ onClose, onCreated }: Props) {
+  const { roles: allRoles } = useAuth();
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
@@ -128,14 +124,14 @@ export default function CreateAgentModal({ onClose, onCreated }: Props) {
             <fieldset className="form-fieldset">
               <legend>PAPÉIS</legend>
               <div className="checkbox-row">
-                {ROLES.map((r) => (
+                {allRoles.map((r) => (
                   <label key={r.code} className="check">
                     <input
                       type="checkbox"
                       checked={roles.includes(r.code)}
                       onChange={() => toggleRole(r.code)}
                     />
-                    {r.label}
+                    {roleLabel(r.code, allRoles)}
                   </label>
                 ))}
               </div>

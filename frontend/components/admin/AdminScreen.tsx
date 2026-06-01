@@ -1,14 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { Building2, ShieldAlert, SlidersHorizontal, Monitor } from "lucide-react";
+import { Building2, ShieldAlert, SlidersHorizontal, Monitor, Users } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { canAccessAdmin } from "@/lib/permissions";
 import AgencySettings from "./AgencySettings";
 import PermissionsMatrix from "./PermissionsMatrix";
+import RolesManagement from "./RolesManagement";
 import DevicesPlaceholder from "./DevicesPlaceholder";
 
-type Tab = "agencia" | "matriz" | "dispositivos";
+type Tab = "agencia" | "papeis" | "matriz" | "dispositivos";
 
 export default function AdminScreen() {
   const { user: me } = useAuth();
@@ -47,6 +48,14 @@ export default function AdminScreen() {
         </button>
         <button
           type="button"
+          className={"admin-tab" + (tab === "papeis" ? " admin-tab--on" : "")}
+          onClick={() => setTab("papeis")}
+        >
+          <Users size={13} strokeWidth={1.6} />
+          <span>PAPÉIS</span>
+        </button>
+        <button
+          type="button"
           className={"admin-tab" + (tab === "matriz" ? " admin-tab--on" : "")}
           onClick={() => setTab("matriz")}
         >
@@ -65,6 +74,7 @@ export default function AdminScreen() {
       </div>
 
       {tab === "agencia" && <AgencySettings />}
+      {tab === "papeis" && <RolesManagement />}
       {tab === "matriz" && <PermissionsMatrix />}
       {tab === "dispositivos" && <DevicesPlaceholder />}
     </div>

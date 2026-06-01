@@ -97,7 +97,7 @@ func (a *app) handleAdminPermissionsUpdate(w http.ResponseWriter, r *http.Reques
 		httpx.Error(w, http.StatusBadRequest, "role_code e action obrigatórios")
 		return
 	}
-	if !validRoles[roleCode] {
+	if !a.roleExists(r.Context(), roleCode) {
 		httpx.Error(w, http.StatusBadRequest, "papel inválido: "+roleCode)
 		return
 	}
@@ -141,7 +141,7 @@ func (a *app) handleAdminPermissionsUpdate(w http.ResponseWriter, r *http.Reques
 		if s == "" {
 			in.ApproverRole = nil
 		} else {
-			if !validRoles[s] {
+			if !a.roleExists(r.Context(), s) {
 				httpx.Error(w, http.StatusBadRequest, "approver_role inválido: "+s)
 				return
 			}

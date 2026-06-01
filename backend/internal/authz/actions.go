@@ -31,6 +31,12 @@ var Catalog = []ActionDef{
 	{"admin.permissions.read", "Ver matriz de permissões", "ADMIN", "Visualizar a matriz RBAC.", true},
 	{"admin.permissions.update", "Editar matriz de permissões", "ADMIN", "Alterar permissões de papéis na matriz RBAC.", true},
 
+	// ─── Papéis ──────────────────────────────────────────────────────────
+	{"role.read", "Listar papéis", "PAPÉIS", "Visualizar os papéis cadastrados.", false},
+	{"role.create", "Criar papel", "PAPÉIS", "Criar papel customizado.", false},
+	{"role.update", "Editar papel", "PAPÉIS", "Renomear (label) um papel.", false},
+	{"role.delete", "Excluir papel", "PAPÉIS", "Excluir papel customizado.", false},
+
 	// ─── Auditoria ───────────────────────────────────────────────────────
 	{"audit.read", "Ler trilha de auditoria", "AUDITORIA", "Consultar o log de auditoria.", false},
 

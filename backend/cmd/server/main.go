@@ -111,6 +111,11 @@ func main() {
 	mux.Handle("GET /api/admin/permissions", auth(http.HandlerFunc(a.handleAdminPermissionsList)))
 	mux.Handle("PATCH /api/admin/permissions/{role_code}/{action}", auth(http.HandlerFunc(a.handleAdminPermissionsUpdate)))
 
+	mux.Handle("GET /api/roles", auth(http.HandlerFunc(a.handleRolesList)))
+	mux.Handle("POST /api/admin/roles", auth(http.HandlerFunc(a.handleRoleCreate)))
+	mux.Handle("PATCH /api/admin/roles/{code}", auth(http.HandlerFunc(a.handleRoleUpdate)))
+	mux.Handle("DELETE /api/admin/roles/{code}", auth(http.HandlerFunc(a.handleRoleDelete)))
+
 	mux.HandleFunc("GET /api/system-settings", a.handleSystemSettingsGet)
 	mux.Handle("PUT /api/admin/system-settings", auth(http.HandlerFunc(a.handleSystemSettingsUpdate)))
 	mux.Handle("PUT /api/admin/system-settings/brasao", auth(http.HandlerFunc(a.handleSystemSettingsBrasaoUpload)))

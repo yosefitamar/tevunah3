@@ -6,8 +6,6 @@ import { useAuth } from "@/contexts/AuthContext";
 import { listUsers, type UsersList } from "@/lib/users-api";
 import { canListUsers, canCreateUsers } from "@/lib/permissions";
 import {
-  ROLE_LABEL,
-  ROLES_LIST,
   STATUS_LABEL,
   STATUS_PILL,
   clearanceLabel,
@@ -39,7 +37,7 @@ function activeFilterCount(f: Filters) {
 }
 
 export default function AgentesScreen() {
-  const { user: me } = useAuth();
+  const { user: me, roleLabel } = useAuth();
   const [data, setData] = useState<UsersList | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -208,9 +206,7 @@ export default function AgentesScreen() {
                     </td>
                     <td className="muted">{u.email}</td>
                     <td>
-                      {u.roles
-                        .map((r) => ROLE_LABEL[r as RoleCode] ?? r.toUpperCase())
-                        .join(" · ")}
+                      {u.roles.map((r) => roleLabel(r)).join(" · ")}
                     </td>
                     <td>{clearanceLabel(u.clearance_level)}</td>
                     <td>
@@ -283,6 +279,7 @@ type FilterPanelProps = {
 };
 
 function FilterPanel({ value, onApply }: FilterPanelProps) {
+  const { roles, roleLabel } = useAuth();
   const [local, setLocal] = useState<Filters>(value);
 
   return (
@@ -296,7 +293,7 @@ function FilterPanel({ value, onApply }: FilterPanelProps) {
             placeholder="TODOS"
             options={[
               { value: "", label: "TODOS" },
-              ...ROLES_LIST.map((r) => ({ value: r, label: ROLE_LABEL[r] })),
+              ...roles.map((r) => ({ value: r.code, label: roleLabel(r.code) })),
             ]}
           />
         </div>

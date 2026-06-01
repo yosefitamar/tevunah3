@@ -15,12 +15,9 @@ import (
 	"github.com/belia/tevunah/backend/internal/users"
 )
 
-var (
-	validRoles = map[string]bool{
-		"agente": true, "analista": true, "gestor": true, "administrador": true,
-	}
-	emailRE = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
-)
+// Papéis são validados dinamicamente contra app.roles (a.roleExists) — não há
+// mais whitelist estático, já que papéis podem ser customizados.
+var emailRE = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
 
 // actorInfo extrai actor_user_id, actor_session_id, ip e user_agent da
 // requisição para preencher entradas de audit.
@@ -179,7 +176,7 @@ func (a *app) handleUserCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, role := range req.Roles {
-		if !validRoles[role] {
+		if !a.roleExists(r.Context(), role) {
 			httpx.Error(w, http.StatusBadRequest, "papel inválido: "+role)
 			return
 		}

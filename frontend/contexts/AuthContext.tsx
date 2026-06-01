@@ -16,7 +16,9 @@ import {
   setUnauthorizedHandler,
   type ApiError,
 } from "@/lib/api";
-import type { User } from "@/lib/types";
+import type { RoleRow, User } from "@/lib/types";
+import { roleLabel as resolveRoleLabel } from "@/lib/types";
+import { listRoles } from "@/lib/roles-api";
 
 type LoginInput = { email: string; password: string; totp_code?: string };
 
@@ -29,6 +31,12 @@ export type PendingTOTPSetup = {
 
 type AuthState = {
   user: User | null;
+  /** Papéis cadastrados (dinâmicos, de /api/roles). Vazio até carregar. */
+  roles: RoleRow[];
+  /** Resolve o rótulo (UPPERCASE) de um papel pela lista dinâmica. */
+  roleLabel: (code: string) => string;
+  /** Recarrega a lista de papéis (após CRUD na tela de gestão). */
+  refreshRoles: () => Promise<void>;
   loading: boolean;
   error: string | null;
   /** True quando a sessão expirou mid-uso e o overlay de re-auth está ativo. */
@@ -47,6 +55,7 @@ const AuthCtx = createContext<AuthState | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [roles, setRoles] = useState<RoleRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sessionExpired, setSessionExpired] = useState(false);
@@ -165,6 +174,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(data.user);
   }, []);
 
+  const refreshRoles = useCallback(async () => {
+    try {
+      const data = await listRoles();
+      setRoles(data.items ?? []);
+    } catch {
+      // /api/roles exige sessão; em 401 (deslogado) só ignora.
+    }
+  }, []);
+
+  // Carrega os papéis quando há usuário; limpa ao deslogar.
+  useEffect(() => {
+    if (user) refreshRoles();
+    else setRoles([]);
+  }, [user, refreshRoles]);
+
+  const roleLabel = useCallback(
+    (code: string) => resolveRoleLabel(code, roles),
+    [roles],
+  );
+
   const clearPendingTOTPSetup = useCallback(() => setPendingTOTPSetup(null), []);
 
   const logout = useCallback(async () => {
@@ -182,6 +211,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const value = useMemo<AuthState>(
     () => ({
       user,
+      roles,
+      roleLabel,
+      refreshRoles,
       loading,
       error,
       sessionExpired,
@@ -194,6 +226,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }),
     [
       user,
+      roles,
+      roleLabel,
+      refreshRoles,
       loading,
       error,
       sessionExpired,

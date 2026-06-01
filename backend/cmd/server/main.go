@@ -120,6 +120,8 @@ func main() {
 	mux.Handle("PUT /api/admin/system-settings", auth(http.HandlerFunc(a.handleSystemSettingsUpdate)))
 	mux.Handle("PUT /api/admin/system-settings/brasao", auth(http.HandlerFunc(a.handleSystemSettingsBrasaoUpload)))
 	mux.Handle("GET /api/admin/system-settings/brasao", auth(http.HandlerFunc(a.handleSystemSettingsBrasaoGet)))
+	mux.Handle("PUT /api/admin/system-settings/logo", auth(http.HandlerFunc(a.handleSystemSettingsLogoUpload)))
+	mux.Handle("GET /api/admin/system-settings/logo", auth(http.HandlerFunc(a.handleSystemSettingsLogoGet)))
 
 	mux.Handle("GET /api/entities/persons/duplicates", auth(http.HandlerFunc(a.handleEntityPersonDuplicates)))
 	mux.Handle("GET /api/entities", auth(http.HandlerFunc(a.handleEntitiesList)))

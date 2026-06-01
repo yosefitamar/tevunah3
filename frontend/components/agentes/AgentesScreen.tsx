@@ -26,13 +26,18 @@ type Filters = {
   status: "" | UserStatus;
 };
 
-const EMPTY_FILTERS: Filters = { role: "", clearance: 0, status: "" };
+// Filtro padrão da tabela de agentes: mostra apenas ATIVOS. Para ver
+// suspensos/desativados, o usuário troca o STATUS no painel de filtros (e
+// "LIMPAR" volta a este padrão).
+const EMPTY_FILTERS: Filters = { role: "", clearance: 0, status: "active" };
 
 function activeFilterCount(f: Filters) {
   let n = 0;
   if (f.role) n++;
   if (f.clearance) n++;
-  if (f.status) n++;
+  // status='active' é o padrão — só conta como filtro quando difere dele
+  // (TODOS, suspensos ou desativados).
+  if (f.status !== EMPTY_FILTERS.status) n++;
   return n;
 }
 

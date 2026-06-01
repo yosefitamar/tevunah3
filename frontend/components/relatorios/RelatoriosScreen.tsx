@@ -14,6 +14,7 @@ import {
   type ReportsList,
 } from "@/lib/reports-api";
 import { canCreateReports, canReadReports } from "@/lib/permissions";
+import { clearanceLabel } from "@/lib/types";
 import { formatBR } from "@/lib/format";
 import type { ApiError } from "@/lib/api";
 import SortHeader, { type SortState } from "../shared/SortHeader";
@@ -183,6 +184,7 @@ export default function RelatoriosScreen() {
                 <SortHeader field="doc_date" label="DATA" sort={sort} onChange={setSort} width={135} />
                 <SortHeader field="subject" label="ASSUNTO" sort={sort} onChange={setSort} />
                 <SortHeader field="confidentiality" label="CONFIDENCIALIDADE" sort={sort} onChange={setSort} width={160} />
+                <th style={{ width: 95 }}>ACESSO</th>
                 <SortHeader field="diffusion" label="DIFUSÃO" sort={sort} onChange={setSort} width={200} />
                 <SortHeader field="updated_at" label="ATUALIZADO" sort={sort} onChange={setSort} width={140} />
               </tr>
@@ -190,14 +192,14 @@ export default function RelatoriosScreen() {
             <tbody>
               {loading && (
                 <tr>
-                  <td colSpan={7} className="muted" style={{ textAlign: "center", padding: 32 }}>
+                  <td colSpan={8} className="muted" style={{ textAlign: "center", padding: 32 }}>
                     // CARREGANDO…
                   </td>
                 </tr>
               )}
               {!loading && items.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="muted" style={{ textAlign: "center", padding: 32 }}>
+                  <td colSpan={8} className="muted" style={{ textAlign: "center", padding: 32 }}>
                     // NENHUM RELATÓRIO ENCONTRADO
                   </td>
                 </tr>
@@ -292,6 +294,9 @@ function Row({ report, onOpen }: { report: Report; onOpen: () => void }) {
         <span className={"pill conf-" + report.confidentiality}>
           {CONFIDENTIALITY_LABEL[report.confidentiality]}
         </span>
+      </td>
+      <td className="mono" style={{ fontSize: 11 }}>
+        {clearanceLabel(report.required_clearance)}
       </td>
       <td className="muted">
         {report.diffusion ? report.diffusion.toUpperCase() : "—"}

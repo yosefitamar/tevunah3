@@ -40,6 +40,8 @@ export type Report = {
   attachments: string;
   confidentiality: ReportConfidentiality;
   visibility: ReportVisibility;
+  // Nível de ACESSO: clearance mínimo (1..5) p/ ver o RI. ≠ confidentiality.
+  required_clearance: number;
   body_html: string;
   created_at: string;
   created_by: string;
@@ -104,6 +106,7 @@ export type NewReportInput = {
   origin?: string;
   diffusion?: string;
   confidentiality?: ReportConfidentiality;
+  required_clearance?: number;
 };
 
 export function createReport(input: NewReportInput) {
@@ -156,6 +159,14 @@ export function setReportVisibility(id: string, visibility: ReportVisibility) {
   return api<{ report: Report }>(
     `/api/reports/${encodeURIComponent(id)}/visibility`,
     { method: "PUT", body: JSON.stringify({ visibility }) },
+  );
+}
+
+// Nível de ACESSO (clearance mínimo 1..5) — quem pode ver o RI.
+export function setReportRequiredClearance(id: string, required_clearance: number) {
+  return api<{ report: Report }>(
+    `/api/reports/${encodeURIComponent(id)}/required-clearance`,
+    { method: "PUT", body: JSON.stringify({ required_clearance }) },
   );
 }
 

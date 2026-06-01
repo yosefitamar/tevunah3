@@ -155,6 +155,7 @@ func main() {
 	mux.Handle("POST /api/reports/{id}/archive", auth(http.HandlerFunc(a.handleReportArchive)))
 	mux.Handle("GET /api/reports/{id}/download", auth(http.HandlerFunc(a.handleReportDownload)))
 	mux.Handle("PUT /api/reports/{id}/visibility", auth(http.HandlerFunc(a.handleReportSetVisibility)))
+	mux.Handle("PUT /api/reports/{id}/required-clearance", auth(http.HandlerFunc(a.handleReportSetRequiredClearance)))
 	mux.Handle("GET /api/reports/{id}/viewers", auth(http.HandlerFunc(a.handleReportViewersList)))
 	mux.Handle("PUT /api/reports/{id}/viewers", auth(http.HandlerFunc(a.handleReportSetViewers)))
 	mux.Handle("POST /api/reports/{id}/qualifications", auth(http.HandlerFunc(a.handleReportQualificationCreate)))

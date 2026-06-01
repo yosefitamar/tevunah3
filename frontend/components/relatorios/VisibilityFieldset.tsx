@@ -12,7 +12,10 @@ import {
   lookupUsers,
   setReportViewers,
   setReportVisibility,
+  setReportRequiredClearance,
 } from "@/lib/reports-api";
+import { clearanceLabel } from "@/lib/types";
+import Select from "../shared/Select";
 
 type Props = {
   report: Report;
@@ -71,6 +74,24 @@ export default function VisibilityFieldset({ report, meID, canManage, canEdit, o
       await modal.alert({
         variant: "error",
         title: "FALHA AO ALTERAR VISIBILIDADE",
+        message: e instanceof Error ? e.message : "Erro desconhecido",
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onSetClearance(level: number) {
+    if (!canEdit) return;
+    if (level === report.required_clearance) return;
+    setBusy(true);
+    try {
+      const { report: updated } = await setReportRequiredClearance(report.id, level);
+      onReportUpdated(updated);
+    } catch (e) {
+      await modal.alert({
+        variant: "error",
+        title: "FALHA AO ALTERAR NÍVEL DE ACESSO",
         message: e instanceof Error ? e.message : "Erro desconhecido",
       });
     } finally {
@@ -164,6 +185,31 @@ export default function VisibilityFieldset({ report, meID, canManage, canEdit, o
           </span>
         </div>
       )}
+
+      <div className="visibility-toggle" style={{ marginTop: 10 }}>
+        <span style={{ fontSize: 9, letterSpacing: "0.16em", color: "var(--fg-3)" }}>
+          NÍVEL DE ACESSO
+        </span>
+        {lockedByStatus ? (
+          <span className="vis-pill vis-pill--on vis-pill--readonly">
+            {clearanceLabel(report.required_clearance)}
+          </span>
+        ) : (
+          <Select
+            value={String(report.required_clearance)}
+            disabled={!canEdit || busy}
+            onChange={(v) => onSetClearance(Number(v))}
+            className="sel--row"
+            options={[1, 2, 3, 4, 5].map((n) => ({
+              value: String(n),
+              label: clearanceLabel(n),
+            }))}
+          />
+        )}
+        <span className="visibility-hint">
+          SÓ VÊ QUEM TEM CLEARANCE ≥ ESTE NÍVEL (AUTOR E ADMIN SEMPRE VEEM)
+        </span>
+      </div>
 
       {restrito && canManage && (
         <div className="viewers-block">

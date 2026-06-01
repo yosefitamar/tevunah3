@@ -30,9 +30,10 @@ type publicReport struct {
 	PriorDiffusion  string `json:"prior_diffusion"`
 	Reference       string `json:"reference"`
 	Attachments     string `json:"attachments"`
-	Confidentiality string `json:"confidentiality"`
-	Visibility      string `json:"visibility"`
-	BodyHTML        string `json:"body_html"`
+	Confidentiality   string `json:"confidentiality"`
+	Visibility        string `json:"visibility"`
+	RequiredClearance int    `json:"required_clearance"`
+	BodyHTML          string `json:"body_html"`
 
 	CreatedAt  time.Time  `json:"created_at"`
 	CreatedBy  string     `json:"created_by"`
@@ -52,9 +53,10 @@ func toPublicReport(r *reports.Report) publicReport {
 		Subject: r.Subject, Origin: r.Origin, Diffusion: r.Diffusion,
 		PriorDiffusion: r.PriorDiffusion, Reference: r.Reference,
 		Attachments:     r.Attachments,
-		Confidentiality: r.Confidentiality,
-		Visibility:      r.Visibility,
-		BodyHTML:        r.BodyHTML,
+		Confidentiality:   r.Confidentiality,
+		Visibility:        r.Visibility,
+		RequiredClearance: r.RequiredClearance,
+		BodyHTML:          r.BodyHTML,
 		CreatedAt:       r.CreatedAt, CreatedBy: r.CreatedBy,
 		UpdatedAt: r.UpdatedAt, UpdatedBy: r.UpdatedBy,
 		DiffusedAt: r.DiffusedAt, DiffusedBy: r.DiffusedBy,
@@ -131,13 +133,14 @@ func (a *app) handleReportsList(w http.ResponseWriter, r *http.Request) {
 	offset, _ := strconv.Atoi(q.Get("offset"))
 	year, _ := strconv.Atoi(q.Get("year"))
 	res, err := a.reports.List(r.Context(), reports.ListOpts{
-		Limit:   limit,
-		Offset:  offset,
-		Status:  strings.TrimSpace(q.Get("status")),
-		Search:  strings.TrimSpace(q.Get("search")),
-		Year:    year,
-		UserID:  me.ID,
-		IsAdmin: hasRole(me.Roles, "administrador"),
+		Limit:     limit,
+		Offset:    offset,
+		Status:    strings.TrimSpace(q.Get("status")),
+		Search:    strings.TrimSpace(q.Get("search")),
+		Year:      year,
+		UserID:    me.ID,
+		Clearance: me.ClearanceLevel,
+		IsAdmin:   hasRole(me.Roles, "administrador"),
 	})
 	if err != nil {
 		log.Printf("reports list: %v", err)
@@ -159,12 +162,13 @@ func (a *app) handleReportsList(w http.ResponseWriter, r *http.Request) {
 // ─── POST /api/reports ────────────────────────────────────────────────
 
 type createReportRequest struct {
-	Kind            string `json:"kind"`
-	DocDate         string `json:"doc_date"`
-	Subject         string `json:"subject"`
-	Origin          string `json:"origin"`
-	Diffusion       string `json:"diffusion"`
-	Confidentiality string `json:"confidentiality"`
+	Kind              string `json:"kind"`
+	DocDate           string `json:"doc_date"`
+	Subject           string `json:"subject"`
+	Origin            string `json:"origin"`
+	Diffusion         string `json:"diffusion"`
+	Confidentiality   string `json:"confidentiality"`
+	RequiredClearance int    `json:"required_clearance"`
 }
 
 func (a *app) handleReportCreate(w http.ResponseWriter, r *http.Request) {
@@ -191,14 +195,19 @@ func (a *app) handleReportCreate(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusBadRequest, "confidentiality inválido (sigiloso|secreto|ultrassecreto)")
 		return
 	}
+	if req.RequiredClearance != 0 && (req.RequiredClearance < 1 || req.RequiredClearance > 5) {
+		httpx.Error(w, http.StatusBadRequest, "required_clearance inválido (1..5)")
+		return
+	}
 	rep, err := a.reports.Create(r.Context(), reports.NewReport{
-		Kind:            req.Kind,
-		DocDate:         docDate,
-		Subject:         strings.TrimSpace(req.Subject),
-		Origin:          strings.TrimSpace(req.Origin),
-		Diffusion:       strings.TrimSpace(req.Diffusion),
-		Confidentiality: conf,
-		CreatedBy:       me.ID,
+		Kind:              req.Kind,
+		DocDate:           docDate,
+		Subject:           strings.TrimSpace(req.Subject),
+		Origin:            strings.TrimSpace(req.Origin),
+		Diffusion:         strings.TrimSpace(req.Diffusion),
+		Confidentiality:   conf,
+		RequiredClearance: req.RequiredClearance,
+		CreatedBy:         me.ID,
 	})
 	if err != nil {
 		log.Printf("reports create: %v", err)
@@ -234,7 +243,7 @@ func (a *app) handleReportDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	isAdmin := hasRole(me.Roles, "administrador")
-	canAccess, err := a.reports.CanAccess(r.Context(), id, me.ID, isAdmin)
+	canAccess, err := a.reports.CanAccess(r.Context(), id, me.ID, me.ClearanceLevel, isAdmin)
 	if err != nil {
 		log.Printf("can-access: %v", err)
 		httpx.Error(w, http.StatusInternalServerError, "erro ao verificar acesso")
@@ -684,6 +693,58 @@ func (a *app) handleReportSetVisibility(w http.ResponseWriter, r *http.Request) 
 		ResourceID:   audit.Ptr(rep.ID),
 		Before:       map[string]any{"visibility": before},
 		After:        map[string]any{"visibility": updated.Visibility},
+	})
+	httpx.OK(w, map[string]any{"report": toPublicReport(updated)})
+}
+
+// PUT /api/reports/{id}/required-clearance — corpo { "required_clearance": 1..5 }.
+// Nível de ACESSO (clearance mínimo) do RI. Espelha o setter de visibilidade:
+// autor ou admin, somente em rascunho.
+type setRequiredClearanceRequest struct {
+	RequiredClearance int `json:"required_clearance"`
+}
+
+func (a *app) handleReportSetRequiredClearance(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePerm(w, r, "report.read") {
+		return
+	}
+	rep := a.authorOrAdmin(w, r)
+	if rep == nil {
+		return
+	}
+	var req setRequiredClearanceRequest
+	if err := httpx.Decode(r, &req); err != nil {
+		httpx.Error(w, http.StatusBadRequest, "corpo inválido")
+		return
+	}
+	if req.RequiredClearance < 1 || req.RequiredClearance > 5 {
+		httpx.Error(w, http.StatusBadRequest, "required_clearance inválido (1..5)")
+		return
+	}
+	me := middleware.UserFrom(r.Context())
+	before := rep.RequiredClearance
+	updated, err := a.reports.SetRequiredClearance(r.Context(), rep.ID, req.RequiredClearance, me.ID)
+	if err != nil {
+		if errors.Is(err, reports.ErrInvalidStatus) {
+			httpx.Error(w, http.StatusConflict, "relatório difundido não pode ter o nível de acesso alterado")
+			return
+		}
+		if errors.Is(err, reports.ErrNotFound) {
+			httpx.Error(w, http.StatusNotFound, "relatório não encontrado")
+			return
+		}
+		log.Printf("set required_clearance: %v", err)
+		httpx.Error(w, http.StatusInternalServerError, "erro ao alterar nível de acesso")
+		return
+	}
+	aid, sid, ip, ua := a.actorInfo(r)
+	_ = a.audit.Log(r.Context(), audit.Entry{
+		ActorUserID: aid, ActorSessionID: sid, ActorIP: ip, ActorUserAgent: ua,
+		Action:       "report.clearance.change",
+		ResourceType: audit.Ptr("report"),
+		ResourceID:   audit.Ptr(rep.ID),
+		Before:       map[string]any{"required_clearance": before},
+		After:        map[string]any{"required_clearance": updated.RequiredClearance},
 	})
 	httpx.OK(w, map[string]any{"report": toPublicReport(updated)})
 }

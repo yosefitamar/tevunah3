@@ -85,8 +85,11 @@ type Report struct {
 	Reference      string
 	Attachments    string
 
-	Confidentiality string // sigiloso | secreto | ultrassecreto
+	Confidentiality string // sigiloso | secreto | ultrassecreto (sigilo legal/LAI)
 	Visibility      string // aberto | restrito
+	// Nível de ACESSO: clearance mínimo do usuário para ver o RI (1..5).
+	// Ortogonal à confidentiality. Ver migration 00035.
+	RequiredClearance int
 
 	BodyHTML string
 
@@ -148,13 +151,14 @@ func New(db *sql.DB) *Repo { return &Repo{db: db} }
 
 // NewReport é o input do Create.
 type NewReport struct {
-	Kind            string
-	DocDate         time.Time
-	Subject         string
-	Origin          string
-	Diffusion       string
-	Confidentiality string // se vazio usa default da coluna ('secreto')
-	CreatedBy       string
+	Kind              string
+	DocDate           time.Time
+	Subject           string
+	Origin            string
+	Diffusion         string
+	Confidentiality   string // se vazio usa default da coluna ('secreto')
+	RequiredClearance int    // 0 → default 1 (visível a qualquer clearance)
+	CreatedBy         string
 }
 
 func (r *Repo) Create(ctx context.Context, in NewReport) (*Report, error) {
@@ -167,15 +171,18 @@ func (r *Repo) Create(ctx context.Context, in NewReport) (*Report, error) {
 	if in.Confidentiality == "" {
 		in.Confidentiality = ConfidentialitySecreto
 	}
+	if in.RequiredClearance == 0 {
+		in.RequiredClearance = 1
+	}
 	var id string
 	err := r.db.QueryRowContext(ctx, `
 		INSERT INTO app.reports
 		  (kind, status, doc_date, subject, origin, diffusion, confidentiality,
-		   created_by, updated_by)
-		VALUES ($1, 'criado', $2, $3, $4, $5, $6, $7, $7)
+		   required_clearance, created_by, updated_by)
+		VALUES ($1, 'criado', $2, $3, $4, $5, $6, $7, $8, $8)
 		RETURNING id`,
 		in.Kind, in.DocDate, in.Subject, in.Origin, in.Diffusion,
-		in.Confidentiality, in.CreatedBy,
+		in.Confidentiality, in.RequiredClearance, in.CreatedBy,
 	).Scan(&id)
 	if err != nil {
 		return nil, err
@@ -185,7 +192,8 @@ func (r *Repo) Create(ctx context.Context, in NewReport) (*Report, error) {
 
 const reportSelectFields = `
 	id, kind, status, seq, year, doc_date, subject, origin, diffusion,
-	prior_diffusion, reference, attachments, confidentiality, visibility, body_html,
+	prior_diffusion, reference, attachments, confidentiality, visibility,
+	required_clearance, body_html,
 	created_at, created_by, updated_at, updated_by,
 	diffused_at, diffused_by, archived_at, archived_by`
 
@@ -197,7 +205,7 @@ func scanReport(row *sql.Row) (*Report, error) {
 	err := row.Scan(
 		&r.ID, &r.Kind, &r.Status, &seq, &year, &r.DocDate, &r.Subject,
 		&r.Origin, &r.Diffusion, &r.PriorDiffusion, &r.Reference, &r.Attachments,
-		&r.Confidentiality, &r.Visibility,
+		&r.Confidentiality, &r.Visibility, &r.RequiredClearance,
 		&r.BodyHTML, &r.CreatedAt, &r.CreatedBy, &r.UpdatedAt, &updatedBy,
 		&diffusedAt, &diffusedBy, &archivedAt, &archivedBy,
 	)
@@ -502,10 +510,13 @@ type ListOpts struct {
 
 	// Filtro de visibilidade (obrigatório nos endpoints HTTP — vem do middleware
 	// de auth). Se IsAdmin=true, ignora o filtro e devolve todos os relatórios.
-	// Senão, devolve apenas:
-	//   visibility='aberto' OR created_by=UserID OR UserID está em report_viewers
-	UserID  string
-	IsAdmin bool
+	// Senão, devolve apenas (autor sempre vê o próprio; demais precisam de
+	// visibilidade E clearance suficiente):
+	//   created_by=UserID
+	//   OR ((visibility='aberto' OR é viewer) AND required_clearance <= Clearance)
+	UserID    string
+	Clearance int
+	IsAdmin   bool
 }
 
 type ListResult struct {
@@ -530,17 +541,24 @@ func (r *Repo) List(ctx context.Context, opts ListOpts) (*ListResult, error) {
 	countVis := "TRUE"
 	listVis := "TRUE"
 	if !opts.IsAdmin {
-		countArgs = append(countArgs, opts.UserID)
-		listArgs = append(listArgs, opts.UserID)
+		// Autor sempre vê o próprio; demais precisam de visibilidade E clearance.
+		countArgs = append(countArgs, opts.UserID, opts.Clearance)
+		listArgs = append(listArgs, opts.UserID, opts.Clearance)
 		countVis = `(
-			r.visibility = 'aberto'
-			OR r.created_by = $5
-			OR EXISTS (SELECT 1 FROM app.report_viewers v WHERE v.report_id = r.id AND v.user_id = $5)
+			r.created_by = $5
+			OR (
+			     (r.visibility = 'aberto'
+			      OR EXISTS (SELECT 1 FROM app.report_viewers v WHERE v.report_id = r.id AND v.user_id = $5))
+			     AND r.required_clearance <= $6
+			)
 		)`
 		listVis = `(
-			r.visibility = 'aberto'
-			OR r.created_by = $7
-			OR EXISTS (SELECT 1 FROM app.report_viewers v WHERE v.report_id = r.id AND v.user_id = $7)
+			r.created_by = $7
+			OR (
+			     (r.visibility = 'aberto'
+			      OR EXISTS (SELECT 1 FROM app.report_viewers v WHERE v.report_id = r.id AND v.user_id = $7))
+			     AND r.required_clearance <= $8
+			)
 		)`
 	}
 
@@ -583,7 +601,7 @@ func (r *Repo) List(ctx context.Context, opts ListOpts) (*ListResult, error) {
 			&rep.ID, &rep.Kind, &rep.Status, &seq, &year, &rep.DocDate,
 			&rep.Subject, &rep.Origin, &rep.Diffusion, &rep.PriorDiffusion,
 			&rep.Reference, &rep.Attachments,
-			&rep.Confidentiality, &rep.Visibility, &rep.BodyHTML,
+			&rep.Confidentiality, &rep.Visibility, &rep.RequiredClearance, &rep.BodyHTML,
 			&rep.CreatedAt, &rep.CreatedBy, &rep.UpdatedAt, &updatedBy,
 			&diffusedAt, &diffusedBy, &archivedAt, &archivedBy,
 		); err != nil {
@@ -828,7 +846,7 @@ type Viewer struct {
 // Importante: handlers chamam este método ANTES de exibir conteúdo (detalhe,
 // download, preview) pra que listagem e endpoints individuais sigam a mesma
 // regra.
-func (r *Repo) CanAccess(ctx context.Context, reportID, userID string, isAdmin bool) (bool, error) {
+func (r *Repo) CanAccess(ctx context.Context, reportID, userID string, clearance int, isAdmin bool) (bool, error) {
 	existsSQL := `SELECT EXISTS(SELECT 1 FROM app.reports WHERE id = $1 AND deleted_at IS NULL)`
 	if isAdmin {
 		var exists bool
@@ -840,6 +858,7 @@ func (r *Repo) CanAccess(ctx context.Context, reportID, userID string, isAdmin b
 		}
 		return true, nil
 	}
+	// Autor sempre vê o próprio; demais precisam de visibilidade E clearance.
 	var ok bool
 	if err := r.db.QueryRowContext(ctx, `
 		SELECT EXISTS(
@@ -847,12 +866,15 @@ func (r *Repo) CanAccess(ctx context.Context, reportID, userID string, isAdmin b
 			 WHERE r.id = $1
 			   AND r.deleted_at IS NULL
 			   AND (
-			        r.visibility = 'aberto'
-			        OR r.created_by = $2
-			        OR EXISTS (SELECT 1 FROM app.report_viewers v
-			                    WHERE v.report_id = r.id AND v.user_id = $2)
+			        r.created_by = $2
+			        OR (
+			             (r.visibility = 'aberto'
+			              OR EXISTS (SELECT 1 FROM app.report_viewers v
+			                          WHERE v.report_id = r.id AND v.user_id = $2))
+			             AND r.required_clearance <= $3
+			        )
 			      )
-		)`, reportID, userID).Scan(&ok); err != nil {
+		)`, reportID, userID, clearance).Scan(&ok); err != nil {
 		return false, err
 	}
 	if !ok {
@@ -919,6 +941,39 @@ func (r *Repo) SetVisibility(ctx context.Context, reportID, visibility, actor st
 	if n == 0 {
 		// Distingue inexistente de status inválido pra o handler responder
 		// o código HTTP correto (404 vs 409).
+		var exists bool
+		if err := r.db.QueryRowContext(ctx,
+			`SELECT EXISTS(SELECT 1 FROM app.reports WHERE id = $1)`, reportID,
+		).Scan(&exists); err != nil {
+			return nil, err
+		}
+		if !exists {
+			return nil, ErrNotFound
+		}
+		return nil, ErrInvalidStatus
+	}
+	return r.FindByID(ctx, reportID)
+}
+
+// SetRequiredClearance altera o nível de ACESSO (clearance mínimo, 1..5) do RI.
+// Espelha SetVisibility: permitido SOMENTE em status='criado' — uma vez
+// difundido o RI é registro oficial e nada nele muda, inclusive quem enxerga.
+func (r *Repo) SetRequiredClearance(ctx context.Context, reportID string, level int, actor string) (*Report, error) {
+	if level < 1 || level > 5 {
+		return nil, fmt.Errorf("required_clearance inválido: %d (1..5)", level)
+	}
+	res, err := r.db.ExecContext(ctx, `
+		UPDATE app.reports
+		   SET required_clearance = $1,
+		       updated_at = now(),
+		       updated_by = $2
+		 WHERE id = $3
+		   AND status = 'criado'`, level, actor, reportID)
+	if err != nil {
+		return nil, err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
 		var exists bool
 		if err := r.db.QueryRowContext(ctx,
 			`SELECT EXISTS(SELECT 1 FROM app.reports WHERE id = $1)`, reportID,

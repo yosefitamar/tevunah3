@@ -50,7 +50,7 @@ func (a *app) handleReportDownload(w http.ResponseWriter, r *http.Request) {
 	// Reforça filtro de visibilidade — mesmo critério da listagem/detalhe.
 	// Sem isso, alguém com URL conhecida do RI bypassa a restrição.
 	isAdmin := hasRole(me.Roles, "administrador")
-	canAccess, err := a.reports.CanAccess(r.Context(), id, me.ID, isAdmin)
+	canAccess, err := a.reports.CanAccess(r.Context(), id, me.ID, me.ClearanceLevel, isAdmin)
 	if err != nil {
 		log.Printf("reports download access: %v", err)
 		httpx.Error(w, http.StatusInternalServerError, "erro ao verificar acesso")

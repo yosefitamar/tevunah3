@@ -4,7 +4,11 @@ WORKDIR /app
 
 RUN apk add --no-cache libc6-compat
 
-COPY package.json package-lock.json* ./
+# Não copiamos o package-lock.json de propósito: ele é gerado em darwin e
+# omite os binários nativos linux opcionais (lightningcss, @tailwindcss/oxide),
+# causando "Cannot find module lightningcss.linux-x64-musl.node" no runtime.
+# Sem o lockfile, npm resolve os optionals corretamente pra plataforma alvo.
+COPY package.json ./
 RUN npm install
 
 COPY . .

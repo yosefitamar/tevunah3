@@ -1070,14 +1070,23 @@ func (i *Importer) recordMap(table string, legacyID int64, newUUID string) error
 // ─── helpers diversos ────────────────────────────────────────────────────
 
 func (i *Importer) nextUserCode() (string, error) {
-	// Gera código AGT-NNNN sequencial sobre os agentes existentes.
-	var code string
-	err := i.tx.QueryRowContext(i.ctx, `
-		SELECT 'AGT-' || lpad((COALESCE(MAX(
-		    CASE WHEN code ~ '^AGT-[0-9]+$' THEN substring(code from 5)::int END
-		), 0) + 1)::text, 4, '0')
-		FROM app.users`).Scan(&code)
-	return code, err
+	// Mesmo formato do gerador oficial (users.GenerateCode): 4 dígitos
+	// aleatórios, únicos. random() do Postgres + checagem de unicidade dentro
+	// da transação (enxerga inserts não-commitados do próprio run).
+	for attempt := 0; attempt < 50; attempt++ {
+		var code string
+		err := i.tx.QueryRowContext(i.ctx, `
+			SELECT g.c FROM (SELECT lpad((floor(random() * 10000))::int::text, 4, '0') AS c) g
+			 WHERE NOT EXISTS (SELECT 1 FROM app.users WHERE code = g.c)`).Scan(&code)
+		if err == sql.ErrNoRows {
+			continue // colisão — tenta outro
+		}
+		if err != nil {
+			return "", err
+		}
+		return code, nil
+	}
+	return "", fmt.Errorf("não foi possível gerar código de agente único após 50 tentativas")
 }
 
 var htmlTagRe = regexp.MustCompile(`<[^>]+>`)

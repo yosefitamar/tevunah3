@@ -688,6 +688,17 @@ func (i *Importer) importReports() error {
 		return err
 	}
 
+	// Origem: o legado não armazenava origem (era texto fixo no template do RI),
+	// então carimbamos o mesmo valor usado como default dos RIs novos — o
+	// document_title configurado em system_settings (Admin → Título p/ Documentos).
+	var origin string
+	if err := i.tx.QueryRowContext(i.ctx,
+		`SELECT COALESCE(document_title, '') FROM app.system_settings WHERE key = 'singleton'`,
+	).Scan(&origin); err != nil {
+		return fmt.Errorf("ler document_title p/ origem: %w", err)
+	}
+	origin = strings.TrimSpace(origin)
+
 	for _, r := range batch {
 		legacyID := r.id
 		reportNum, reportYear := r.reportNum, r.reportYear
@@ -752,14 +763,14 @@ func (i *Importer) importReports() error {
 		var reportID string
 		err := i.tx.QueryRowContext(i.ctx, `
 			INSERT INTO app.reports
-			  (status, seq, year, doc_date, subject, reference,
+			  (status, seq, year, doc_date, subject, origin, reference,
 			   body_html, confidentiality,
 			   created_at, created_by, updated_at, updated_by,
 			   diffused_at, diffused_by)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
-			        now(), $9, now(), $9, $10, $11)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
+			        now(), $10, now(), $10, $11, $12)
 			RETURNING id`,
-			status, seq, year, reportDate, strings.TrimSpace(subject), refStr,
+			status, seq, year, reportDate, strings.TrimSpace(subject), origin, refStr,
 			body, conf,
 			authorID, diffusedAt, diffusedBy,
 		).Scan(&reportID)

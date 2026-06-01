@@ -235,7 +235,9 @@ body {
 .logos { text-align: center; margin: 0 0 6pt 0; }
 .logos table { width: 100%; border-collapse: collapse; border: none; table-layout: fixed; }
 .logos td { vertical-align: middle; padding: 0 6pt; border: none; }
-.logos img { display: inline-block; vertical-align: middle; max-height: 2cm; width: auto; }
+/* max-width: 100% impede que um logo largo transborde a célula (table-layout
+   fixed) e "vaze" pra direita; object-fit preserva a proporção ao limitar. */
+.logos img { display: inline-block; vertical-align: middle; max-height: 2cm; max-width: 100%; width: auto; object-fit: contain; }
 /* Por padrão (todas as páginas exceto a primeira): apenas o texto, sem borda. */
 .title {
     border: none;

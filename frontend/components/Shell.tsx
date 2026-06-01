@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { MODULE_TITLES, type ModuleId } from "@/lib/nav";
+import { IS_DEV, MODULE_TITLES, type ModuleId } from "@/lib/nav";
 import { type PaletteId } from "@/lib/palettes";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { SystemSettingsProvider, useSystemSettings } from "@/contexts/SystemSettingsContext";
@@ -20,6 +20,7 @@ import {
   ScreenAprovacoes,
   ScreenAuditoria,
   ScreenEntidades,
+  ScreenInformes,
   ScreenRelatorios,
 } from "./screens";
 import SandboxModais from "./sandbox/SandboxModais";
@@ -28,6 +29,7 @@ const VIEWS: Record<ModuleId, React.ComponentType> = {
   dashboard: Dashboard,
   entidades: ScreenEntidades,
   relatorios: ScreenRelatorios,
+  informes: ScreenInformes,
   agentes: ScreenAgentes,
   aprovacoes: ScreenAprovacoes,
   auditoria: ScreenAuditoria,
@@ -48,7 +50,10 @@ function AuthenticatedShell() {
     document.documentElement.setAttribute("data-palette", palette);
   }, [palette]);
 
-  const View = VIEWS[active];
+  // Sandbox é só de desenvolvimento — em prod, qualquer tentativa de ativá-lo
+  // cai no Dashboard (o item nem aparece no menu, isto é defesa em profundidade).
+  const safeActive: ModuleId = active === "sandbox" && !IS_DEV ? "dashboard" : active;
+  const View = VIEWS[safeActive];
   const sideW = collapsed ? "62px" : "248px";
 
   return (
@@ -67,8 +72,8 @@ function AuthenticatedShell() {
           setCollapsed={setCollapsed}
         />
         <div style={{ display: "flex", flexDirection: "column", minWidth: 0, minHeight: 0 }}>
-          <Topbar active={active} onToggleSettings={() => setSettingsOpen((v) => !v)} />
-          <main className="content" data-screen-label={MODULE_TITLES[active]}>
+          <Topbar active={safeActive} onToggleSettings={() => setSettingsOpen((v) => !v)} />
+          <main className="content" data-screen-label={MODULE_TITLES[safeActive]}>
             <View />
           </main>
         </div>

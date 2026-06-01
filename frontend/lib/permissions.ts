@@ -54,3 +54,10 @@ export const canUndiffuseReports = (u: User | null) => can(u, "report.undiffuse"
 export const canDownloadReports = (u: User | null) => can(u, "report.download");
 // Destruir (soft delete) rascunho. O backend ainda exige que o caller seja autor OU admin.
 export const canDestroyReports = (u: User | null) => can(u, "report.destroy");
+
+// Informes — captura rápida que subsidia RIs. Editar/excluir só o próprio
+// (gestor/admin qualquer um) — a posse é checada na UI via canManageInforme.
+export const canReadInformes = (u: User | null) => can(u, "informe.read");
+export const canCreateInformes = (u: User | null) => can(u, "informe.create");
+export const canEditInformes = (u: User | null) => can(u, "informe.update");
+export const canDeleteInformes = (u: User | null) => can(u, "informe.delete");

@@ -58,6 +58,12 @@ var Catalog = []ActionDef{
 	{"report.download", "Baixar relatório", "RELATÓRIOS", "Baixar o PDF de um relatório.", false},
 	{"report.destroy", "Excluir rascunho", "RELATÓRIOS", "Excluir (soft delete) rascunho de relatório.", false},
 
+	// ─── Informes ────────────────────────────────────────────────────────
+	{"informe.read", "Ver informes", "INFORMES", "Listar e abrir informes.", false},
+	{"informe.create", "Criar informe", "INFORMES", "Cadastrar novo informe.", false},
+	{"informe.update", "Editar informe", "INFORMES", "Editar informe (próprio; gestor/admin qualquer um).", false},
+	{"informe.delete", "Excluir informe", "INFORMES", "Excluir informe (próprio; gestor/admin qualquer um).", false},
+
 	// ─── Sistema ─────────────────────────────────────────────────────────
 	{"system.settings.read", "Ver configurações", "SISTEMA", "Ler configurações do sistema.", false},
 	{"system.settings.update", "Editar configurações", "SISTEMA", "Alterar configurações do sistema.", false},

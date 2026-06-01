@@ -24,6 +24,7 @@ import (
 	"github.com/belia/tevunah/backend/internal/crypt"
 	idb "github.com/belia/tevunah/backend/internal/db"
 	"github.com/belia/tevunah/backend/internal/entities"
+	"github.com/belia/tevunah/backend/internal/informes"
 	"github.com/belia/tevunah/backend/internal/pdf"
 	"github.com/belia/tevunah/backend/internal/reports"
 	"github.com/belia/tevunah/backend/internal/httpx"
@@ -47,6 +48,7 @@ type app struct {
 	approvals   *approvals.Repo
 	perms       *permissions.Repo
 	entities    *entities.Repo
+	informes    *informes.Repo
 	reports     *reports.Repo
 	settings    *settings.Repo
 	pdf         *pdf.Client
@@ -79,6 +81,7 @@ func main() {
 		approvals:   approvals.New(appDB),
 		perms:       permissions.New(appDB),
 		entities:    entities.New(appDB),
+		informes:    informes.New(appDB),
 		reports:     reports.New(appDB),
 		settings:    settings.New(appDB),
 		pdf:         pdf.New("", photoDir()),
@@ -122,6 +125,15 @@ func main() {
 	mux.Handle("GET /api/admin/system-settings/brasao", auth(http.HandlerFunc(a.handleSystemSettingsBrasaoGet)))
 	mux.Handle("PUT /api/admin/system-settings/logo", auth(http.HandlerFunc(a.handleSystemSettingsLogoUpload)))
 	mux.Handle("GET /api/admin/system-settings/logo", auth(http.HandlerFunc(a.handleSystemSettingsLogoGet)))
+
+	mux.Handle("GET /api/informes", auth(http.HandlerFunc(a.handleInformesList)))
+	mux.Handle("POST /api/informes", auth(http.HandlerFunc(a.handleInformeCreate)))
+	mux.Handle("GET /api/informes/{id}", auth(http.HandlerFunc(a.handleInformeDetail)))
+	mux.Handle("PATCH /api/informes/{id}", auth(http.HandlerFunc(a.handleInformeUpdate)))
+	mux.Handle("DELETE /api/informes/{id}", auth(http.HandlerFunc(a.handleInformeDelete)))
+	mux.Handle("GET /api/informes/{id}/photo", auth(http.HandlerFunc(a.handleInformePhotoGet)))
+	mux.Handle("POST /api/informes/{id}/photo", auth(http.HandlerFunc(a.handleInformePhotoUpload)))
+	mux.Handle("DELETE /api/informes/{id}/photo", auth(http.HandlerFunc(a.handleInformePhotoDelete)))
 
 	mux.Handle("GET /api/entities/persons/duplicates", auth(http.HandlerFunc(a.handleEntityPersonDuplicates)))
 	mux.Handle("GET /api/entities", auth(http.HandlerFunc(a.handleEntitiesList)))

@@ -95,7 +95,7 @@ export default function RolesManagement() {
                           style={{ width: "100%" }}
                         />
                       ) : (
-                        r.label
+                        r.label.toUpperCase()
                       )}
                     </td>
                     <td className="muted">

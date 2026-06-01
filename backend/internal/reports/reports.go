@@ -517,6 +517,30 @@ type ListOpts struct {
 	UserID    string
 	Clearance int
 	IsAdmin   bool
+
+	// Ordenação. SortBy aceita: number|status|doc_date|subject|confidentiality|
+	// diffusion|updated_at (default doc_date). SortDir: asc|desc (default desc).
+	SortBy  string
+	SortDir string
+}
+
+// reportsOrderBy traduz (SortBy, SortDir) num ORDER BY seguro (whitelist). O
+// switch é a própria whitelist — entradas desconhecidas caem no default.
+func reportsOrderBy(sortBy, sortDir string) string {
+	dir := "DESC"
+	if strings.EqualFold(sortDir, "asc") {
+		dir = "ASC"
+	}
+	var ob string
+	switch sortBy {
+	case "number":
+		ob = "r.year " + dir + ", r.seq " + dir
+	case "status", "subject", "confidentiality", "diffusion", "doc_date", "updated_at":
+		ob = "r." + sortBy + " " + dir
+	default:
+		ob = "r.doc_date DESC"
+	}
+	return ob + ", r.created_at DESC"
 }
 
 type ListResult struct {
@@ -584,7 +608,7 @@ func (r *Repo) List(ctx context.Context, opts ListOpts) (*ListResult, error) {
 		   AND ($2 = '' OR r.subject ILIKE $3)
 		   AND ($4 = 0  OR r.year = $4)
 		   AND `+listVis+`
-		 ORDER BY r.doc_date DESC, r.created_at DESC
+		 ORDER BY `+reportsOrderBy(opts.SortBy, opts.SortDir)+`
 		 LIMIT $5 OFFSET $6`, listArgs...)
 	if err != nil {
 		return nil, err

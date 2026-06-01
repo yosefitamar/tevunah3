@@ -89,6 +89,8 @@ export default function RelatoriosScreen() {
         status: filters.status || undefined,
         search: filters.search.trim() || undefined,
         year: filters.year || undefined,
+        sort_by: sort?.field,
+        sort_dir: sort?.dir,
       });
       setData(res);
     } catch (e) {
@@ -96,7 +98,7 @@ export default function RelatoriosScreen() {
     } finally {
       setLoading(false);
     }
-  }, [canRead, yearsLoaded, filters, page]);
+  }, [canRead, yearsLoaded, filters, page, sort]);
 
   useEffect(() => {
     reload();

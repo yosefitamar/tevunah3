@@ -141,6 +141,8 @@ func (a *app) handleReportsList(w http.ResponseWriter, r *http.Request) {
 		UserID:    me.ID,
 		Clearance: me.ClearanceLevel,
 		IsAdmin:   hasRole(me.Roles, "administrador"),
+		SortBy:    strings.TrimSpace(q.Get("sort_by")),
+		SortDir:   strings.TrimSpace(q.Get("sort_dir")),
 	})
 	if err != nil {
 		log.Printf("reports list: %v", err)

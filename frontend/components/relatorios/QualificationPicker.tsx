@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Search, User, Shield, X, Plus } from "lucide-react";
 import { listEntities, photoURL } from "@/lib/entities-api";
+import { useFileDrop } from "@/lib/useFileDrop";
 import type { Entity, PersonAttrs } from "@/lib/entities-types";
 import {
   addQualification,
@@ -275,6 +276,7 @@ function MilitarForm({
   const [photoPreview, setPhotoPreview] = useState<string>("");
   const [saving, setSaving] = useState(false);
   const fileRef = useRef<HTMLInputElement | null>(null);
+  const { dragging, handlers } = useFileDrop((f) => pickPhoto(f));
 
   function pickPhoto(f: File | null) {
     if (photoPreview) URL.revokeObjectURL(photoPreview);
@@ -371,11 +373,18 @@ function MilitarForm({
         />
       </label>
       <div className="qual-photo-row">
-        <div className="qual-photo-preview">
+        <div
+          className="qual-photo-preview"
+          role="button"
+          title="Clique ou arraste uma imagem"
+          onClick={() => fileRef.current?.click()}
+          style={{ cursor: "pointer", outline: dragging ? "2px dashed var(--accent)" : undefined }}
+          {...handlers}
+        >
           {photoPreview ? (
             <img src={photoPreview} alt="prévia" />
           ) : (
-            <span className="muted" style={{ fontSize: 10 }}>// SEM FOTO</span>
+            <span className="muted" style={{ fontSize: 10 }}>// SOLTE OU CLIQUE</span>
           )}
         </div>
         <div className="qual-photo-actions">

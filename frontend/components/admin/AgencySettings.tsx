@@ -11,6 +11,7 @@ import {
   uploadBrasao,
   uploadInstitutionalLogo,
 } from "@/lib/system-settings-api";
+import { useFileDrop } from "@/lib/useFileDrop";
 import type { ApiError } from "@/lib/api";
 
 /**
@@ -88,22 +89,24 @@ export default function AgencySettings() {
     }
   }
 
-  async function onPickFile() {
-    fileRef.current?.click();
+  async function badFormat() {
+    await modal.alert({
+      variant: "error",
+      title: "FORMATO NÃO SUPORTADO",
+      message: "Envie um PNG ou JPEG.",
+    });
+  }
+  async function uploadFailed(e: unknown) {
+    await modal.alert({
+      variant: "error",
+      title: "FALHA NO UPLOAD",
+      message: (e as ApiError).message || "Erro desconhecido",
+    });
   }
 
-  async function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0];
-    e.target.value = ""; // permite re-selecionar o mesmo arquivo
+  async function handleBrasaoFile(f: File | null) {
     if (!f) return;
-    if (!/^image\/(png|jpeg)$/.test(f.type)) {
-      await modal.alert({
-        variant: "error",
-        title: "FORMATO NÃO SUPORTADO",
-        message: "Envie um PNG ou JPEG.",
-      });
-      return;
-    }
+    if (!/^image\/(png|jpeg)$/.test(f.type)) return badFormat();
     setBusy(true);
     try {
       await uploadBrasao(f);
@@ -111,43 +114,29 @@ export default function AgencySettings() {
       setBrasaoVer((v) => v + 1); // bust cache do preview
       setHasBrasao(true);
     } catch (e) {
-      await modal.alert({
-        variant: "error",
-        title: "FALHA NO UPLOAD",
-        message: (e as ApiError).message || "Erro desconhecido",
-      });
+      await uploadFailed(e);
     } finally {
       setBusy(false);
     }
   }
 
-  async function onLogoFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0];
-    e.target.value = "";
+  async function handleLogoFile(f: File | null) {
     if (!f) return;
-    if (!/^image\/(png|jpeg)$/.test(f.type)) {
-      await modal.alert({
-        variant: "error",
-        title: "FORMATO NÃO SUPORTADO",
-        message: "Envie um PNG ou JPEG.",
-      });
-      return;
-    }
+    if (!/^image\/(png|jpeg)$/.test(f.type)) return badFormat();
     setBusy(true);
     try {
       await uploadInstitutionalLogo(f);
       setLogoVer((v) => v + 1);
       setHasLogo(true);
     } catch (e) {
-      await modal.alert({
-        variant: "error",
-        title: "FALHA NO UPLOAD",
-        message: (e as ApiError).message || "Erro desconhecido",
-      });
+      await uploadFailed(e);
     } finally {
       setBusy(false);
     }
   }
+
+  const brasaoDrop = useFileDrop(handleBrasaoFile, busy);
+  const logoDrop = useFileDrop(handleLogoFile, busy);
 
   return (
     <div className="agency-settings">
@@ -192,7 +181,14 @@ export default function AgencySettings() {
         <div className="form-field">
           <span>BRASÃO</span>
           <div className="brasao-row">
-            <div className="brasao-preview">
+            <div
+              className="brasao-preview"
+              role="button"
+              title="Clique ou arraste uma imagem"
+              onClick={() => !busy && fileRef.current?.click()}
+              style={{ cursor: "pointer", outline: brasaoDrop.dragging ? "2px dashed var(--accent)" : undefined }}
+              {...brasaoDrop.handlers}
+            >
               {hasBrasao ? (
                 <img
                   src={`${brasaoPreviewURL()}&v=${brasaoVer}`}
@@ -201,7 +197,7 @@ export default function AgencySettings() {
               ) : (
                 <div className="brasao-empty">
                   <Building2 size={28} strokeWidth={1.4} />
-                  <span>SEM BRASÃO</span>
+                  <span>SOLTE OU CLIQUE</span>
                 </div>
               )}
             </div>
@@ -210,13 +206,17 @@ export default function AgencySettings() {
                 ref={fileRef}
                 type="file"
                 accept="image/png,image/jpeg"
-                onChange={onFileChange}
+                onChange={(e) => {
+                  const f = e.target.files?.[0] ?? null;
+                  e.target.value = ""; // permite re-selecionar o mesmo arquivo
+                  handleBrasaoFile(f);
+                }}
                 style={{ display: "none" }}
               />
               <button
                 type="button"
                 className="btn btn-outline"
-                onClick={onPickFile}
+                onClick={() => fileRef.current?.click()}
                 disabled={busy}
               >
                 <ImageUp size={14} strokeWidth={1.6} />
@@ -233,7 +233,14 @@ export default function AgencySettings() {
         <div className="form-field">
           <span>LOGO INSTITUCIONAL (PMCE + CEARÁ)</span>
           <div className="brasao-row">
-            <div className="brasao-preview">
+            <div
+              className="brasao-preview"
+              role="button"
+              title="Clique ou arraste uma imagem"
+              onClick={() => !busy && logoFileRef.current?.click()}
+              style={{ cursor: "pointer", outline: logoDrop.dragging ? "2px dashed var(--accent)" : undefined }}
+              {...logoDrop.handlers}
+            >
               {hasLogo ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
@@ -243,7 +250,7 @@ export default function AgencySettings() {
               ) : (
                 <div className="brasao-empty">
                   <ImageIcon size={28} strokeWidth={1.4} />
-                  <span>SEM LOGO</span>
+                  <span>SOLTE OU CLIQUE</span>
                 </div>
               )}
             </div>
@@ -252,7 +259,11 @@ export default function AgencySettings() {
                 ref={logoFileRef}
                 type="file"
                 accept="image/png,image/jpeg"
-                onChange={onLogoFileChange}
+                onChange={(e) => {
+                  const f = e.target.files?.[0] ?? null;
+                  e.target.value = "";
+                  handleLogoFile(f);
+                }}
                 style={{ display: "none" }}
               />
               <button

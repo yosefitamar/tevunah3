@@ -1,12 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Check, Loader2, Lock, RefreshCcw, Search } from "lucide-react";
+import { AlertTriangle, Check, Loader2, RefreshCcw, Search } from "lucide-react";
 import { listPermissions, updatePermission } from "@/lib/admin-api";
 import {
   ROLE_LABEL,
   ROLES_LIST,
   actionGroup,
+  type ActionDef,
   type Permission,
   type RoleCode,
 } from "@/lib/types";
@@ -25,6 +26,7 @@ function keyOf(p: Permission): RowKey {
 
 export default function PermissionsMatrix() {
   const [items, setItems] = useState<Permission[]>([]);
+  const [actionsMeta, setActionsMeta] = useState<Record<string, ActionDef>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -39,6 +41,9 @@ export default function PermissionsMatrix() {
     try {
       const res = await listPermissions();
       setItems(res.items ?? []);
+      const meta: Record<string, ActionDef> = {};
+      for (const a of res.actions ?? []) meta[a.code] = a;
+      setActionsMeta(meta);
     } catch (e) {
       setError((e as Error).message || "Erro ao carregar matriz");
     } finally {
@@ -50,6 +55,10 @@ export default function PermissionsMatrix() {
     reload();
   }, [reload]);
 
+  const labelOf = (action: string) => actionsMeta[action]?.label ?? action;
+  const groupOf = (action: string) => actionsMeta[action]?.group ?? actionGroup(action);
+  const descOf = (action: string) => actionsMeta[action]?.description ?? "";
+
   const filtered = useMemo(() => {
     const s = search.trim().toLowerCase();
     const out = items.filter((p) => {
@@ -57,7 +66,8 @@ export default function PermissionsMatrix() {
       if (!s) return true;
       return (
         p.action.toLowerCase().includes(s) ||
-        actionGroup(p.action).toLowerCase().includes(s) ||
+        (actionsMeta[p.action]?.label ?? "").toLowerCase().includes(s) ||
+        (actionsMeta[p.action]?.group ?? actionGroup(p.action)).toLowerCase().includes(s) ||
         ROLE_LABEL[p.role_code].toLowerCase().includes(s)
       );
     });
@@ -70,7 +80,9 @@ export default function PermissionsMatrix() {
         case "action":
           return a.action.localeCompare(b.action) * dir;
         case "group":
-          return actionGroup(a.action).localeCompare(actionGroup(b.action)) * dir;
+          return (actionsMeta[a.action]?.group ?? actionGroup(a.action)).localeCompare(
+            actionsMeta[b.action]?.group ?? actionGroup(b.action),
+          ) * dir;
         case "allowed":
           return (Number(a.allowed) - Number(b.allowed)) * dir;
         case "dual":
@@ -78,7 +90,7 @@ export default function PermissionsMatrix() {
         case "approver":
           return (a.approver_role ?? "").localeCompare(b.approver_role ?? "") * dir;
         case "updated_at":
-          return a.updated_at.localeCompare(b.updated_at) * dir;
+          return (a.updated_at ?? "").localeCompare(b.updated_at ?? "") * dir;
         default:
           return 0;
       }
@@ -88,7 +100,7 @@ export default function PermissionsMatrix() {
       const c = compare(a, b);
       return c !== 0 ? c : keyOf(a).localeCompare(keyOf(b));
     });
-  }, [items, search, roleFilter, sort]);
+  }, [items, search, roleFilter, sort, actionsMeta]);
 
   async function apply(
     p: Permission,
@@ -223,43 +235,29 @@ export default function PermissionsMatrix() {
                   const k = keyOf(p);
                   const state = rowState[k] ?? "idle";
                   const err = rowError[k];
-                  const locked = p.role_code === "administrador";
-                  const lockTitle = locked
-                    ? "PROTEGIDO · O papel administrador não pode perder permissões nem ganhar 4-eyes"
-                    : undefined;
                   return (
-                    <tr key={k} className={locked ? "row-locked" : undefined}>
+                    <tr key={k}>
                       <td style={{ color: "var(--fg-0)", fontWeight: 600 }}>
-                        <span
-                          style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
-                        >
-                          {locked && (
-                            <span title={lockTitle} style={{ display: "inline-flex" }}>
-                              <Lock
-                                size={12}
-                                strokeWidth={1.8}
-                                style={{ color: "var(--fg-3)" }}
-                              />
-                            </span>
-                          )}
-                          {ROLE_LABEL[p.role_code]}
+                        {ROLE_LABEL[p.role_code]}
+                      </td>
+                      <td title={descOf(p.action)}>
+                        <span style={{ color: "var(--fg-0)" }}>{labelOf(p.action)}</span>
+                        <span className="mono muted" style={{ fontSize: 10, display: "block" }}>
+                          {p.action}
                         </span>
                       </td>
-                      <td className="mono" style={{ fontSize: 11 }}>
-                        {p.action}
-                      </td>
-                      <td className="muted">{actionGroup(p.action)}</td>
-                      <td style={{ textAlign: "center" }} title={lockTitle}>
+                      <td className="muted">{groupOf(p.action)}</td>
+                      <td style={{ textAlign: "center" }}>
                         <Toggle
                           on={p.allowed}
-                          disabled={locked || state === "saving"}
+                          disabled={state === "saving"}
                           onChange={(v) => apply(p, { allowed: v })}
                         />
                       </td>
-                      <td style={{ textAlign: "center" }} title={lockTitle}>
+                      <td style={{ textAlign: "center" }}>
                         <Toggle
                           on={p.requires_dual_approval}
-                          disabled={locked || state === "saving" || !p.allowed}
+                          disabled={state === "saving" || !p.allowed}
                           onChange={(v) =>
                             apply(p, {
                               requires_dual_approval: v,
@@ -268,11 +266,10 @@ export default function PermissionsMatrix() {
                           }
                         />
                       </td>
-                      <td title={lockTitle}>
+                      <td>
                         <Select
                           value={p.approver_role ?? ""}
                           disabled={
-                            locked ||
                             !p.requires_dual_approval ||
                             state === "saving"
                           }
@@ -349,11 +346,9 @@ function RowStatus({ state, error }: { state: RowState; error: string | null }) 
   }
   if (state === "error") {
     return (
-      <AlertTriangle
-        size={14}
-        style={{ color: "var(--crit)" }}
-        title={error ?? "Erro"}
-      />
+      <span title={error ?? "Erro"} style={{ display: "inline-flex" }}>
+        <AlertTriangle size={14} style={{ color: "var(--crit)" }} />
+      </span>
     );
   }
   return null;

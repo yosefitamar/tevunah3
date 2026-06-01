@@ -19,6 +19,9 @@ export type User = {
   clearance_level: number;
   status: UserStatus;
   roles: RoleCode[];
+  // Ações que o usuário pode executar (permissões efetivas vindas do /me).
+  // Usado pelo gating da UI via can(); servidor é a fonte de verdade.
+  permissions?: string[];
   last_login_at?: string;
   // Backend devolve flags pendentes. Quando true, frontend gateia para
   // telas dedicadas (setup TOTP ou troca de senha forçada).
@@ -51,8 +54,32 @@ export type Permission = {
   allowed: boolean;
   requires_dual_approval: boolean;
   approver_role?: RoleCode | null;
-  updated_at: string;
+  // null quando a célula nunca foi gravada (grade cheia: papel × catálogo).
+  updated_at: string | null;
   updated_by?: string | null;
+};
+
+// Definição de uma ação no catálogo RBAC (vinda do backend authz.Catalog).
+export type ActionDef = {
+  code: string;
+  label: string;
+  group: string;
+  description: string;
+  governance: boolean;
+};
+
+// Papel retornado pelo endpoint da matriz.
+export type RoleRow = {
+  code: RoleCode;
+  label: string;
+};
+
+// Payload de GET /api/admin/permissions (grade cheia + metadados).
+export type PermissionMatrix = {
+  roles: RoleRow[];
+  actions: ActionDef[];
+  items: Permission[];
+  total: number;
 };
 
 // Grupo legível a partir do prefixo da ação (mesmo helper do audit).

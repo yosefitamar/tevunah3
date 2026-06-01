@@ -9,6 +9,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"log"
@@ -247,6 +248,7 @@ type publicUser struct {
 	ClearanceLevel     int        `json:"clearance_level"`
 	Status             string     `json:"status"`
 	Roles              []string   `json:"roles"`
+	Permissions        []string   `json:"permissions,omitempty"`
 	LastLoginAt        *time.Time `json:"last_login_at,omitempty"`
 	MustChangePassword bool       `json:"must_change_password,omitempty"`
 	MustSetupTOTP      bool       `json:"must_setup_totp,omitempty"`
@@ -382,7 +384,7 @@ func (a *app) handleLogin(w http.ResponseWriter, r *http.Request) {
 	resp := map[string]any{
 		"token":      sess.Token,
 		"expires_in": int(a.sessions.TTL().Seconds()),
-		"user":       toPublic(u),
+		"user":       a.publicWithPerms(ctx, u),
 	}
 	if pendingTOTPSecret != "" {
 		// Agente usa esse secret pra montar QR/inserir no authenticator.
@@ -395,9 +397,23 @@ func (a *app) handleLogin(w http.ResponseWriter, r *http.Request) {
 	httpx.OK(w, resp)
 }
 
+// publicWithPerms monta o usuário público já com as permissões efetivas
+// (ações que ele pode executar), usadas pelo front pra gating por permissão em
+// vez de por nome de papel. Se a resolução falhar, devolve sem permissões — a
+// UI degrada escondendo botões, e o servidor segue sendo a fonte de verdade.
+func (a *app) publicWithPerms(ctx context.Context, u *users.User) publicUser {
+	pu := toPublic(u)
+	if perms, err := a.policy.AllowedActions(ctx, u.Roles); err == nil {
+		pu.Permissions = perms
+	} else {
+		log.Printf("allowed actions: %v", err)
+	}
+	return pu
+}
+
 func (a *app) handleMe(w http.ResponseWriter, r *http.Request) {
 	u := middleware.UserFrom(r.Context())
-	httpx.OK(w, map[string]any{"user": toPublic(u)})
+	httpx.OK(w, map[string]any{"user": a.publicWithPerms(r.Context(), u)})
 }
 
 // setSessionCookie emite o cookie HttpOnly da sessão.

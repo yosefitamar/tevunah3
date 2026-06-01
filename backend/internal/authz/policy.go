@@ -83,6 +83,37 @@ func (p *Policy) Can(ctx context.Context, roles []string, action string) (Decisi
 	return Combine(perms), nil
 }
 
+// AllowedActions devolve o conjunto de ações que o usuário (lista de papéis)
+// pode executar — i.e., toda ação cuja matriz tem ao menos uma linha permitida
+// para algum papel do usuário. Usado para o gating da UI por permissões
+// efetivas (em vez de por nome de papel). A regra de dual approval NÃO entra
+// aqui: uma ação que exige 4-eyes ainda é "permitida" (o servidor cuida do
+// fluxo de aprovação no momento da execução).
+func (p *Policy) AllowedActions(ctx context.Context, roles []string) ([]string, error) {
+	if len(roles) == 0 {
+		return []string{}, nil
+	}
+	rows, err := p.db.QueryContext(ctx, `
+		SELECT DISTINCT action
+		  FROM app.permissions
+		 WHERE allowed AND role_code = ANY($1)
+		 ORDER BY action`, roles)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []string{}
+	for rows.Next() {
+		var a string
+		if err := rows.Scan(&a); err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
 // Combine aplica a regra de combinação multi-role descrita no doc do pacote.
 // Exposto para uso em testes e para PDPs que carreguem permissões em memória.
 func Combine(perms []Permission) Decision {

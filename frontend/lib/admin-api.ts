@@ -1,13 +1,8 @@
 import { api } from "./api";
-import type { Permission, RoleCode } from "./types";
-
-export type PermissionsList = {
-  items: Permission[];
-  total: number;
-};
+import type { Permission, PermissionMatrix, RoleCode } from "./types";
 
 export function listPermissions() {
-  return api<PermissionsList>(`/api/admin/permissions`);
+  return api<PermissionMatrix>(`/api/admin/permissions`);
 }
 
 export type UpdatePermissionInput = Partial<{

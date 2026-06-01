@@ -34,11 +34,38 @@ type UpdateInput struct {
 	UpdatedBy            *string // ator que está aplicando a mudança
 }
 
+// Role espelha uma linha de app.roles (papel).
+type Role struct {
+	Code  string `json:"code"`
+	Label string `json:"label"`
+}
+
 type Repo struct {
 	db *sql.DB
 }
 
 func New(db *sql.DB) *Repo { return &Repo{db: db} }
+
+// ListRoles devolve os papéis cadastrados, em ordem estável de criação.
+func (r *Repo) ListRoles(ctx context.Context) ([]Role, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT codename, label FROM app.roles
+		 ORDER BY created_at, codename`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []Role
+	for rows.Next() {
+		var rl Role
+		if err := rows.Scan(&rl.Code, &rl.Label); err != nil {
+			return nil, err
+		}
+		out = append(out, rl)
+	}
+	return out, rows.Err()
+}
 
 // List devolve todas as linhas da matriz, ordenadas por (action, role_code)
 // para a UI exibir agrupado por ação.
@@ -87,11 +114,79 @@ func (r *Repo) Get(ctx context.Context, roleCode, action string) (*Permission, e
 	return &p, nil
 }
 
-// Update aplica a mudança e devolve o estado antes (para audit) e depois.
-func (r *Repo) Update(ctx context.Context, roleCode, action string, in UpdateInput) (before, after *Permission, err error) {
-	before, err = r.Get(ctx, roleCode, action)
+// GovernanceReachableAfter simula a mudança da célula (role, action) para
+// (allowed, dual) e responde se, após ela, AINDA existe ao menos um usuário
+// ativo capaz de executar `action` SEM aprovação dupla. É a base da guarda
+// anti-lockout: impede que a última via de administração do RBAC seja removida
+// pela própria matriz.
+func (r *Repo) GovernanceReachableAfter(ctx context.Context, action, role string, allowed, dual bool) (bool, error) {
+	// Papéis que hoje concedem a ação de forma irrestrita (allowed && !dual).
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT role_code FROM app.permissions
+		 WHERE action = $1 AND allowed AND NOT requires_dual_approval`, action)
 	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+
+	unguarded := map[string]bool{}
+	for rows.Next() {
+		var rc string
+		if err := rows.Scan(&rc); err != nil {
+			return false, err
+		}
+		unguarded[rc] = true
+	}
+	if err := rows.Err(); err != nil {
+		return false, err
+	}
+
+	// Aplica a simulação sobre a célula editada.
+	if allowed && !dual {
+		unguarded[role] = true
+	} else {
+		delete(unguarded, role)
+	}
+	if len(unguarded) == 0 {
+		return false, nil
+	}
+
+	codes := make([]string, 0, len(unguarded))
+	for rc := range unguarded {
+		codes = append(codes, rc)
+	}
+
+	// Existe usuário ativo (não soft-deletado) com algum desses papéis?
+	var reachable bool
+	err = r.db.QueryRowContext(ctx, `
+		SELECT EXISTS (
+		  SELECT 1
+		    FROM app.user_roles ur
+		    JOIN app.users u ON u.id = ur.user_id
+		   WHERE ur.role_code = ANY($1)
+		     AND u.status = 'active'
+		     AND u.deleted_at IS NULL
+		)`, codes).Scan(&reachable)
+	if err != nil {
+		return false, err
+	}
+	return reachable, nil
+}
+
+// Upsert aplica a mudança criando a linha se ainda não existir e devolve o
+// estado antes (nil se a linha não existia) e depois.
+//
+// A matriz é renderizada como grade cheia (papéis × catálogo de ações); muitas
+// células não têm linha semeada. Editar uma dessas células precisa INSERIR, não
+// só atualizar — por isso o upsert. O caller deve enviar o estado desejado
+// completo (allowed/requires_dual_approval/approver_role).
+func (r *Repo) Upsert(ctx context.Context, roleCode, action string, in UpdateInput) (before, after *Permission, err error) {
+	before, err = r.Get(ctx, roleCode, action)
+	if err != nil && !errors.Is(err, ErrNotFound) {
 		return nil, nil, err
+	}
+	if errors.Is(err, ErrNotFound) {
+		before = nil
 	}
 
 	var approverArg any
@@ -108,13 +203,15 @@ func (r *Repo) Update(ctx context.Context, roleCode, action string, in UpdateInp
 	}
 
 	_, err = r.db.ExecContext(ctx, `
-		UPDATE app.permissions
-		   SET allowed                = $3,
-		       requires_dual_approval = $4,
-		       approver_role          = $5,
+		INSERT INTO app.permissions
+		       (role_code, action, allowed, requires_dual_approval, approver_role, updated_at, updated_by)
+		VALUES ($1, $2, $3, $4, $5, now(), $6)
+		ON CONFLICT (role_code, action) DO UPDATE
+		   SET allowed                = EXCLUDED.allowed,
+		       requires_dual_approval = EXCLUDED.requires_dual_approval,
+		       approver_role          = EXCLUDED.approver_role,
 		       updated_at             = now(),
-		       updated_by             = $6
-		 WHERE role_code = $1 AND action = $2`,
+		       updated_by             = EXCLUDED.updated_by`,
 		roleCode, action, in.Allowed, in.RequiresDualApproval, approverArg, byArg)
 	if err != nil {
 		return nil, nil, err

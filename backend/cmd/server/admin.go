@@ -5,12 +5,26 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/belia/tevunah/backend/internal/audit"
+	"github.com/belia/tevunah/backend/internal/authz"
 	"github.com/belia/tevunah/backend/internal/httpx"
 	"github.com/belia/tevunah/backend/internal/middleware"
 	"github.com/belia/tevunah/backend/internal/permissions"
 )
+
+// matrixCell é uma célula da grade cheia (papel × ação). UpdatedAt é nil quando
+// a célula nunca foi gravada (linha ausente em app.permissions) — a UI mostra
+// "—" nesse caso.
+type matrixCell struct {
+	RoleCode             string     `json:"role_code"`
+	Action               string     `json:"action"`
+	Allowed              bool       `json:"allowed"`
+	RequiresDualApproval bool       `json:"requires_dual_approval"`
+	ApproverRole         *string    `json:"approver_role"`
+	UpdatedAt            *time.Time `json:"updated_at"`
+}
 
 // ─────────────────────────── GET /api/admin/permissions ────────────────────
 
@@ -18,18 +32,49 @@ func (a *app) handleAdminPermissionsList(w http.ResponseWriter, r *http.Request)
 	if !a.requirePerm(w, r, "admin.permissions.read") {
 		return
 	}
-	items, err := a.perms.List(r.Context())
+	ctx := r.Context()
+
+	roles, err := a.perms.ListRoles(ctx)
+	if err != nil {
+		log.Printf("admin permissions list roles: %v", err)
+		httpx.Error(w, http.StatusInternalServerError, "erro ao listar papéis")
+		return
+	}
+	existing, err := a.perms.List(ctx)
 	if err != nil {
 		log.Printf("admin permissions list: %v", err)
 		httpx.Error(w, http.StatusInternalServerError, "erro ao listar matriz")
 		return
 	}
-	if items == nil {
-		items = []permissions.Permission{}
+
+	// Indexa as linhas existentes por (papel|ação).
+	byKey := make(map[string]permissions.Permission, len(existing))
+	for _, p := range existing {
+		byKey[p.RoleCode+"|"+p.Action] = p
 	}
+
+	// Grade cheia: produto cartesiano papéis × catálogo de ações. Células sem
+	// linha viram default (negado), permitindo togglar qualquer combinação.
+	items := make([]matrixCell, 0, len(roles)*len(authz.Catalog))
+	for _, role := range roles {
+		for _, def := range authz.Catalog {
+			cell := matrixCell{RoleCode: role.Code, Action: def.Code}
+			if p, ok := byKey[role.Code+"|"+def.Code]; ok {
+				cell.Allowed = p.Allowed
+				cell.RequiresDualApproval = p.RequiresDualApproval
+				cell.ApproverRole = p.ApproverRole
+				ts := p.UpdatedAt
+				cell.UpdatedAt = &ts
+			}
+			items = append(items, cell)
+		}
+	}
+
 	httpx.OK(w, map[string]any{
-		"items": items,
-		"total": len(items),
+		"roles":   roles,
+		"actions": authz.Catalog,
+		"items":   items,
+		"total":   len(items),
 	})
 }
 
@@ -56,22 +101,18 @@ func (a *app) handleAdminPermissionsUpdate(w http.ResponseWriter, r *http.Reques
 		httpx.Error(w, http.StatusBadRequest, "papel inválido: "+roleCode)
 		return
 	}
-
-	// Lock: linhas do administrador são protegidas. O papel não pode perder
-	// permissões nem ganhar 4-eyes — qualquer ajuste tem que ser feito por
-	// migration explícita após decisão de design.
-	if roleCode == "administrador" {
-		httpx.Error(w, http.StatusForbidden,
-			"linhas do papel administrador são protegidas — alterações requerem migration")
+	if !authz.IsValidAction(action) {
+		httpx.Error(w, http.StatusBadRequest, "ação inválida: "+action)
 		return
 	}
 
-	current, err := a.perms.Get(r.Context(), roleCode, action)
-	if err != nil {
-		if errors.Is(err, permissions.ErrNotFound) {
-			httpx.Error(w, http.StatusNotFound, "linha não encontrada na matriz")
-			return
-		}
+	// Estado atual da célula. A grade é renderizada cheia (papéis × catálogo),
+	// então a célula editada pode não ter linha ainda — tratamos como default
+	// (negado) para suportar PATCH parcial sobre células sintéticas.
+	current := &permissions.Permission{RoleCode: roleCode, Action: action}
+	if got, err := a.perms.Get(r.Context(), roleCode, action); err == nil {
+		current = got
+	} else if !errors.Is(err, permissions.ErrNotFound) {
 		log.Printf("admin permissions get: %v", err)
 		httpx.Error(w, http.StatusInternalServerError, "erro ao ler matriz")
 		return
@@ -118,14 +159,43 @@ func (a *app) handleAdminPermissionsUpdate(w http.ResponseWriter, r *http.Reques
 		in.ApproverRole = nil
 	}
 
+	// Guarda anti-lockout: ações de governança (admin.permissions.*) não podem
+	// perder sua última via de administração. Se a mudança proposta deixaria
+	// zero usuários ativos capazes de executá-la sem 4-eyes, recusamos — assim
+	// ninguém se tranca pra fora do RBAC pela própria matriz.
+	if def, _ := authz.LookupAction(action); def.Governance {
+		reachable, err := a.perms.GovernanceReachableAfter(
+			r.Context(), action, roleCode, in.Allowed, in.RequiresDualApproval)
+		if err != nil {
+			log.Printf("admin permissions lockout check: %v", err)
+			httpx.Error(w, http.StatusInternalServerError, "erro ao validar mudança")
+			return
+		}
+		if !reachable {
+			httpx.Error(w, http.StatusConflict,
+				"bloqueado: deixaria o sistema sem nenhum usuário ativo capaz de '"+action+"' sem aprovação dupla")
+			return
+		}
+	}
+
 	me := middleware.UserFrom(r.Context())
 	in.UpdatedBy = &me.ID
 
-	before, after, err := a.perms.Update(r.Context(), roleCode, action, in)
+	before, after, err := a.perms.Upsert(r.Context(), roleCode, action, in)
 	if err != nil {
 		log.Printf("admin permissions update: %v", err)
 		httpx.Error(w, http.StatusInternalServerError, "erro ao atualizar")
 		return
+	}
+
+	// before é nil quando a célula não existia (foi criada agora).
+	beforeEntry := map[string]any{"allowed": false, "requires_dual_approval": false, "approver_role": ""}
+	if before != nil {
+		beforeEntry = map[string]any{
+			"allowed":                before.Allowed,
+			"requires_dual_approval": before.RequiresDualApproval,
+			"approver_role":          ptrDeref(before.ApproverRole),
+		}
 	}
 
 	aid, sid, ip, ua := a.actorInfo(r)
@@ -137,11 +207,7 @@ func (a *app) handleAdminPermissionsUpdate(w http.ResponseWriter, r *http.Reques
 		Action:         "admin.permissions.update",
 		ResourceType:   audit.Ptr("permission"),
 		ResourceID:     audit.Ptr(roleCode + ":" + action),
-		Before: map[string]any{
-			"allowed":                before.Allowed,
-			"requires_dual_approval": before.RequiresDualApproval,
-			"approver_role":          ptrDeref(before.ApproverRole),
-		},
+		Before:         beforeEntry,
 		After: map[string]any{
 			"allowed":                after.Allowed,
 			"requires_dual_approval": after.RequiresDualApproval,

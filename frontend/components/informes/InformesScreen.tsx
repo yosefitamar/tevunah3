@@ -9,7 +9,7 @@ import {
 } from "@/lib/informes-api";
 import { canCreateInformes, canReadInformes } from "@/lib/permissions";
 import { clearanceLabel } from "@/lib/types";
-import { formatBR } from "@/lib/format";
+import { formatBR, formatBRDate } from "@/lib/format";
 import type { ApiError } from "@/lib/api";
 import SortHeader, { type SortState } from "../shared/SortHeader";
 import CreateInformeModal from "./CreateInformeModal";
@@ -130,7 +130,7 @@ export default function InformesScreen() {
                     className="row-clickable"
                     onClick={() => setOpenId(inf.id)}
                   >
-                    <td style={{ whiteSpace: "nowrap" }}>{formatBR(inf.occurred_on)}</td>
+                    <td style={{ whiteSpace: "nowrap" }}>{formatBRDate(inf.occurred_on)}</td>
                     <td style={{ color: "var(--fg-0)" }}>
                       {inf.location ? inf.location.toUpperCase() : "—"}
                     </td>

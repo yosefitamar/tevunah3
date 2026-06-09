@@ -57,7 +57,7 @@ apt-get install -y -qq \
   postgresql-15 postgresql-client-15 \
   redis-server \
   libxrender1 libxext6 libfontconfig1 libjpeg62-turbo xfonts-base xfonts-75dpi \
-  fontconfig
+  fontconfig fonts-liberation
 
 # ─── 3. wkhtmltopdf (versão com Qt patched, do upstream) ─────────────────
 if ! command -v wkhtmltopdf >/dev/null 2>&1 || ! wkhtmltopdf --version 2>/dev/null | grep -q "with patched qt"; then

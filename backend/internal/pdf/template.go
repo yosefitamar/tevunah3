@@ -26,7 +26,7 @@ body {
        às áreas de header/footer (necessário pro ribbon ser full bleed).
        Padding aqui mantém o conteúdo principal recuado 20mm de cada lado. */
     padding: 0 20mm;
-    font-family: Arial, Helvetica, sans-serif;
+    font-family: Arial, "Liberation Sans", Helvetica, sans-serif;
     font-size: 11pt;
     color: #000;
 }
@@ -136,7 +136,7 @@ hr {
     padding: 4pt 6pt;
     border: 1px solid #000;
     vertical-align: top;
-    font-family: Arial, Helvetica, sans-serif;
+    font-family: Arial, "Liberation Sans", Helvetica, sans-serif;
     font-size: 10pt;
     text-transform: uppercase;
 }
@@ -223,7 +223,7 @@ body {
        traz o conteúdo do header pra dentro de 20mm em cada lado, mantendo
        coerência visual com o corpo. */
     padding: 6mm 20mm 0 20mm;
-    font-family: Arial, Helvetica, sans-serif;
+    font-family: Arial, "Liberation Sans", Helvetica, sans-serif;
     color: #000;
     width: 100%;
     box-sizing: border-box;
@@ -247,11 +247,12 @@ body {
     border: none;
     padding: 4pt 8pt;
     text-align: center;
-    font-size: 11pt;
+    font-size: 12pt;
     font-weight: 700;
     color: #2f5496;
     width: 100%;
     box-sizing: border-box;
+    white-space: nowrap;
 }
 /* Página 1: borda preta envolvendo o texto. A classe first-page é adicionada
    via JS no <body> lendo o page number da query string do wkhtmltopdf. */
@@ -305,24 +306,6 @@ function applyFirstPage() {
     }
     setText('page', params['page']);
     setText('topage', params['topage']);
-    fitTitle();
-}
-
-// fitTitle reduz a fonte da barra de título só o necessário pra caber em uma
-// única linha. A ORIGEM tem tamanho variável, então uma fonte fixa pode
-// quebrar; nowrap garante que nunca quebre e o passo de 0.5pt encolhe até
-// caber (ou até o mínimo, caso de origem absurdamente longa).
-function fitTitle() {
-    var el = document.getElementsByClassName('title')[0];
-    if (!el) return;
-    el.style.whiteSpace = 'nowrap';
-    var size = 11; // casa com .title font-size no CSS
-    var min = 7;
-    el.style.fontSize = size + 'pt';
-    while (el.scrollWidth > el.clientWidth && size > min) {
-        size -= 0.5;
-        el.style.fontSize = size + 'pt';
-    }
 }
 </script>
 </head><body onload="applyFirstPage()">
@@ -354,7 +337,7 @@ var footerTmpl = template.Must(template.New("ft").Parse(`<!DOCTYPE html>
 <style>
 html, body { margin: 0; padding: 0; }
 body {
-    font-family: Arial, Helvetica, sans-serif;
+    font-family: Arial, "Liberation Sans", Helvetica, sans-serif;
     color: #000;
     width: 100%;
     /* padding-top empurra o conteúdo do rodapé (warningborder + sigilo) pra

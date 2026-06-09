@@ -153,7 +153,10 @@ func (a *app) buildReportData(ctx context.Context, rep *reports.Report, quals []
 		IsDraft:         rep.Status != reports.StatusDifundido,
 		DocDateBR:       rep.DocDate.Format("02/01/2006"),
 		DocDateShort:    docDateShort(rep.DocDate),
-		Subject:         rep.Subject,
+		// ASSUNTO sempre em maiúsculas no documento — a UI já exibe assim
+		// (text uppercase cosmético), mas o valor armazenado preserva o que
+		// foi digitado; uppercaseamos aqui pra o PDF não sair em minúsculo.
+		Subject:         strings.ToUpper(rep.Subject),
 		Origin:          rep.Origin,
 		Diffusion:       rep.Diffusion,
 		PriorDiffusion:  rep.PriorDiffusion,

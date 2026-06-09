@@ -66,6 +66,10 @@ hr {
 
 .content { text-align: justify; }
 .content p { margin: 0 0 6pt 0; }
+/* Parágrafos vazios (Enter+Enter no editor → <p></p>) colapsam pra altura
+   zero no wkhtmltopdf, somindo a linha em branco intencional do autor. O nbsp
+   força uma caixa de linha, preservando cada linha em branco. */
+.content p:empty::before { content: "\00a0"; }
 .content h2, .content h3 { font-weight: bold; margin: 8pt 0 4pt 0; }
 .content h2 { font-size: 14pt; }
 .content h3 { font-size: 12pt; }

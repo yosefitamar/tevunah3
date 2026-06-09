@@ -305,6 +305,24 @@ function applyFirstPage() {
     }
     setText('page', params['page']);
     setText('topage', params['topage']);
+    fitTitle();
+}
+
+// fitTitle reduz a fonte da barra de título só o necessário pra caber em uma
+// única linha. A ORIGEM tem tamanho variável, então uma fonte fixa pode
+// quebrar; nowrap garante que nunca quebre e o passo de 0.5pt encolhe até
+// caber (ou até o mínimo, caso de origem absurdamente longa).
+function fitTitle() {
+    var el = document.getElementsByClassName('title')[0];
+    if (!el) return;
+    el.style.whiteSpace = 'nowrap';
+    var size = 11; // casa com .title font-size no CSS
+    var min = 7;
+    el.style.fontSize = size + 'pt';
+    while (el.scrollWidth > el.clientWidth && size > min) {
+        size -= 0.5;
+        el.style.fontSize = size + 'pt';
+    }
 }
 </script>
 </head><body onload="applyFirstPage()">

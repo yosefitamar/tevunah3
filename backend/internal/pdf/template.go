@@ -243,7 +243,7 @@ body {
     border: none;
     padding: 4pt 8pt;
     text-align: center;
-    font-size: 12pt;
+    font-size: 11pt;
     font-weight: 700;
     color: #2f5496;
     width: 100%;

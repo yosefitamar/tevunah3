@@ -221,6 +221,23 @@ func classificationDisplay(level string) string {
 	return b.String()
 }
 
+// formatCPF aplica a máscara 000.000.000-00 a um CPF de 11 dígitos (como
+// é armazenado: só dígitos). Valores vazios ou com quantidade diferente de
+// dígitos voltam só com trim — evita mascarar dados inesperados de forma
+// errada; o template imprime "*.*.*" quando vazio.
+func formatCPF(s string) string {
+	digits := strings.Map(func(r rune) rune {
+		if r >= '0' && r <= '9' {
+			return r
+		}
+		return -1
+	}, s)
+	if len(digits) != 11 {
+		return strings.TrimSpace(s)
+	}
+	return digits[0:3] + "." + digits[3:6] + "." + digits[6:9] + "-" + digits[9:11]
+}
+
 // docDateShort formata DDMmmAA em CAIXA, ex.: 16JAN25 — como o template.
 func docDateShort(t time.Time) string {
 	monthsPT := []string{"JAN", "FEV", "MAR", "ABR", "MAI", "JUN", "JUL", "AGO", "SET", "OUT", "NOV", "DEZ"}
@@ -246,7 +263,7 @@ func buildMilitarFields(q *reports.Qualification) []pdf.KV {
 	}
 	return []pdf.KV{
 		{K: "ALCUNHA", V: get("nome_guerra")},
-		{K: "CPF", V: get("cpf")},
+		{K: "CPF", V: formatCPF(get("cpf"))},
 		{K: "POSTO/GRAD.", V: get("posto")},
 		{K: "O.M", V: get("om")},
 		{K: "IDENT. MILITAR", V: get("identidade")},
@@ -329,7 +346,7 @@ func (a *app) buildCivilFields(ctx context.Context, q *reports.Qualification) []
 
 	return []pdf.KV{
 		{K: "ALCUNHA", V: alcunha},
-		{K: "CPF", V: cpf},
+		{K: "CPF", V: formatCPF(cpf)},
 		{K: "ORCRIM", V: orcrim},
 		{K: "ENDEREÇOS", V: enderecos},
 		{K: "VEÍCULOS", V: veiculos},

@@ -23,7 +23,9 @@ import {
 import {
   ENTITY_KIND_LABEL,
   ENTITY_KINDS,
+  isPerson,
   isVehicle,
+  personListLabel,
   vehicleListLabel,
   type EntityKind,
 } from "@/lib/entities-types";
@@ -284,7 +286,9 @@ export default function EntidadesScreen() {
                     <td style={{ color: "var(--fg-0)", fontWeight: 600 }}>
                       {isVehicle(e)
                         ? vehicleListLabel(e.attrs, e.name).toUpperCase()
-                        : e.name.toUpperCase()}
+                        : isPerson(e)
+                          ? personListLabel(e.name, e.attrs?.aliases).toUpperCase()
+                          : e.name.toUpperCase()}
                     </td>
                     <td>
                       {e.tags.length === 0 ? (

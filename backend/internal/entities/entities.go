@@ -247,7 +247,7 @@ func (r *Repo) Create(ctx context.Context, in NewEntity, createdBy string) (*Ent
 		  (kind, name, description, classification, created_by, updated_by)
 		VALUES ($1, $2, $3, $4, $5, $5)
 		RETURNING id`,
-		string(in.Kind), strings.TrimSpace(in.Name), nullableString(upperTrim(in.Description)),
+		string(in.Kind), upperTrim(in.Name), nullableString(upperTrim(in.Description)),
 		in.Classification, createdBy,
 	).Scan(&id)
 	if err != nil {
@@ -352,7 +352,7 @@ func (r *Repo) List(ctx context.Context, opts ListOpts) (*ListResult, error) {
 	}
 
 	// LEFT JOINs trazem o mínimo de attrs específicos pra rotular linhas sem
-	// N+1: aliases da organização (sigla) e placa do veículo.
+	// N+1: aliases da pessoa (vulgo), da organização (sigla) e placa do veículo.
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT e.id, e.kind, e.name, COALESCE(e.description,''), e.classification, e.version,
 		       e.created_at, e.created_by, e.updated_at, e.updated_by,
@@ -362,9 +362,11 @@ func (r *Repo) List(ctx context.Context, opts ListOpts) (*ListResult, error) {
 		            FROM app.entity_tags t WHERE t.entity_id = e.id),
 		         ''
 		       ) AS tags_csv,
+		       COALESCE(to_jsonb(p.aliases), 'null'::jsonb) AS person_aliases_json,
 		       COALESCE(to_jsonb(o.aliases), 'null'::jsonb) AS org_aliases_json,
 		       v.plate, v.category, v.brand, v.model, v.color, v.photo_path
 		  FROM app.entities e
+		  LEFT JOIN app.entity_persons p ON p.entity_id = e.id
 		  LEFT JOIN app.entity_organizations o ON o.entity_id = e.id
 		  LEFT JOIN app.entity_vehicles v ON v.entity_id = e.id
 		 WHERE `+deletedClause+`
@@ -392,12 +394,12 @@ func (r *Repo) List(ctx context.Context, opts ListOpts) (*ListResult, error) {
 		var description string
 		var deletedAt sql.NullTime
 		var deletedBy sql.NullString
-		var orgAliasesJSON []byte
+		var personAliasesJSON, orgAliasesJSON []byte
 		var vehiclePlate, vehicleCategory, vehicleBrand, vehicleModel, vehicleColor, vehiclePhotoPath sql.NullString
 		if err := rows.Scan(
 			&e.ID, &kind, &e.Name, &description, &e.Classification, &e.Version,
 			&e.CreatedAt, &createdBy, &e.UpdatedAt, &updatedBy,
-			&deletedAt, &deletedBy, &tagsCSV, &orgAliasesJSON,
+			&deletedAt, &deletedBy, &tagsCSV, &personAliasesJSON, &orgAliasesJSON,
 			&vehiclePlate, &vehicleCategory, &vehicleBrand, &vehicleModel, &vehicleColor, &vehiclePhotoPath,
 		); err != nil {
 			return nil, err
@@ -418,6 +420,14 @@ func (r *Repo) List(ctx context.Context, opts ListOpts) (*ListResult, error) {
 			e.Tags = strings.Split(tagsCSV, ",")
 		} else {
 			e.Tags = []string{}
+		}
+		// Para pessoa, popula attrs.aliases (vulgo exibido junto ao nome no list).
+		if e.Kind == KindPerson && len(personAliasesJSON) > 0 &&
+			string(personAliasesJSON) != "null" {
+			var aliases []string
+			if err := json.Unmarshal(personAliasesJSON, &aliases); err == nil {
+				e.Person = &PersonAttrs{Aliases: aliases}
+			}
 		}
 		// Para organização, popula attrs.aliases (única info de attrs no list).
 		if e.Kind == KindOrganization && len(orgAliasesJSON) > 0 &&
@@ -444,7 +454,7 @@ func (r *Repo) List(ctx context.Context, opts ListOpts) (*ListResult, error) {
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	// List não popula attrs polimórficos (para não fazer N+1). Detalhe via FindByID.
+	// List popula só o mínimo de attrs pro rótulo (aliases/placa). Detalhe via FindByID.
 	return &ListResult{Items: items, Total: total}, nil
 }
 
@@ -509,7 +519,7 @@ func (r *Repo) Update(ctx context.Context, id string, expectedVersion int, p Pat
 		       updated_at     = now(),
 		       updated_by     = $4
 		 WHERE id = $5 AND version = $6 AND deleted_at IS NULL`,
-		nullableTrimmedString(p.Name), nullableStringPtr(upperTrimPtr(p.Description)),
+		nullableTrimmedString(upperTrimPtr(p.Name)), nullableStringPtr(upperTrimPtr(p.Description)),
 		nullableInt(p.Classification), updatedBy, id, expectedVersion,
 	)
 	if err != nil {
@@ -1079,8 +1089,8 @@ func insertChild(ctx context.Context, tx *sql.Tx, id string, k Kind, p *PersonAt
 			  (entity_id, aliases, gender, date_of_birth,
 			   mother_name, cpf, photo_path, orcrim_id)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-			id, p.Aliases, nilStr(p.Gender), nilTime(p.DateOfBirth),
-			nilStr(p.MotherName), nilStr(p.CPF), nilStr(p.PhotoPath), nilUUID(p.OrcrimID),
+			id, upperTrimSlice(p.Aliases), nilStr(p.Gender), nilTime(p.DateOfBirth),
+			nilStr(upperTrimPtr(p.MotherName)), nilStr(p.CPF), nilStr(p.PhotoPath), nilUUID(p.OrcrimID),
 		)
 		return err
 	case KindOrganization:
@@ -1094,7 +1104,7 @@ func insertChild(ctx context.Context, tx *sql.Tx, id string, k Kind, p *PersonAt
 			INSERT INTO app.entity_organizations
 			  (entity_id, aliases, legal_name, tax_id, founded_at)
 			VALUES ($1, $2, $3, $4, $5)`,
-			id, o.Aliases, nilStr(o.LegalName), nilStr(o.TaxID), nilTime(o.FoundedAt),
+			id, upperTrimSlice(o.Aliases), nilStr(upperTrimPtr(o.LegalName)), nilStr(o.TaxID), nilTime(o.FoundedAt),
 		)
 		return err
 	case KindPlace:
@@ -1105,7 +1115,7 @@ func insertChild(ctx context.Context, tx *sql.Tx, id string, k Kind, p *PersonAt
 			INSERT INTO app.entity_places
 			  (entity_id, address, country, region, latitude, longitude)
 			VALUES ($1, $2, $3, $4, $5, $6)`,
-			id, nilStr(pl.Address), nilStr(pl.Country), nilStr(pl.Region),
+			id, nilStr(upperTrimPtr(pl.Address)), nilStr(upperTrimPtr(pl.Country)), nilStr(upperTrimPtr(pl.Region)),
 			nilFloat(pl.Latitude), nilFloat(pl.Longitude),
 		)
 		return err
@@ -1131,8 +1141,8 @@ func insertChild(ctx context.Context, tx *sql.Tx, id string, k Kind, p *PersonAt
 			INSERT INTO app.entity_vehicles
 			  (entity_id, category, plate, brand, model, color, year, chassis, renavam)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-			id, category, plate, nilStr(v.Brand), nilStr(v.Model), nilStr(v.Color),
-			nullableInt(v.Year), nilStr(v.Chassis), nilStr(v.Renavam),
+			id, category, plate, nilStr(upperTrimPtr(v.Brand)), nilStr(upperTrimPtr(v.Model)), nilStr(upperTrimPtr(v.Color)),
+			nullableInt(v.Year), nilStr(upperTrimPtr(v.Chassis)), nilStr(v.Renavam),
 		)
 		return err
 	}
@@ -1244,8 +1254,8 @@ func updateChild(ctx context.Context, tx *sql.Tx, id string, k Kind, p Patch) er
 			  cpf           = COALESCE($5, cpf),
 			  orcrim_id     = COALESCE($6, orcrim_id)
 			WHERE entity_id = $7`,
-			nilAliases(a.Aliases), nilStr(a.Gender), nilTime(a.DateOfBirth),
-			nilStr(a.MotherName), nilStr(a.CPF), nilUUID(a.OrcrimID),
+			nilAliases(upperTrimSlice(a.Aliases)), nilStr(a.Gender), nilTime(a.DateOfBirth),
+			nilStr(upperTrimPtr(a.MotherName)), nilStr(a.CPF), nilUUID(a.OrcrimID),
 			id,
 		)
 		return err
@@ -1261,8 +1271,8 @@ func updateChild(ctx context.Context, tx *sql.Tx, id string, k Kind, p Patch) er
 			  tax_id     = COALESCE($3, tax_id),
 			  founded_at = COALESCE($4, founded_at)
 			WHERE entity_id = $5`,
-			nilAliases(a.Aliases),
-			nilStr(a.LegalName), nilStr(a.TaxID), nilTime(a.FoundedAt), id,
+			nilAliases(upperTrimSlice(a.Aliases)),
+			nilStr(upperTrimPtr(a.LegalName)), nilStr(a.TaxID), nilTime(a.FoundedAt), id,
 		)
 		return err
 	case KindPlace:
@@ -1278,7 +1288,7 @@ func updateChild(ctx context.Context, tx *sql.Tx, id string, k Kind, p Patch) er
 			  latitude  = COALESCE($4, latitude),
 			  longitude = COALESCE($5, longitude)
 			WHERE entity_id = $6`,
-			nilStr(a.Address), nilStr(a.Country), nilStr(a.Region),
+			nilStr(upperTrimPtr(a.Address)), nilStr(upperTrimPtr(a.Country)), nilStr(upperTrimPtr(a.Region)),
 			nilFloat(a.Latitude), nilFloat(a.Longitude), id,
 		)
 		return err
@@ -1305,8 +1315,8 @@ func updateChild(ctx context.Context, tx *sql.Tx, id string, k Kind, p Patch) er
 			  chassis  = COALESCE($7, chassis),
 			  renavam  = COALESCE($8, renavam)
 			WHERE entity_id = $9`,
-			nilStr(a.Category), plate, nilStr(a.Brand), nilStr(a.Model), nilStr(a.Color),
-			nullableInt(a.Year), nilStr(a.Chassis), nilStr(a.Renavam), id,
+			nilStr(a.Category), plate, nilStr(upperTrimPtr(a.Brand)), nilStr(upperTrimPtr(a.Model)), nilStr(upperTrimPtr(a.Color)),
+			nullableInt(a.Year), nilStr(upperTrimPtr(a.Chassis)), nilStr(a.Renavam), id,
 		)
 		return err
 	}

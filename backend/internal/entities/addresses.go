@@ -233,6 +233,21 @@ func upperTrimPtr(p *string) *string {
 	return &v
 }
 
+// upperTrimSlice aplica upperTrim a cada elemento, descartando vazios.
+// nil continua nil (semântica de "campo ausente" em updates parciais).
+func upperTrimSlice(ss []string) []string {
+	if ss == nil {
+		return nil
+	}
+	out := make([]string, 0, len(ss))
+	for _, s := range ss {
+		if v := upperTrim(s); v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
 // normalizeCEP remove caracteres não-numéricos. CEP brasileiro tem 8 dígitos;
 // se vier nada, devolve vazio.
 func normalizeCEP(s string) string {

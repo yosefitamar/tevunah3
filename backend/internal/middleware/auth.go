@@ -72,15 +72,18 @@ func RequireAuth(store *session.Store, repo *users.Repo) func(http.Handler) http
 				httpx.Error(w, http.StatusForbidden, "usuário inativo")
 				return
 			}
-			// Gate de credenciais pendentes: enquanto a flag não for limpa, o
-			// agente só pode usar rotas auxiliares (me/logout) e o endpoint
-			// específico pra resolver o pendente. Bloqueia o resto.
-			if u.MustSetupTOTP && !isTOTPSetupAllowed(r.URL.Path) {
-				httpx.Error(w, http.StatusForbidden, "setup de TOTP pendente")
-				return
-			}
-			if u.MustChangePassword && !isPasswordChangeAllowed(r.URL.Path) {
-				httpx.Error(w, http.StatusForbidden, "troca de senha pendente")
+			// Gate de credenciais pendentes: enquanto houver flag pendente, o
+			// agente só pode usar rotas auxiliares (me/logout) e os endpoints
+			// que resolvem cada pendência. Os dois endpoints de resolução
+			// precisam ficar liberados quando as flags coexistem (reset de
+			// senha + reset de TOTP simultâneos), senão cada gate bloqueia o
+			// endpoint do outro e o agente não consegue sair do estado.
+			if (u.MustSetupTOTP || u.MustChangePassword) && !isPendingCredentialAllowed(u, r.URL.Path) {
+				if u.MustChangePassword {
+					httpx.Error(w, http.StatusForbidden, "troca de senha pendente")
+				} else {
+					httpx.Error(w, http.StatusForbidden, "setup de TOTP pendente")
+				}
 				return
 			}
 			// Refresh TTL idle.
@@ -98,22 +101,16 @@ func RequireAuth(store *session.Store, repo *users.Repo) func(http.Handler) http
 	}
 }
 
-// Rotas permitidas enquanto must_setup_totp=true. O agente precisa resolver
-// o enrollment antes de acessar qualquer outro endpoint da aplicação.
-func isTOTPSetupAllowed(path string) bool {
+// Rotas permitidas enquanto houver credencial pendente: auxiliares sempre,
+// e o endpoint de resolução correspondente a cada flag ativa.
+func isPendingCredentialAllowed(u *users.User, path string) bool {
 	switch path {
-	case "/api/auth/me", "/api/auth/logout", "/api/auth/totp/setup":
+	case "/api/auth/me", "/api/auth/logout":
 		return true
-	}
-	return false
-}
-
-// Rotas permitidas enquanto must_change_password=true. Análogo ao acima
-// mas pra troca de senha forçada após reset por admin.
-func isPasswordChangeAllowed(path string) bool {
-	switch path {
-	case "/api/auth/me", "/api/auth/logout", "/api/auth/password/change":
-		return true
+	case "/api/auth/totp/setup":
+		return u.MustSetupTOTP
+	case "/api/auth/password/change":
+		return u.MustChangePassword
 	}
 	return false
 }

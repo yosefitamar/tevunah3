@@ -411,7 +411,16 @@ func (a *app) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 func (a *app) handleMe(w http.ResponseWriter, r *http.Request) {
 	u := middleware.UserFrom(r.Context())
-	httpx.OK(w, map[string]any{"user": toPublic(u)})
+	resp := map[string]any{"user": toPublic(u)}
+	// Reexpõe o secret pendente do TOTP (mesmo payload do login) pra que a
+	// tela de enrollment sobreviva a reload e à troca de senha intermediária.
+	if u.MustSetupTOTP && u.TOTPSecret != "" {
+		resp["totp_setup"] = map[string]any{
+			"secret": u.TOTPSecret,
+			"email":  u.Email,
+		}
+	}
+	httpx.OK(w, resp)
 }
 
 // setSessionCookie emite o cookie HttpOnly da sessão.

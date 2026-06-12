@@ -61,8 +61,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refresh = useCallback(async () => {
     try {
-      const data = await api<{ user: User }>("/api/auth/me");
+      const data = await api<{ user: User; totp_setup?: PendingTOTPSetup }>(
+        "/api/auth/me",
+      );
       setUser(data.user);
+      setPendingTOTPSetup(data.totp_setup ?? null);
     } catch (e) {
       const err = e as ApiError;
       if (err.status !== 401) {
@@ -161,8 +164,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const refreshUser = useCallback(async () => {
-    const data = await api<{ user: User }>("/api/auth/me");
+    const data = await api<{ user: User; totp_setup?: PendingTOTPSetup }>(
+      "/api/auth/me",
+    );
     setUser(data.user);
+    setPendingTOTPSetup(data.totp_setup ?? null);
   }, []);
 
   const clearPendingTOTPSetup = useCallback(() => setPendingTOTPSetup(null), []);

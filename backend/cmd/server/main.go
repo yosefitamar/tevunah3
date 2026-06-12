@@ -24,6 +24,7 @@ import (
 	"github.com/belia/tevunah/backend/internal/crypt"
 	idb "github.com/belia/tevunah/backend/internal/db"
 	"github.com/belia/tevunah/backend/internal/entities"
+	"github.com/belia/tevunah/backend/internal/incidents"
 	"github.com/belia/tevunah/backend/internal/informes"
 	"github.com/belia/tevunah/backend/internal/pdf"
 	"github.com/belia/tevunah/backend/internal/reports"
@@ -50,6 +51,7 @@ type app struct {
 	entities    *entities.Repo
 	informes    *informes.Repo
 	reports     *reports.Repo
+	incidents   *incidents.Repo
 	settings    *settings.Repo
 	pdf         *pdf.Client
 }
@@ -83,6 +85,7 @@ func main() {
 		entities:    entities.New(appDB),
 		informes:    informes.New(appDB),
 		reports:     reports.New(appDB),
+		incidents:   incidents.New(appDB),
 		settings:    settings.New(appDB),
 		pdf:         pdf.New("", photoDir()),
 	}
@@ -177,6 +180,17 @@ func main() {
 	mux.Handle("POST /api/reports/{id}/qualifications/{qid}/photo", auth(http.HandlerFunc(a.handleQualificationPhotoUpload)))
 	mux.Handle("GET /api/reports/{id}/qualifications/{qid}/photo", auth(http.HandlerFunc(a.handleQualificationPhotoGet)))
 	mux.Handle("DELETE /api/reports/{id}/qualifications/{qid}/photo", auth(http.HandlerFunc(a.handleQualificationPhotoDelete)))
+
+	mux.Handle("GET /api/incidents", auth(http.HandlerFunc(a.handleIncidentsList)))
+	mux.Handle("POST /api/incidents", auth(http.HandlerFunc(a.handleIncidentCreate)))
+	mux.Handle("GET /api/incidents/{id}", auth(http.HandlerFunc(a.handleIncidentDetail)))
+	mux.Handle("PATCH /api/incidents/{id}", auth(http.HandlerFunc(a.handleIncidentUpdate)))
+	mux.Handle("DELETE /api/incidents/{id}", auth(http.HandlerFunc(a.handleIncidentDelete)))
+	mux.Handle("POST /api/incidents/{id}/photo", auth(http.HandlerFunc(a.handleIncidentPhotoUpload)))
+	mux.Handle("GET /api/incidents/{id}/photo", auth(http.HandlerFunc(a.handleIncidentPhotoGet)))
+	mux.Handle("DELETE /api/incidents/{id}/photo", auth(http.HandlerFunc(a.handleIncidentPhotoDelete)))
+	mux.Handle("POST /api/incidents/{id}/entities", auth(http.HandlerFunc(a.handleIncidentEntityAdd)))
+	mux.Handle("DELETE /api/incidents/{id}/entities/{eid}", auth(http.HandlerFunc(a.handleIncidentEntityRemove)))
 
 	mux.Handle("GET /api/approvals", auth(http.HandlerFunc(a.handleApprovalsList)))
 	mux.Handle("GET /api/approvals/{id}", auth(http.HandlerFunc(a.handleApprovalDetail)))
@@ -433,7 +447,16 @@ func (a *app) publicWithPerms(ctx context.Context, u *users.User) publicUser {
 
 func (a *app) handleMe(w http.ResponseWriter, r *http.Request) {
 	u := middleware.UserFrom(r.Context())
-	httpx.OK(w, map[string]any{"user": a.publicWithPerms(r.Context(), u)})
+	resp := map[string]any{"user": a.publicWithPerms(r.Context(), u)}
+	// Reexpõe o secret pendente do TOTP (mesmo payload do login) pra que a
+	// tela de enrollment sobreviva a reload e à troca de senha intermediária.
+	if u.MustSetupTOTP && u.TOTPSecret != "" {
+		resp["totp_setup"] = map[string]any{
+			"secret": u.TOTPSecret,
+			"email":  u.Email,
+		}
+	}
+	httpx.OK(w, resp)
 }
 
 // setSessionCookie emite o cookie HttpOnly da sessão.

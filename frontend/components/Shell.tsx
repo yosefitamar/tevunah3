@@ -21,6 +21,7 @@ import {
   ScreenAuditoria,
   ScreenEntidades,
   ScreenInformes,
+  ScreenOcorrencias,
   ScreenRelatorios,
 } from "./screens";
 import SandboxModais from "./sandbox/SandboxModais";
@@ -28,6 +29,7 @@ import SandboxModais from "./sandbox/SandboxModais";
 const VIEWS: Record<ModuleId, React.ComponentType> = {
   dashboard: Dashboard,
   entidades: ScreenEntidades,
+  ocorrencias: ScreenOcorrencias,
   relatorios: ScreenRelatorios,
   informes: ScreenInformes,
   agentes: ScreenAgentes,
@@ -97,10 +99,11 @@ function AuthGate() {
   const { user, loading, pendingTOTPSetup } = useAuth();
   if (loading) return <div className="gate-loading">// AUTENTICANDO SESSÃO…</div>;
   if (!user) return <LoginScreen />;
-  // Setup pendente de TOTP toma precedência — sem secret confirmado o agente
-  // não tem 2FA ativo; só libera o shell após confirmar o enrollment.
-  if (user.must_setup_totp && pendingTOTPSetup) return <TOTPSetupScreen />;
+  // Com as duas pendências ativas, a troca de senha vem primeiro: a senha
+  // temporária deixa de circular o quanto antes e o agente só vê o QR do
+  // novo TOTP depois de assumir uma credencial própria.
   if (user.must_change_password) return <ChangePasswordScreen />;
+  if (user.must_setup_totp && pendingTOTPSetup) return <TOTPSetupScreen />;
   return <AuthenticatedShell />;
 }
 

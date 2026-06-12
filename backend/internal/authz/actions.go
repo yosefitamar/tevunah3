@@ -58,6 +58,12 @@ var Catalog = []ActionDef{
 	{"report.download", "Baixar relatório", "RELATÓRIOS", "Baixar o PDF de um relatório.", false},
 	{"report.destroy", "Excluir rascunho", "RELATÓRIOS", "Excluir (soft delete) rascunho de relatório.", false},
 
+	// ─── Ocorrências ─────────────────────────────────────────────────────
+	{"incident.read", "Ver ocorrências", "OCORRÊNCIAS", "Listar e abrir ocorrências.", false},
+	{"incident.create", "Criar ocorrência", "OCORRÊNCIAS", "Registrar nova ocorrência.", false},
+	{"incident.update", "Editar ocorrência", "OCORRÊNCIAS", "Editar dados, envolvidos e foto de uma ocorrência.", false},
+	{"incident.delete", "Excluir ocorrência", "OCORRÊNCIAS", "Excluir (soft delete) uma ocorrência.", false},
+
 	// ─── Informes ────────────────────────────────────────────────────────
 	{"informe.read", "Ver informes", "INFORMES", "Listar e abrir informes.", false},
 	{"informe.create", "Criar informe", "INFORMES", "Cadastrar novo informe.", false},

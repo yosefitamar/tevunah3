@@ -4,19 +4,16 @@ WORKDIR /app
 
 RUN apk add --no-cache libc6-compat
 
-# Não copiamos o package-lock.json de propósito: ele é gerado em darwin e
-# omite os binários nativos linux opcionais (lightningcss, @tailwindcss/oxide),
-# causando "Cannot find module lightningcss.linux-x64-musl.node" no runtime.
-# Sem o lockfile, npm resolve os optionals corretamente pra plataforma alvo.
-COPY package.json ./
-RUN npm install
-
-COPY . .
-
-EXPOSE 3000
-
 ENV NEXT_TELEMETRY_DISABLED=1 \
     WATCHPACK_POLLING=true \
     CHOKIDAR_USEPOLLING=true
 
-CMD ["npm", "run", "dev"]
+EXPOSE 3000
+
+# Em dev, o código e o package.json vêm via bind mount (./frontend:/app) e o
+# node_modules é um volume nomeado que sombreia o da imagem. Por isso não adianta
+# instalar deps no build: o volume persiste e nunca reinstala ao adicionar pacotes.
+# A solução é instalar no boot — assim `./tevunah up`/`setup` sempre reconcilia o
+# volume com o package.json/lockfile atuais, e adicionar uma dependência nunca mais
+# exige rebuild manual nem "module not found".
+CMD ["sh", "-c", "npm install && npm run dev"]

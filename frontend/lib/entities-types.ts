@@ -89,6 +89,13 @@ export type OrganizationAttrs = {
   founded_at?: string; // YYYY-MM-DD
 };
 
+// Rótulo de listagem de pessoa: "NOME (VULGO)" quando há vulgo, senão só o nome.
+export function personListLabel(name: string, aliases?: string[]): string {
+  const alias = aliases && aliases.length > 0 ? aliases[0].trim() : "";
+  if (alias) return `${name} (${alias})`;
+  return name;
+}
+
 // Rótulo prioritário de uma organização: sigla primária se existir, senão nome.
 export function orgPrimaryLabel(name: string, aliases?: string[]): string {
   const primary = aliases && aliases.length > 0 ? aliases[0].trim() : "";

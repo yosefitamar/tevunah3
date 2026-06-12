@@ -61,3 +61,10 @@ export const canReadInformes = (u: User | null) => can(u, "informe.read");
 export const canCreateInformes = (u: User | null) => can(u, "informe.create");
 export const canEditInformes = (u: User | null) => can(u, "informe.update");
 export const canDeleteInformes = (u: User | null) => can(u, "informe.delete");
+
+// Ocorrências (homicídio/apreensão/prisão) — matriz semeada na migration
+// 00040_incidents.
+export const canReadIncidents = (u: User | null) => can(u, "incident.read");
+export const canCreateIncidents = (u: User | null) => can(u, "incident.create");
+export const canEditIncidents = (u: User | null) => can(u, "incident.update");
+export const canDeleteIncidents = (u: User | null) => can(u, "incident.delete");

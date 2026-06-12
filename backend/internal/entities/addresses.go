@@ -110,12 +110,12 @@ func (r *Repo) CreateAddress(ctx context.Context, personID string, in NewPersonA
 		personID,
 		nullableString(in.Label),
 		nullableString(normalizeCEP(in.CEP)),
-		nullableString(in.Street),
-		nullableString(in.Number),
-		nullableString(in.Complement),
-		nullableString(in.Neighborhood),
-		nullableString(in.City),
-		nullableString(strings.ToUpper(strings.TrimSpace(in.State))),
+		nullableString(upperTrim(in.Street)),
+		nullableString(upperTrim(in.Number)),
+		nullableString(upperTrim(in.Complement)),
+		nullableString(upperTrim(in.Neighborhood)),
+		nullableString(upperTrim(in.City)),
+		nullableString(upperTrim(in.State)),
 		createdBy,
 	).Scan(&id)
 	if err != nil {
@@ -142,12 +142,12 @@ func (r *Repo) UpdateAddress(ctx context.Context, personID, addressID string, in
 		WHERE id = $10 AND person_id = $11 AND deleted_at IS NULL`,
 		nullableString(in.Label),
 		nullableString(normalizeCEP(in.CEP)),
-		nullableString(in.Street),
-		nullableString(in.Number),
-		nullableString(in.Complement),
-		nullableString(in.Neighborhood),
-		nullableString(in.City),
-		nullableString(strings.ToUpper(strings.TrimSpace(in.State))),
+		nullableString(upperTrim(in.Street)),
+		nullableString(upperTrim(in.Number)),
+		nullableString(upperTrim(in.Complement)),
+		nullableString(upperTrim(in.Neighborhood)),
+		nullableString(upperTrim(in.City)),
+		nullableString(upperTrim(in.State)),
 		updatedBy, addressID, personID,
 	)
 	if err != nil {
@@ -215,6 +215,22 @@ func (r *Repo) findAddress(ctx context.Context, id string) (*PersonAddress, erro
 	a.City = nullStr(city)
 	a.State = nullStr(state)
 	return &a, nil
+}
+
+// upperTrim normaliza campos textuais de endereço: trim + maiúsculas
+// (Unicode-aware, preserva acentos).
+func upperTrim(s string) string {
+	return strings.ToUpper(strings.TrimSpace(s))
+}
+
+// upperTrimPtr versão pointer-aware de upperTrim: nil continua nil (campo
+// ausente no patch), preservando a semântica de update parcial.
+func upperTrimPtr(p *string) *string {
+	if p == nil {
+		return nil
+	}
+	v := upperTrim(*p)
+	return &v
 }
 
 // normalizeCEP remove caracteres não-numéricos. CEP brasileiro tem 8 dígitos;

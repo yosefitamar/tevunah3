@@ -247,7 +247,7 @@ func (r *Repo) Create(ctx context.Context, in NewEntity, createdBy string) (*Ent
 		  (kind, name, description, classification, created_by, updated_by)
 		VALUES ($1, $2, $3, $4, $5, $5)
 		RETURNING id`,
-		string(in.Kind), strings.TrimSpace(in.Name), nullableString(in.Description),
+		string(in.Kind), strings.TrimSpace(in.Name), nullableString(upperTrim(in.Description)),
 		in.Classification, createdBy,
 	).Scan(&id)
 	if err != nil {
@@ -509,7 +509,7 @@ func (r *Repo) Update(ctx context.Context, id string, expectedVersion int, p Pat
 		       updated_at     = now(),
 		       updated_by     = $4
 		 WHERE id = $5 AND version = $6 AND deleted_at IS NULL`,
-		nullableTrimmedString(p.Name), nullableStringPtr(p.Description),
+		nullableTrimmedString(p.Name), nullableStringPtr(upperTrimPtr(p.Description)),
 		nullableInt(p.Classification), updatedBy, id, expectedVersion,
 	)
 	if err != nil {

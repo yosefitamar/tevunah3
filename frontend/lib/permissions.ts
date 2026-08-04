@@ -52,6 +52,11 @@ export const canArchiveReports = (u: User | null) => can(u, "report.archive");
 // Reverter difusão devolve o RI pra edição.
 export const canUndiffuseReports = (u: User | null) => can(u, "report.undiffuse");
 export const canDownloadReports = (u: User | null) => can(u, "report.download");
+// Versão descaracterizada (sem brasões, título, metadados ou carimbo do
+// agente) — é o formato que sai da instituição, então tem permissão própria:
+// por padrão só gestor e administrador.
+export const canDownloadDeclassified = (u: User | null) =>
+  can(u, "report.download_declassified");
 // Destruir (soft delete) rascunho. O backend ainda exige que o caller seja autor OU admin.
 export const canDestroyReports = (u: User | null) => can(u, "report.destroy");
 

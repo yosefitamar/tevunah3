@@ -32,6 +32,31 @@ func (a *app) handleReportDownload(w http.ResponseWriter, r *http.Request) {
 	if !a.requirePerm(w, r, "report.download") {
 		return
 	}
+	a.serveReportPDF(w, r, false)
+}
+
+// GET /api/reports/{id}/download/declassified
+//
+// Versão DESCARACTERIZADA: mesmo conteúdo e mesmas qualificações, sem nada
+// que identifique a instituição (brasões, QR, barra de título, faixa do
+// rodapé, tabela de metadados) nem o agente (carimbo forense invisível).
+// É o formato destinado a sair da instituição, por isso exige permissão
+// própria em vez de `report.download`.
+//
+// O rastro interno permanece: o download é registrado em
+// app.report_downloads (com declassified = true) e na auditoria, com o
+// sha256 dos bytes entregues.
+func (a *app) handleReportDownloadDeclassified(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePerm(w, r, "report.download_declassified") {
+		return
+	}
+	a.serveReportPDF(w, r, true)
+}
+
+// serveReportPDF é o corpo comum das duas rotas de download. declassified
+// escolhe a variante do PDF, o nome do arquivo e como o download é
+// registrado — o resto (acesso, forense, auditoria) é idêntico.
+func (a *app) serveReportPDF(w http.ResponseWriter, r *http.Request, declassified bool) {
 	id := r.PathValue("id")
 	me := middleware.UserFrom(r.Context())
 	sess := middleware.SessionFrom(r.Context())
@@ -70,6 +95,7 @@ func (a *app) handleReportDownload(w http.ResponseWriter, r *http.Request) {
 
 	data := a.buildReportData(r.Context(), rep, quals, me.DisplayName)
 	data.AgentCode = me.Code
+	data.Declassified = declassified
 
 	pdfBytes, err := a.pdf.Render(r.Context(), data)
 	if err != nil {
@@ -102,27 +128,38 @@ func (a *app) handleReportDownload(w http.ResponseWriter, r *http.Request) {
 		IP:               ipStr,
 		UserAgent:        uaStr,
 		PDFSha256:        hashHex,
+		Declassified:     declassified,
 	})
 	if err != nil {
 		log.Printf("record download: %v", err)
 		// Não bloqueia a entrega — o download ainda é auditado abaixo.
 	}
 
+	// Action distinta na auditoria: "quem tirou cópia sem procedência deste
+	// RI" precisa ser uma pergunta respondível com um filtro só.
+	action := "report.download"
+	if declassified {
+		action = "report.download_declassified"
+	}
 	_ = a.audit.Log(r.Context(), audit.Entry{
 		ActorUserID: aid, ActorSessionID: sid, ActorIP: ip, ActorUserAgent: ua,
-		Action:       "report.download",
+		Action:       action,
 		ResourceType: audit.Ptr("report"),
 		ResourceID:   audit.Ptr(id),
 		After: map[string]any{
-			"download_id": dlID,
-			"sha256":      hashHex,
-			"status":      rep.Status,
-			"number":      rep.Number(),
-			"bytes":       len(pdfBytes),
+			"download_id":  dlID,
+			"sha256":       hashHex,
+			"status":       rep.Status,
+			"number":       rep.Number(),
+			"bytes":        len(pdfBytes),
+			"declassified": declassified,
 		},
 	})
 
 	filename := pdfFilename(rep)
+	if declassified {
+		filename = declassifiedFilename(hashHex)
+	}
 	w.Header().Set("Content-Type", "application/pdf")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
 	w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -144,6 +181,18 @@ func pdfFilename(rep *reports.Report) string {
 		short = short[:8]
 	}
 	return fmt.Sprintf("RI_RASCUNHO_%s.pdf", short)
+}
+
+// declassifiedFilename devolve um nome neutro — "RI_07_2026.pdf" entregaria
+// número e origem no próprio nome do arquivo, que é o que o descaracterizado
+// existe pra evitar. Usa os 8 primeiros dígitos do sha256 do PDF: continua
+// único por download e casa com o registro em app.report_downloads.
+func declassifiedFilename(sha256Hex string) string {
+	short := sha256Hex
+	if len(short) > 8 {
+		short = short[:8]
+	}
+	return fmt.Sprintf("documento_%s.pdf", short)
 }
 
 func (a *app) buildReportData(ctx context.Context, rep *reports.Report, quals []reports.Qualification, generatedBy string) pdf.ReportData {

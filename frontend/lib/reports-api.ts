@@ -206,8 +206,13 @@ export function diffuseReport(id: string) {
 // binário (application/pdf) — fazemos fetch direto e devolvemos o Blob.
 export async function downloadReportPDF(
   id: string,
+  /** Versão descaracterizada: sem identificação institucional nem do agente. */
+  declassified = false,
 ): Promise<{ blob: Blob; filename: string; downloadID: string; sha256: string }> {
-  const res = await fetch(`/api/reports/${encodeURIComponent(id)}/download`, {
+  const path = declassified
+    ? `/api/reports/${encodeURIComponent(id)}/download/declassified`
+    : `/api/reports/${encodeURIComponent(id)}/download`;
+  const res = await fetch(path, {
     method: "GET",
     credentials: "include",
   });

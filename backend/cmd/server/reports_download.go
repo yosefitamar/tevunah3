@@ -267,16 +267,16 @@ func buildMilitarFields(q *reports.Qualification) []pdf.KV {
 		{K: "POSTO/GRAD.", V: get("posto")},
 		{K: "O.M", V: get("om")},
 		{K: "IDENT. MILITAR", V: get("identidade")},
-		{K: "INF. ADICIONAIS", V: get("info")},
+		{K: "INF. ADICIONAIS", V: flattenLines(get("info"))},
 	}
 }
 
 // buildCivilFields produz as 6 linhas do template oficial para qualif civil:
 // ALCUNHA / CPF / ORCRIM / ENDEREÇOS / VEÍCULOS / INFORMAÇÕES ADICIONAIS.
-// Para ORCRIM, ENDEREÇOS, VEÍCULOS — busca live na entidade vinculada (o
-// snapshot do data jsonb não tem isso). Falhas silenciosas (entidade pode ter
-// sido deletada após a qualificação): campos saem em branco e o template
-// imprime "*.*.*".
+// Para ORCRIM, ENDEREÇOS, VEÍCULOS e INF. ADICIONAIS — busca live na entidade
+// vinculada (o snapshot do data jsonb não tem isso). Falhas silenciosas
+// (entidade pode ter sido deletada após a qualificação): campos saem em branco
+// e o template imprime "*.*.*".
 func (a *app) buildCivilFields(ctx context.Context, q *reports.Qualification) []pdf.KV {
 	get := func(k string) string {
 		if v, ok := q.Data[k].(string); ok {
@@ -302,10 +302,16 @@ func (a *app) buildCivilFields(ctx context.Context, q *reports.Qualification) []
 	orcrim := ""
 	enderecos := ""
 	veiculos := ""
+	// INF. ADICIONAIS vem da descrição da entidade (busca live). O snapshot
+	// só é usado se alguma qualificação tiver gravado "info" explicitamente.
+	info := flattenLines(get("info"))
 
 	if q.EntityID != nil && *q.EntityID != "" {
 		ent, err := a.entities.FindByID(ctx, *q.EntityID)
 		if err == nil && ent.Person != nil {
+			if info == "" {
+				info = flattenLines(ent.Description)
+			}
 			if ent.Person.OrcrimName != nil && *ent.Person.OrcrimName != "" {
 				if ent.Person.OrcrimAlias != nil && *ent.Person.OrcrimAlias != "" {
 					orcrim = fmt.Sprintf("%s (%s)", *ent.Person.OrcrimAlias, *ent.Person.OrcrimName)
@@ -350,8 +356,23 @@ func (a *app) buildCivilFields(ctx context.Context, q *reports.Qualification) []
 		{K: "ORCRIM", V: orcrim},
 		{K: "ENDEREÇOS", V: enderecos},
 		{K: "VEÍCULOS", V: veiculos},
-		{K: "INF. ADICIONAIS", V: get("info")},
+		{K: "INF. ADICIONAIS", V: info},
 	}
+}
+
+// flattenLines transforma um texto multilinha (a descrição da entidade é um
+// textarea livre) numa linha única separada por " · " — a célula do template
+// é uma linha só de tabela e o HTML colapsaria as quebras em espaço, o que
+// gruda parágrafos distintos.
+func flattenLines(s string) string {
+	parts := []string{}
+	for _, ln := range strings.Split(s, "\n") {
+		ln = strings.TrimSpace(ln)
+		if ln != "" {
+			parts = append(parts, ln)
+		}
+	}
+	return strings.Join(parts, " · ")
 }
 
 func (a *app) civilPhoto(ctx context.Context, q *reports.Qualification) string {

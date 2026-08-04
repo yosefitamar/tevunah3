@@ -250,13 +250,21 @@ function CivilPicker({
 
 /* ─────────── MILITAR ─────────── */
 
-const MIL_FIELDS: Array<{ key: string; label: string; full?: boolean }> = [
+const MIL_FIELDS: Array<{
+  key: string;
+  label: string;
+  full?: boolean;
+  multiline?: boolean;
+}> = [
   { key: "nome", label: "NOME COMPLETO", full: true },
   { key: "nome_guerra", label: "NOME DE GUERRA" },
   { key: "posto", label: "POSTO/GRADUAÇÃO" },
   { key: "om", label: "ORGANIZAÇÃO MILITAR (OM)", full: true },
   { key: "identidade", label: "IDENTIDADE MILITAR" },
   { key: "cpf", label: "CPF" },
+  // Não existe banco de militares: a linha INF. ADICIONAIS do RI só pode vir
+  // daqui (na civil ela é puxada da descrição da entidade vinculada).
+  { key: "info", label: "INF. ADICIONAIS", full: true, multiline: true },
 ];
 
 function MilitarForm({
@@ -356,11 +364,19 @@ function MilitarForm({
             style={f.full ? { gridColumn: "1 / -1" } : undefined}
           >
             <span>{f.label}</span>
-            <input
-              type="text"
-              value={data[f.key] ?? ""}
-              onChange={(e) => setData({ ...data, [f.key]: e.target.value })}
-            />
+            {f.multiline ? (
+              <textarea
+                rows={3}
+                value={data[f.key] ?? ""}
+                onChange={(e) => setData({ ...data, [f.key]: e.target.value })}
+              />
+            ) : (
+              <input
+                type="text"
+                value={data[f.key] ?? ""}
+                onChange={(e) => setData({ ...data, [f.key]: e.target.value })}
+              />
+            )}
           </label>
         ))}
       </div>

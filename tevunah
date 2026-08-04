@@ -64,6 +64,11 @@ Importação do legado:
                               Use se a importação inicial rodou sem o media/
   import:teardown             Derruba mysql-legacy/pgloader e libera recursos
 
+Espelhamento de produção:
+  db:mirror-prod [user@host]  Copia banco + fotos de produção para o ambiente dev.
+                              Somente leitura em prod; APAGA o banco local.
+                              Destino padrão: \$PROD_SSH ou root@192.168.100.107
+
 Limpeza:
   db:reset            Apaga só o volume do Postgres (init script re-roda na próxima subida)
   prune               Remove TODOS volumes nomeados do projeto (cache go/node, db, etc.)
@@ -313,6 +318,153 @@ case "$cmd" in
     echo "▶ Derrubando serviços de importação…"
     $IMPORT_COMPOSE rm -fsv mysql-legacy pgloader 2>/dev/null || true
     echo "✓ Serviços removidos. Schema legacy.* no Postgres permanece (DROP manual se quiser)."
+    ;;
+
+  db:mirror-prod)
+    # Espelha produção no ambiente de desenvolvimento: banco + fotos.
+    #
+    # Direção é SEMPRE prod → dev. Nada aqui escreve em produção: no lado
+    # remoto só rodam pg_dump e tar (leitura). O que é destruído é o banco
+    # LOCAL, que é recriado do zero a partir do dump.
+    #
+    # Detecta sozinho como produção roda: Docker Compose (containers
+    # tevunah-prod-*) ou instalação nativa via deploy/install.sh (Postgres
+    # em 127.0.0.1, credenciais em /opt/tevunah/.env.prod).
+    #
+    # ⚠ A cópia é FIEL: traz dados pessoais reais (CPF, endereços, fotos),
+    # hashes de senha e segredos TOTP dos usuários de produção para esta
+    # máquina. Não rode em máquina compartilhada ou sem disco cifrado.
+    # .107 é a VM do Tevunah em produção (host tevunah-prod, instalação
+    # nativa via deploy/install.sh). Não confundir com .20, que é o host
+    # Proxmox. Acesso por chave como root.
+    PROD_SSH="${1:-${PROD_SSH:-root@192.168.100.107}}"
+    [ -f .env ] && set -a && . ./.env && set +a || true
+    PGUSER_DEV="${POSTGRES_USER:-tevunah}"
+    PGDB_DEV="${POSTGRES_DB:-tevunah}"
+
+    echo "⚠  Espelhamento PRODUÇÃO → DEV"
+    echo "   Origem : $PROD_SSH (somente leitura)"
+    echo "   Destino: banco '$PGDB_DEV' local + volume tevunah_tevunah-photos"
+    echo "   O banco de desenvolvimento atual será APAGADO e substituído."
+    echo "   Os dados copiados são reais e sensíveis (LGPD)."
+    read -p "Digite ESPELHAR para confirmar: " ans
+    if [ "$ans" != "ESPELHAR" ]; then
+      echo "Cancelado."
+      exit 1
+    fi
+
+    SSH="ssh -o BatchMode=yes -o ConnectTimeout=10 $PROD_SSH"
+
+    echo "▶ Detectando como produção roda…"
+    # docker/sudo docker/nativo — nesta ordem; 'unknown' aborta.
+    PROD_MODE=$($SSH '
+      if docker ps --format "{{.Names}}" 2>/dev/null | grep -q "^tevunah-prod-postgres$"; then echo docker
+      elif sudo -n docker ps --format "{{.Names}}" 2>/dev/null | grep -q "^tevunah-prod-postgres$"; then echo sudo-docker
+      elif [ -r /opt/tevunah/.env.prod ]; then echo bare
+      elif sudo -n test -r /opt/tevunah/.env.prod 2>/dev/null; then echo sudo-bare
+      else echo unknown; fi') || {
+      echo "❌ Não consegui conectar em $PROD_SSH por SSH."
+      echo "   Verifique a chave (ssh-copy-id) ou passe outro destino:"
+      echo "   ./tevunah db:mirror-prod usuario@host"
+      exit 1
+    }
+    if [ "$PROD_MODE" = "unknown" ]; then
+      echo "❌ Não achei produção em $PROD_SSH: nem container tevunah-prod-postgres,"
+      echo "   nem /opt/tevunah/.env.prod legível (sudo sem senha indisponível?)."
+      exit 1
+    fi
+    echo "  modo: $PROD_MODE"
+
+    TMPDIR_MIRROR="$(mktemp -d)"
+    trap 'rm -rf "$TMPDIR_MIRROR"' EXIT
+    DUMP="$TMPDIR_MIRROR/prod.dump"
+    PHOTOS_TAR="$TMPDIR_MIRROR/photos.tar"
+
+    # Comandos remotos por modo. -Fc (custom) permite pg_restore seletivo;
+    # --no-owner porque o superusuário de prod pode não existir aqui.
+    case "$PROD_MODE" in
+      docker|sudo-docker)
+        D=$([ "$PROD_MODE" = "sudo-docker" ] && echo "sudo -n docker" || echo docker)
+        DUMP_CMD="$D exec -i tevunah-prod-postgres sh -c 'pg_dump -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -Fc --no-owner'"
+        PHOTOS_CMD="$D exec -i tevunah-prod-backend tar cf - -C /var/lib/tevunah/photos ."
+        ;;
+      bare|sudo-bare)
+        S=$([ "$PROD_MODE" = "sudo-bare" ] && echo "sudo -n " || echo "")
+        DUMP_CMD="${S}sh -c 'set -a; . /opt/tevunah/.env.prod; set +a; PGPASSWORD=\$POSTGRES_PASSWORD pg_dump -h 127.0.0.1 -U \$POSTGRES_USER -d \$POSTGRES_DB -Fc --no-owner'"
+        PHOTOS_CMD="${S}tar cf - -C /var/lib/tevunah/photos ."
+        ;;
+    esac
+
+    echo "▶ Gerando dump em produção (pg_dump, leitura)…"
+    if ! $SSH "$DUMP_CMD" > "$DUMP"; then
+      echo "❌ pg_dump falhou em produção. Nada foi alterado no dev."
+      exit 1
+    fi
+    if [ ! -s "$DUMP" ]; then
+      echo "❌ Dump veio vazio. Nada foi alterado no dev."
+      exit 1
+    fi
+    echo "  dump: $(du -h "$DUMP" | cut -f1)"
+
+    echo "▶ Copiando fotos (PHOTO_DIR)…"
+    if ! $SSH "$PHOTOS_CMD" > "$PHOTOS_TAR" 2>/dev/null || [ ! -s "$PHOTOS_TAR" ]; then
+      echo "⚠  Não consegui copiar as fotos — sigo só com o banco."
+      echo "   (imagens de entidades/qualificações ficarão ausentes no dev)"
+      rm -f "$PHOTOS_TAR"
+    else
+      echo "  fotos: $(du -h "$PHOTOS_TAR" | cut -f1)"
+    fi
+
+    echo "▶ Preparando ambiente local…"
+    $COMPOSE up -d postgres >/dev/null
+    until $COMPOSE exec -T postgres pg_isready -U "$PGUSER_DEV" -d "$PGDB_DEV" >/dev/null 2>&1; do
+      sleep 1
+    done
+    # Backend fora do ar durante o restore: ele mantém pool aberto e o
+    # DROP DATABASE falharia com "database is being accessed by other users".
+    $COMPOSE stop backend >/dev/null 2>&1 || true
+
+    echo "▶ Recriando banco '$PGDB_DEV' local…"
+    $COMPOSE exec -T postgres psql -U "$PGUSER_DEV" -d postgres -v ON_ERROR_STOP=1 <<SQL >/dev/null
+SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+ WHERE datname = '$PGDB_DEV' AND pid <> pg_backend_pid();
+DROP DATABASE IF EXISTS $PGDB_DEV;
+CREATE DATABASE $PGDB_DEV OWNER $PGUSER_DEV;
+SQL
+    # GRANT CONNECT vive no init script (roda só na criação do volume) —
+    # como o database é novo, precisa ser reaplicado. Os roles em si são
+    # do cluster e sobrevivem ao DROP DATABASE.
+    $COMPOSE exec -T postgres psql -U "$PGUSER_DEV" -d "$PGDB_DEV" -v ON_ERROR_STOP=1 <<SQL >/dev/null
+GRANT CONNECT ON DATABASE $PGDB_DEV TO ${APP_DB_USER:-tevunah_app};
+GRANT CONNECT ON DATABASE $PGDB_DEV TO ${AUDIT_DB_USER:-tevunah_audit_writer};
+SQL
+
+    echo "▶ Restaurando dump…"
+    # Sem --exit-on-error: GRANTs a roles que só existem em prod viram
+    # warning, e o restante do restore continua.
+    if ! $COMPOSE exec -T postgres pg_restore -U "$PGUSER_DEV" -d "$PGDB_DEV" --no-owner < "$DUMP"; then
+      echo "⚠  pg_restore reportou avisos (normal: roles exclusivos de prod)."
+    fi
+
+    if [ -f "$PHOTOS_TAR" ]; then
+      echo "▶ Restaurando fotos no volume local…"
+      $COMPOSE up -d backend >/dev/null
+      until $COMPOSE exec -T backend true >/dev/null 2>&1; do sleep 1; done
+      $COMPOSE exec -T backend sh -c 'rm -rf /var/lib/tevunah/photos/* && mkdir -p /var/lib/tevunah/photos'
+      $COMPOSE exec -T backend tar xf - -C /var/lib/tevunah/photos < "$PHOTOS_TAR"
+    fi
+
+    echo "▶ Subindo backend e conferindo migrations…"
+    $COMPOSE up -d >/dev/null
+    until $COMPOSE exec -T backend true >/dev/null 2>&1; do sleep 1; done
+    $COMPOSE exec -T backend go run ./cmd/migrate up
+
+    echo ""
+    echo "✓ Dev espelhado com produção ($PROD_SSH)."
+    $COMPOSE exec -T postgres psql -U "$PGUSER_DEV" -d "$PGDB_DEV" -c \
+      "SELECT (SELECT count(*) FROM app.users) usuarios, (SELECT count(*) FROM app.entities) entidades, (SELECT count(*) FROM app.reports) relatorios;"
+    echo "  As credenciais agora são as de produção (cópia fiel)."
+    echo "  Para ter também o admin local: ./tevunah seed:dev"
     ;;
 
   db:reset)

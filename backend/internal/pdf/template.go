@@ -10,6 +10,12 @@ import "html/template"
 // wkhtmltopdf renderiza --header-html e --footer-html no espaço das margens
 // (--margin-top / --margin-bottom) de CADA página. É mais confiável que
 // position:fixed no body.
+//
+// Os três templates atendem também o modo DESCARACTERIZADO (.Declassified):
+// mesmo conteúdo e mesmas qualificações, mas sem nada que identifique a
+// instituição ou quem gerou o arquivo — brasões, QR, barra de título, faixa
+// do rodapé, tabela de metadados e carimbo forense somem. Sobra a marcação de
+// sigilo, o aviso legal (que não cita a instituição) e a paginação.
 
 const legalNotice = `&ldquo;O sigilo deste documento é protegido e controlado pela Lei nº 12.527/2011. A divulgação, a revelação, o fornecimento, a utilização ou a reprodução desautorizada de seu conteúdo, a qualquer tempo, meio ou modo, inclusive mediante acesso ou facilitação de acesso indevidos, constituem condutas ilícitas que ensejam responsabilidades penais, civis e administrativas.&rdquo;`
 
@@ -18,7 +24,10 @@ var indexTmpl = template.Must(template.New("ri").Parse(`<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8" />
-<title>{{ .TitleLine }}</title>
+{{/* O <title> vira o metadado "Title" do PDF — visível nas propriedades do
+     arquivo e em qualquer leitor. No descaracterizado precisa ser neutro,
+     senão o número do RI e a origem vazam fora da página. */}}
+<title>{{ if .Declassified }}Documento{{ else }}{{ .TitleLine }}{{ end }}</title>
 <style>
 body {
     margin: 0;
@@ -161,6 +170,9 @@ hr {
 
 {{ if .IsDraft }}<div class="draft-watermark">RASCUNHO</div>{{ end }}
 
+{{/* Tabela de metadados: DATA/ASSUNTO/ORIGEM/DIFUSÃO/… identificam a
+     institição e a cadeia de difusão — fora do descaracterizado. */}}
+{{ if not .Declassified }}
 <table class="data-table" cellpadding="0" cellspacing="0">
     <tr><th>DATA</th><td class="sep">:</td><td>{{ if .DocDateShort }}{{ .DocDateShort }}{{ else }}*.*.*{{ end }}</td></tr>
     <tr><th>ASSUNTO</th><td class="sep">:</td><td>{{ if .Subject }}{{ .Subject }}{{ else }}*.*.*{{ end }}</td></tr>
@@ -171,6 +183,7 @@ hr {
     <tr><th>ANEXO(S)</th><td class="sep">:</td><td>{{ if .Attachments }}{{ .Attachments }}{{ else }}*.*.*{{ end }}</td></tr>
 </table>
 <hr>
+{{ end }}
 
 <div class="content">{{ .BodyHTML }}</div>
 
@@ -236,6 +249,13 @@ body {
     margin: 0 0 6pt 0;
     letter-spacing: 0.08em;
 }
+{{ if .Declassified }}
+/* O header é desenhado colado ao corpo (--header-spacing 0), então o respiro
+   entre a linha de sigilo e a primeira linha do texto vem da altura do próprio
+   header. No RI normal quem cria esse espaço são os brasões e a barra de
+   título; sem eles, o padding faz o papel. */
+body { padding-bottom: 9mm; }
+{{ end }}
 .logos { text-align: center; margin: 0 0 6pt 0; }
 .logos table { width: 100%; border-collapse: collapse; border: none; table-layout: fixed; }
 .logos td { vertical-align: middle; padding: 0 6pt; border: none; }
@@ -265,6 +285,7 @@ body.first-page .title {
    ficar atrás dos demais (qualquer overlap fica coberto). Visível só ao
    selecionar/copiar texto ou inspecionar o PDF — basta abrir no Acrobat e
    "selecionar tudo" pra revelar AGENTE + DATA do download. */
+{{ if not .Declassified }}
 .hidden-stamp {
     position: absolute;
     top: 0;
@@ -275,6 +296,7 @@ body.first-page .title {
     white-space: nowrap;
     pointer-events: none;
 }
+{{ end }}
 /* Paginação no canto superior direito, flutuando sobre o conteúdo. */
 .page-counter {
     position: absolute;
@@ -309,9 +331,17 @@ function applyFirstPage() {
 }
 </script>
 </head><body onload="applyFirstPage()">
+{{/* Descaracterizado só mantém sigilo + paginação. O carimbo forense
+     (agente/data) é justamente o que não pode acompanhar o arquivo, e o QR
+     codifica título + origem + agente — ambos saem junto com os brasões e a
+     barra de título. O Render nem chega a gerar esses assets nesse modo; o
+     condicional aqui é a segunda barreira. */}}
+{{ if not .Declassified }}
 <div class="hidden-stamp">{{ .AgentCode }} {{ .GeneratedByName }} - {{ .GeneratedAtBR }}</div>
+{{ end }}
 <div class="page-counter"><span class="page"></span>/<span class="topage"></span></div>
 <div class="sigilo">{{ .Classification }}</div>
+{{ if not .Declassified }}
 <div class="logos">
     <table>
         <tr>
@@ -328,6 +358,7 @@ function applyFirstPage() {
     </table>
 </div>
 <div class="title">{{ .TitleLine }}</div>
+{{ end }}
 </body></html>`))
 
 // footerTmpl — rodapé repetido em todas as páginas via --footer-html. Caixa
@@ -390,5 +421,8 @@ body {
     </div>
     <div class="sigilo">{{ .Classification }}</div>
 </div>
-{{ if .FooterRibbonData }}<div class="footermark"><img src="{{ .FooterRibbonData }}" alt="" /></div>{{ end }}
+{{/* A faixa ornamental é arte institucional — sai no descaracterizado. O
+     aviso da Lei 12.527 fica: não cita a instituição e reforça o sigilo
+     para quem receber o documento. */}}
+{{ if and .FooterRibbonData (not .Declassified) }}<div class="footermark"><img src="{{ .FooterRibbonData }}" alt="" /></div>{{ end }}
 </body></html>`))

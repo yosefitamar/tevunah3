@@ -1123,16 +1123,20 @@ type NewDownload struct {
 	IP               string
 	UserAgent        string
 	PDFSha256        string
+	// Declassified marca que o sha256 registrado é o da versão sem
+	// identificação institucional — variante distinta do mesmo relatório.
+	Declassified bool
 }
 
 func (r *Repo) RecordDownload(ctx context.Context, in NewDownload) (string, error) {
 	var id string
 	err := r.db.QueryRowContext(ctx, `
 		INSERT INTO app.report_downloads
-		  (report_id, user_id, session_token_hash, ip, user_agent, pdf_sha256)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		  (report_id, user_id, session_token_hash, ip, user_agent, pdf_sha256, declassified)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING id`,
 		in.ReportID, in.UserID, in.SessionTokenHash, in.IP, in.UserAgent, in.PDFSha256,
+		in.Declassified,
 	).Scan(&id)
 	return id, err
 }

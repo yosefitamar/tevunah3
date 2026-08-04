@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Archive, Download, Eye, RotateCcw, Send, Trash, X } from "lucide-react";
+import { Archive, Download, Eye, EyeOff, RotateCcw, Send, Trash, X } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useModal } from "@/contexts/ModalContext";
 import {
@@ -23,6 +23,7 @@ import {
   canArchiveReports,
   canDestroyReports,
   canDiffuseReports,
+  canDownloadDeclassified,
   canDownloadReports,
   canEditReports,
   canUndiffuseReports,
@@ -129,6 +130,11 @@ export default function RelatorioDrawer({ reportId, onClose, onChanged }: Props)
   const canArchive = canArchiveReports(me) && data?.status === "difundido";
   const canUndiffuse = canUndiffuseReports(me) && data?.status === "difundido";
   const canDownload = canDownloadReports(me) && !!data;
+  // Descaracterizado é o formato que circula fora da instituição, então tem
+  // permissão própria (gestor/admin por padrão). Vale em qualquer status, como
+  // o download normal: rascunho sai com a marca d'água RASCUNHO, que não
+  // identifica ninguém.
+  const canDeclassify = canDownloadDeclassified(me) && !!data;
   // Destruir: rascunho + role permitida + autor OU admin. Espelha o gate
   // server-side (authorOrAdmin + status='criado').
   const isAuthorOrAdmin =
@@ -175,9 +181,19 @@ export default function RelatorioDrawer({ reportId, onClose, onChanged }: Props)
     }
   }
 
-  async function onDownload() {
+  async function onDownload(declassified = false) {
     if (!data) return;
-    if (data.status === "criado") {
+    if (declassified) {
+      const ok = await modal.confirm({
+        title: "BAIXAR DESCARACTERIZADO",
+        message:
+          "O PDF sairá sem brasões, sem barra de título, sem a tabela de metadados (data, assunto, origem, difusão) e sem o carimbo do agente — só a marcação de sigilo. É o formato destinado a sair da instituição. O download continua registrado na auditoria em seu nome. Confirmar?",
+        confirm: "GERAR DESCARACTERIZADO",
+        cancel: "CANCELAR",
+        variant: "warning",
+      });
+      if (!ok) return;
+    } else if (data.status === "criado") {
       const ok = await modal.confirm({
         title: "BAIXAR RASCUNHO",
         message:
@@ -191,7 +207,7 @@ export default function RelatorioDrawer({ reportId, onClose, onChanged }: Props)
     setActing(true);
     setError(null);
     try {
-      const { blob, filename } = await downloadReportPDF(data.id);
+      const { blob, filename } = await downloadReportPDF(data.id, declassified);
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -640,7 +656,7 @@ export default function RelatorioDrawer({ reportId, onClose, onChanged }: Props)
                     <button
                       type="button"
                       className="action-row"
-                      onClick={onDownload}
+                      onClick={() => onDownload(false)}
                       disabled={acting}
                     >
                       <span className="action-row-icon">
@@ -653,6 +669,26 @@ export default function RelatorioDrawer({ reportId, onClose, onChanged }: Props)
                         {data.status === "criado"
                           ? "RASCUNHO · MARCA D'ÁGUA"
                           : "REGISTRA O DOWNLOAD NA AUDITORIA"}
+                      </span>
+                    </button>
+                  )}
+                  {canDeclassify && (
+                    <button
+                      type="button"
+                      className="action-row"
+                      onClick={() => onDownload(true)}
+                      disabled={acting}
+                    >
+                      <span className="action-row-icon">
+                        <EyeOff size={14} />
+                      </span>
+                      <span className="action-row-label">
+                        {acting ? "GERANDO PDF…" : "BAIXAR DESCARACTERIZADO"}
+                      </span>
+                      <span className="action-row-hint">
+                        {data.status === "criado"
+                          ? "RASCUNHO · SEM BRASÃO, TÍTULO OU METADADOS"
+                          : "SEM BRASÃO, TÍTULO OU METADADOS · SÓ O SIGILO"}
                       </span>
                     </button>
                   )}

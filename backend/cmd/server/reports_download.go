@@ -32,6 +32,31 @@ func (a *app) handleReportDownload(w http.ResponseWriter, r *http.Request) {
 	if !a.requirePerm(w, r, "report.download") {
 		return
 	}
+	a.serveReportPDF(w, r, false)
+}
+
+// GET /api/reports/{id}/download/declassified
+//
+// Versão DESCARACTERIZADA: mesmo conteúdo e mesmas qualificações, sem nada
+// que identifique a instituição (brasões, QR, barra de título, faixa do
+// rodapé, tabela de metadados) nem o agente (carimbo forense invisível).
+// É o formato destinado a sair da instituição, por isso exige permissão
+// própria em vez de `report.download`.
+//
+// O rastro interno permanece: o download é registrado em
+// app.report_downloads (com declassified = true) e na auditoria, com o
+// sha256 dos bytes entregues.
+func (a *app) handleReportDownloadDeclassified(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePerm(w, r, "report.download_declassified") {
+		return
+	}
+	a.serveReportPDF(w, r, true)
+}
+
+// serveReportPDF é o corpo comum das duas rotas de download. declassified
+// escolhe a variante do PDF, o nome do arquivo e como o download é
+// registrado — o resto (acesso, forense, auditoria) é idêntico.
+func (a *app) serveReportPDF(w http.ResponseWriter, r *http.Request, declassified bool) {
 	id := r.PathValue("id")
 	me := middleware.UserFrom(r.Context())
 	sess := middleware.SessionFrom(r.Context())
@@ -70,6 +95,7 @@ func (a *app) handleReportDownload(w http.ResponseWriter, r *http.Request) {
 
 	data := a.buildReportData(r.Context(), rep, quals, me.DisplayName)
 	data.AgentCode = me.Code
+	data.Declassified = declassified
 
 	pdfBytes, err := a.pdf.Render(r.Context(), data)
 	if err != nil {
@@ -102,27 +128,38 @@ func (a *app) handleReportDownload(w http.ResponseWriter, r *http.Request) {
 		IP:               ipStr,
 		UserAgent:        uaStr,
 		PDFSha256:        hashHex,
+		Declassified:     declassified,
 	})
 	if err != nil {
 		log.Printf("record download: %v", err)
 		// Não bloqueia a entrega — o download ainda é auditado abaixo.
 	}
 
+	// Action distinta na auditoria: "quem tirou cópia sem procedência deste
+	// RI" precisa ser uma pergunta respondível com um filtro só.
+	action := "report.download"
+	if declassified {
+		action = "report.download_declassified"
+	}
 	_ = a.audit.Log(r.Context(), audit.Entry{
 		ActorUserID: aid, ActorSessionID: sid, ActorIP: ip, ActorUserAgent: ua,
-		Action:       "report.download",
+		Action:       action,
 		ResourceType: audit.Ptr("report"),
 		ResourceID:   audit.Ptr(id),
 		After: map[string]any{
-			"download_id": dlID,
-			"sha256":      hashHex,
-			"status":      rep.Status,
-			"number":      rep.Number(),
-			"bytes":       len(pdfBytes),
+			"download_id":  dlID,
+			"sha256":       hashHex,
+			"status":       rep.Status,
+			"number":       rep.Number(),
+			"bytes":        len(pdfBytes),
+			"declassified": declassified,
 		},
 	})
 
 	filename := pdfFilename(rep)
+	if declassified {
+		filename = declassifiedFilename(hashHex)
+	}
 	w.Header().Set("Content-Type", "application/pdf")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
 	w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -144,6 +181,18 @@ func pdfFilename(rep *reports.Report) string {
 		short = short[:8]
 	}
 	return fmt.Sprintf("RI_RASCUNHO_%s.pdf", short)
+}
+
+// declassifiedFilename devolve um nome neutro — "RI_07_2026.pdf" entregaria
+// número e origem no próprio nome do arquivo, que é o que o descaracterizado
+// existe pra evitar. Usa os 8 primeiros dígitos do sha256 do PDF: continua
+// único por download e casa com o registro em app.report_downloads.
+func declassifiedFilename(sha256Hex string) string {
+	short := sha256Hex
+	if len(short) > 8 {
+		short = short[:8]
+	}
+	return fmt.Sprintf("documento_%s.pdf", short)
 }
 
 func (a *app) buildReportData(ctx context.Context, rep *reports.Report, quals []reports.Qualification, generatedBy string) pdf.ReportData {
@@ -267,16 +316,16 @@ func buildMilitarFields(q *reports.Qualification) []pdf.KV {
 		{K: "POSTO/GRAD.", V: get("posto")},
 		{K: "O.M", V: get("om")},
 		{K: "IDENT. MILITAR", V: get("identidade")},
-		{K: "INF. ADICIONAIS", V: get("info")},
+		{K: "INF. ADICIONAIS", V: flattenLines(get("info"))},
 	}
 }
 
 // buildCivilFields produz as 6 linhas do template oficial para qualif civil:
 // ALCUNHA / CPF / ORCRIM / ENDEREÇOS / VEÍCULOS / INFORMAÇÕES ADICIONAIS.
-// Para ORCRIM, ENDEREÇOS, VEÍCULOS — busca live na entidade vinculada (o
-// snapshot do data jsonb não tem isso). Falhas silenciosas (entidade pode ter
-// sido deletada após a qualificação): campos saem em branco e o template
-// imprime "*.*.*".
+// Para ORCRIM, ENDEREÇOS, VEÍCULOS e INF. ADICIONAIS — busca live na entidade
+// vinculada (o snapshot do data jsonb não tem isso). Falhas silenciosas
+// (entidade pode ter sido deletada após a qualificação): campos saem em branco
+// e o template imprime "*.*.*".
 func (a *app) buildCivilFields(ctx context.Context, q *reports.Qualification) []pdf.KV {
 	get := func(k string) string {
 		if v, ok := q.Data[k].(string); ok {
@@ -302,10 +351,16 @@ func (a *app) buildCivilFields(ctx context.Context, q *reports.Qualification) []
 	orcrim := ""
 	enderecos := ""
 	veiculos := ""
+	// INF. ADICIONAIS vem da descrição da entidade (busca live). O snapshot
+	// só é usado se alguma qualificação tiver gravado "info" explicitamente.
+	info := flattenLines(get("info"))
 
 	if q.EntityID != nil && *q.EntityID != "" {
 		ent, err := a.entities.FindByID(ctx, *q.EntityID)
 		if err == nil && ent.Person != nil {
+			if info == "" {
+				info = flattenLines(ent.Description)
+			}
 			if ent.Person.OrcrimName != nil && *ent.Person.OrcrimName != "" {
 				if ent.Person.OrcrimAlias != nil && *ent.Person.OrcrimAlias != "" {
 					orcrim = fmt.Sprintf("%s (%s)", *ent.Person.OrcrimAlias, *ent.Person.OrcrimName)
@@ -350,8 +405,23 @@ func (a *app) buildCivilFields(ctx context.Context, q *reports.Qualification) []
 		{K: "ORCRIM", V: orcrim},
 		{K: "ENDEREÇOS", V: enderecos},
 		{K: "VEÍCULOS", V: veiculos},
-		{K: "INF. ADICIONAIS", V: get("info")},
+		{K: "INF. ADICIONAIS", V: info},
 	}
+}
+
+// flattenLines transforma um texto multilinha (a descrição da entidade é um
+// textarea livre) numa linha única separada por " · " — a célula do template
+// é uma linha só de tabela e o HTML colapsaria as quebras em espaço, o que
+// gruda parágrafos distintos.
+func flattenLines(s string) string {
+	parts := []string{}
+	for _, ln := range strings.Split(s, "\n") {
+		ln = strings.TrimSpace(ln)
+		if ln != "" {
+			parts = append(parts, ln)
+		}
+	}
+	return strings.Join(parts, " · ")
 }
 
 func (a *app) civilPhoto(ctx context.Context, q *reports.Qualification) string {

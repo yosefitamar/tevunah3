@@ -67,6 +67,13 @@ type ReportData struct {
 	BrasaoSAIData       template.URL
 	BrasaoInstitucional template.URL
 	FooterRibbonData    template.URL
+
+	// Declassified gera a versão DESCARACTERIZADA: mesmo conteúdo e mesmas
+	// qualificações, sem nada que identifique a instituição (brasões, QR,
+	// barra de título, faixa do rodapé, tabela de metadados) nem quem gerou
+	// o arquivo (carimbo forense invisível). Restam a marcação de sigilo, o
+	// aviso legal e a paginação. Ver os condicionais em template.go.
+	Declassified bool
 }
 
 // QualificationData é uma qualificação pronta pra render.
@@ -84,19 +91,24 @@ type KV struct{ K, V string }
 // Render produz o PDF do relatório.
 func (c *Client) Render(ctx context.Context, d ReportData) ([]byte, error) {
 	d.TitleLine = titleLine(d)
-	// QR codifica a linha de título (mesmo conteúdo da barra) + o código do
-	// agente que baixou — vínculo forense que sobrevive a foto, print e scan.
-	// ECC High pra resiliência em re-prints/desgaste.
-	qrPayload := d.TitleLine
-	if d.AgentCode != "" {
-		qrPayload += " - " + d.AgentCode
+	// No descaracterizado nenhum desses assets é sequer produzido: o QR
+	// carrega título + origem + agente, e os brasões/faixa são a identidade
+	// visual da instituição. Não gerar é mais seguro que gerar e esconder.
+	if !d.Declassified {
+		// QR codifica a linha de título (mesmo conteúdo da barra) + o código do
+		// agente que baixou — vínculo forense que sobrevive a foto, print e scan.
+		// ECC High pra resiliência em re-prints/desgaste.
+		qrPayload := d.TitleLine
+		if d.AgentCode != "" {
+			qrPayload += " - " + d.AgentCode
+		}
+		if png, err := qrcode.Encode(qrPayload, qrcode.High, 256); err == nil {
+			d.QRCodeData = template.URL("data:image/png;base64," + base64.StdEncoding.EncodeToString(png))
+		}
+		d.BrasaoSAIData = template.URL(c.loadAsset("logo-sai"))
+		d.BrasaoInstitucional = template.URL(c.loadAsset("logo-instituicao2"))
+		d.FooterRibbonData = template.URL(c.loadAsset("footer"))
 	}
-	if png, err := qrcode.Encode(qrPayload, qrcode.High, 256); err == nil {
-		d.QRCodeData = template.URL("data:image/png;base64," + base64.StdEncoding.EncodeToString(png))
-	}
-	d.BrasaoSAIData = template.URL(c.loadAsset("logo-sai"))
-	d.BrasaoInstitucional = template.URL(c.loadAsset("logo-instituicao2"))
-	d.FooterRibbonData = template.URL(c.loadAsset("footer"))
 
 	// Renderiza os três HTMLs: corpo + header + footer.
 	var bodyBuf, headerBuf, footerBuf bytes.Buffer
@@ -135,15 +147,25 @@ func (c *Client) Render(ctx context.Context, d ReportData) ([]byte, error) {
 	// largura física total da A4 (210mm), necessário pro ribbon ser full
 	// bleed. O recuo lateral de 20mm do conteúdo é aplicado via CSS dentro
 	// de cada HTML (padding/margin em wrappers `safe`).
+	// Margens reservadas pro header/footer. O descaracterizado tem header só
+	// com a linha de sigilo (sem brasões nem barra de título) e footer sem a
+	// faixa ornamental — manter 50mm deixaria uma faixa enorme de papel em
+	// branco em toda página.
+	marginTop, marginBottom := "50mm", "50mm"
+	if d.Declassified {
+		// 25mm encostava a primeira linha do corpo na linha de sigilo; 30mm
+		// dá o mesmo respiro visual que o RI normal tem sob a barra de título.
+		marginTop, marginBottom = "30mm", "40mm"
+	}
 	args := []string{
 		"--page-size", "A4",
-		"--margin-top", "50mm",
+		"--margin-top", marginTop,
 		// 40mm cabia o footer mas deixava a última linha do corpo colada na
 		// borda da caixa do aviso (lei 12.527). 50mm reserva mais espaço; a
 		// caixa do aviso é empurrada pra baixo dentro do footer via
 		// margin-top em .safe (template), gerando ~10mm de respiro entre o
 		// fim do corpo e o topo da caixa.
-		"--margin-bottom", "50mm",
+		"--margin-bottom", marginBottom,
 		"--margin-left", "0",
 		"--margin-right", "0",
 		"--header-html", headerPath,

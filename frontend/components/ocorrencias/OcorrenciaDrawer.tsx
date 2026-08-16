@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Camera, Trash, Trash2, X } from "lucide-react";
+import { Camera, Eye, Pencil, Trash, Trash2, X } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useModal } from "@/contexts/ModalContext";
 import {
@@ -17,24 +17,48 @@ import {
   updateIncident,
   uploadIncidentPhoto,
   type Incident,
+  type IncidentMeans,
   type IncidentType,
   type UpdateIncidentInput,
 } from "@/lib/incidents-api";
 import { canDeleteIncidents, canEditIncidents } from "@/lib/permissions";
 import { photoURL } from "@/lib/entities-api";
-import { formatBR } from "@/lib/format";
+import { formatBR, formatBRDate } from "@/lib/format";
 import type { ApiError } from "@/lib/api";
 import DateInput from "../shared/DateInput";
 import Select from "../shared/Select";
+import { useIncidentLocations } from "@/lib/useIncidentLocations";
 import GeoField from "./GeoField";
 import InvolvedPicker from "./InvolvedPicker";
+import MeansField from "./MeansField";
+import PlaceField from "./PlaceField";
+import ConfirmVitimaModal, { type VictimCandidate } from "./ConfirmVitimaModal";
+import DeceasedPhoto from "../shared/DeceasedPhoto";
+import { isVictimRole } from "@/lib/incidents-api";
 import EntidadeDrawer from "../entidades/EntidadeDrawer";
+
+// Cor do papel na lista de envolvidos: vítima puxa para o vermelho, acusado
+// para o âmbar, testemunha fica neutra — leitura da linha sem precisar ler.
+function roleToneClass(role: string): string {
+  switch (role.trim().toUpperCase()) {
+    case "VÍTIMA":
+    case "VITIMA":
+      return "role-tone role-tone--victim";
+    case "ACUSADO":
+      return "role-tone role-tone--accused";
+    default:
+      return "role-tone";
+  }
+}
 
 type Props = {
   incidentId: string;
   onClose: () => void;
   onChanged: () => void;
 };
+
+// O dossiê abre SEMPRE em leitura: editar é ato deliberado, e o trilho de
+// auditoria registra cada alteração (incident.update, com before/after).
 
 export default function OcorrenciaDrawer({ incidentId, onClose, onChanged }: Props) {
   const { user: me } = useAuth();
@@ -45,10 +69,24 @@ export default function OcorrenciaDrawer({ incidentId, onClose, onChanged }: Pro
   const [acting, setActing] = useState(false);
   const [geoLat, setGeoLat] = useState("");
   const [geoLng, setGeoLng] = useState("");
+  // Detalhe do meio é editado localmente e persistido no blur (como os
+  // demais campos de texto deste drawer).
+  const [meansDetail, setMeansDetail] = useState("");
+  const [neighborhood, setNeighborhood] = useState("");
+  const { neighborhoodsOf, reload: reloadLocations } = useIncidentLocations();
   const [photoBust, setPhotoBust] = useState(0);
   const [entityOverlayId, setEntityOverlayId] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  // Vínculo de vítima aguardando confirmação (checagem de homônimo).
+  const [pendingVictim, setPendingVictim] = useState<{
+    candidate: VictimCandidate;
+    role: string;
+  } | null>(null);
 
-  const canEdit = canEditIncidents(me);
+  // canEdit = tem permissão; editing = ativou o modo edição. Os campos só
+  // aceitam entrada quando as duas coisas valem.
+  const hasEditPerm = canEditIncidents(me);
+  const canEdit = hasEditPerm && editing;
   const canDelete = canDeleteIncidents(me);
 
   const reload = useCallback(async () => {
@@ -58,6 +96,8 @@ export default function OcorrenciaDrawer({ incidentId, onClose, onChanged }: Pro
       setData(r.incident);
       setGeoLat(r.incident.latitude != null ? String(r.incident.latitude) : "");
       setGeoLng(r.incident.longitude != null ? String(r.incident.longitude) : "");
+      setMeansDetail(r.incident.means_detail);
+      setNeighborhood(r.incident.neighborhood);
     } catch (e) {
       setError((e as ApiError).message || "Erro ao carregar");
     } finally {
@@ -75,7 +115,12 @@ export default function OcorrenciaDrawer({ incidentId, onClose, onChanged }: Pro
     try {
       const r = await updateIncident(data.id, input);
       setData(r.incident);
+      setNeighborhood(r.incident.neighborhood);
       onChanged();
+      // Um bairro novo passa a valer como sugestão para os próximos registros.
+      if (input.city !== undefined || input.neighborhood !== undefined) {
+        reloadLocations();
+      }
     } catch (e) {
       setError((e as ApiError).message || "Erro ao gravar");
     }
@@ -145,15 +190,26 @@ export default function OcorrenciaDrawer({ incidentId, onClose, onChanged }: Pro
     }
   }
 
-  async function addInvolved(e: { id: string }, role: string) {
+  async function linkInvolved(entityID: string, role: string) {
     if (!data) return;
     try {
-      const r = await addIncidentEntity(data.id, e.id, role);
+      const r = await addIncidentEntity(data.id, entityID, role);
       setData(r.incident);
       onChanged();
     } catch (err) {
       setError((err as ApiError).message || "Erro ao vincular");
     }
+  }
+
+  async function addInvolved(e: VictimCandidate, role: string) {
+    if (!data) return;
+    // Vítima de homicídio marca óbito no acervo inteiro: passa pela
+    // confirmação antes de gravar. Os demais papéis entram direto.
+    if (data.type === "homicidio" && isVictimRole(role) && e.kind === "person") {
+      setPendingVictim({ candidate: e, role });
+      return;
+    }
+    await linkInvolved(e.id, role);
   }
 
   async function removeInvolved(entityID: string) {
@@ -211,19 +267,41 @@ export default function OcorrenciaDrawer({ incidentId, onClose, onChanged }: Pro
 
             {data && (
               <>
-                <div className="dossier-head">
+                <div className="dossier-head dossier-head--actions">
                   <div className="dossier-meta">
                     <span className={"pill " + INCIDENT_TYPE_PILL[data.type]}>
                       {INCIDENT_TYPE_LABEL[data.type]}
                     </span>
                     <span>
-                      {formatBR(data.occurred_on)}
+                      {formatBRDate(data.occurred_on)}
                       {data.occurred_time ? ` · ${data.occurred_time}` : ""}
                     </span>
-                    {data.intel_participation && (
-                      <span className="pill info">INTEL</span>
+                    {(data.city || data.neighborhood) && (
+                      <span>
+                        {[data.neighborhood, data.city].filter(Boolean).join(" · ")}
+                      </span>
                     )}
+                    <span className={"pill " + (editing ? "hold" : "cold")}>
+                      {editing ? "EDITANDO" : "VISUALIZAÇÃO"}
+                    </span>
                   </div>
+                  {hasEditPerm && (
+                    <button
+                      type="button"
+                      className={"btn" + (editing ? "" : " btn-primary")}
+                      onClick={() => setEditing((v) => !v)}
+                    >
+                      {editing ? (
+                        <>
+                          <Eye size={13} strokeWidth={1.8} /> CONCLUIR EDIÇÃO
+                        </>
+                      ) : (
+                        <>
+                          <Pencil size={13} strokeWidth={1.8} /> EDITAR
+                        </>
+                      )}
+                    </button>
+                  )}
                 </div>
 
                 <div className="entity-form" style={{ marginTop: 12 }}>
@@ -235,7 +313,16 @@ export default function OcorrenciaDrawer({ incidentId, onClose, onChanged }: Pro
                         <Select
                           value={data.type}
                           disabled={!canEdit}
-                          onChange={(v) => v !== data.type && patch({ type: v as IncidentType })}
+                          onChange={(v) => {
+                            if (v === data.type) return;
+                            // Meio utilizado só vale para homicídio: sair do
+                            // tipo limpa o campo em vez de deixá-lo órfão.
+                            patch(
+                              v === "homicidio"
+                                ? { type: v as IncidentType }
+                                : { type: v as IncidentType, means: "", means_detail: "" },
+                            );
+                          }}
                           options={INCIDENT_TYPES.map((t) => ({
                             value: t,
                             label: INCIDENT_TYPE_LABEL[t],
@@ -284,18 +371,45 @@ export default function OcorrenciaDrawer({ incidentId, onClose, onChanged }: Pro
                       </label>
                     </div>
 
-                    <div className="checkbox-row" style={{ marginTop: 4 }}>
-                      <button
-                        type="button"
-                        className={"toggle" + (data.intel_participation ? " toggle--on" : "")}
+                    {(data.type === "homicidio" || data.means !== "") && (
+                      <MeansField
+                        means={data.means}
+                        detail={meansDetail}
                         disabled={!canEdit}
-                        onClick={() => patch({ intel_participation: !data.intel_participation })}
-                        aria-pressed={data.intel_participation}
-                      >
-                        <span className="toggle-dot" />
-                      </button>
-                      <span style={{ fontSize: 12 }}>PARTICIPAÇÃO DA INTELIGÊNCIA (INTEL)</span>
-                    </div>
+                        onChangeMeans={(v) => {
+                          if (v === data.means) return;
+                          if (v !== "outros") setMeansDetail("");
+                          patch(
+                            v === "outros"
+                              ? { means: v }
+                              : { means: v, means_detail: "" },
+                          );
+                        }}
+                        onChangeDetail={setMeansDetail}
+                        onDetailBlur={(v) =>
+                          v !== data.means_detail && patch({ means_detail: v })
+                        }
+                      />
+                    )}
+
+                    <PlaceField
+                      city={data.city}
+                      neighborhood={neighborhood}
+                      disabled={!canEdit}
+                      onChangeCity={(v) => {
+                        if (v === data.city) return;
+                        // Bairro pertence ao município: trocar de cidade
+                        // invalida o bairro atual.
+                        setNeighborhood("");
+                        patch({ city: v, neighborhood: "" });
+                      }}
+                      onChangeNeighborhood={setNeighborhood}
+                      onNeighborhoodBlur={(v) => {
+                        if (v.trim().toUpperCase() === data.neighborhood) return;
+                        patch({ neighborhood: v });
+                      }}
+                      neighborhoodOptions={neighborhoodsOf(data.city)}
+                    />
 
                     <GeoField
                       lat={geoLat}
@@ -377,24 +491,19 @@ export default function OcorrenciaDrawer({ incidentId, onClose, onChanged }: Pro
                           }
                         }}
                       >
-                        {e.role && (
-                          <span className="pill hold" style={{ fontSize: 9 }}>
-                            {e.role.toUpperCase()}
-                          </span>
-                        )}
                         <div className="qual-row-info">
                           <div className="qual-row-name">{e.name.toUpperCase()}</div>
-                          <div className="qual-row-meta">{e.kind.toUpperCase()}</div>
+                          {/* O envolvimento é o que importa aqui; o tipo da
+                              entidade ("PERSON") não diz nada ao analista. */}
+                          <div className={"qual-row-meta " + roleToneClass(e.role)}>
+                            {e.role ? e.role.toUpperCase() : "SEM PAPEL"}
+                          </div>
                         </div>
                         {e.has_photo && (
-                          <img
-                            className="qual-thumb"
+                          <DeceasedPhoto
                             src={photoURL(e.entity_id, e.version)}
-                            alt=""
-                            aria-hidden
-                            onError={(ev) => {
-                              (ev.currentTarget as HTMLImageElement).style.display = "none";
-                            }}
+                            deceased={e.deceased}
+                            className="qual-thumb"
                           />
                         )}
                         {canEdit && (
@@ -460,6 +569,19 @@ export default function OcorrenciaDrawer({ incidentId, onClose, onChanged }: Pro
           </div>
         </aside>
       </div>
+
+      {pendingVictim && (
+        <ConfirmVitimaModal
+          candidate={pendingVictim.candidate}
+          occurredOn={data?.occurred_on ?? ""}
+          onCancel={() => setPendingVictim(null)}
+          onConfirm={async () => {
+            const { candidate, role } = pendingVictim;
+            setPendingVictim(null);
+            await linkInvolved(candidate.id, role);
+          }}
+        />
+      )}
 
       {entityOverlayId && (
         <EntidadeDrawer

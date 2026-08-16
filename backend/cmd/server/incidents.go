@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/belia/tevunah/backend/internal/audit"
+	"github.com/belia/tevunah/backend/internal/entities"
 	"github.com/belia/tevunah/backend/internal/httpx"
 	"github.com/belia/tevunah/backend/internal/incidents"
 	"github.com/belia/tevunah/backend/internal/middleware"
@@ -20,21 +21,24 @@ import (
 
 // publicIncident é a forma JSON da ocorrência.
 type publicIncident struct {
-	ID                 string             `json:"id"`
-	Type               string             `json:"type"`
-	OccurredOn         string             `json:"occurred_on"` // YYYY-MM-DD
-	OccurredTime       *string            `json:"occurred_time,omitempty"`
-	CIOPSRecord        string             `json:"ciops_record"`
-	IntelParticipation bool               `json:"intel_participation"`
-	HasPhoto           bool               `json:"has_photo"`
-	Latitude           *float64           `json:"latitude,omitempty"`
-	Longitude          *float64           `json:"longitude,omitempty"`
-	Description        string             `json:"description"`
-	Involved           []publicInvolved   `json:"involved"`
-	CreatedAt          time.Time          `json:"created_at"`
-	CreatedBy          string             `json:"created_by"`
-	UpdatedAt          time.Time          `json:"updated_at"`
-	UpdatedBy          *string            `json:"updated_by,omitempty"`
+	ID           string           `json:"id"`
+	Type         string           `json:"type"`
+	OccurredOn   string           `json:"occurred_on"` // YYYY-MM-DD
+	OccurredTime *string          `json:"occurred_time,omitempty"`
+	CIOPSRecord  string           `json:"ciops_record"`
+	HasPhoto     bool             `json:"has_photo"`
+	Latitude     *float64         `json:"latitude,omitempty"`
+	Longitude    *float64         `json:"longitude,omitempty"`
+	City         string           `json:"city"`
+	Neighborhood string           `json:"neighborhood"`
+	Description  string           `json:"description"`
+	Means        string           `json:"means"`
+	MeansDetail  string           `json:"means_detail"`
+	Involved     []publicInvolved `json:"involved"`
+	CreatedAt    time.Time        `json:"created_at"`
+	CreatedBy    string           `json:"created_by"`
+	UpdatedAt    time.Time        `json:"updated_at"`
+	UpdatedBy    *string          `json:"updated_by,omitempty"`
 }
 
 type publicInvolved struct {
@@ -44,6 +48,7 @@ type publicInvolved struct {
 	Role     string `json:"role"`
 	HasPhoto bool   `json:"has_photo"`
 	Version  int    `json:"version"`
+	Deceased bool   `json:"deceased"`
 }
 
 func toPublicIncident(i *incidents.Incident) publicIncident {
@@ -51,21 +56,24 @@ func toPublicIncident(i *incidents.Incident) publicIncident {
 	for _, e := range i.Involved {
 		involved = append(involved, publicInvolved{
 			EntityID: e.EntityID, Name: e.Name, Kind: e.Kind, Role: e.Role,
-			HasPhoto: e.HasPhoto, Version: e.Version,
+			HasPhoto: e.HasPhoto, Version: e.Version, Deceased: e.Deceased,
 		})
 	}
 	return publicIncident{
 		ID: i.ID, Type: i.Type,
-		OccurredOn:         i.OccurredOn.Format("2006-01-02"),
-		OccurredTime:       i.OccurredTime,
-		CIOPSRecord:        i.CIOPSRecord,
-		IntelParticipation: i.IntelParticipation,
-		HasPhoto:           i.PhotoPath != nil && *i.PhotoPath != "",
-		Latitude:           i.Latitude,
-		Longitude:          i.Longitude,
-		Description:        i.Description,
-		Involved:           involved,
-		CreatedAt:          i.CreatedAt, CreatedBy: i.CreatedBy,
+		OccurredOn:   i.OccurredOn.Format("2006-01-02"),
+		OccurredTime: i.OccurredTime,
+		CIOPSRecord:  i.CIOPSRecord,
+		HasPhoto:     i.PhotoPath != nil && *i.PhotoPath != "",
+		Latitude:     i.Latitude,
+		Longitude:    i.Longitude,
+		City:         i.City,
+		Neighborhood: i.Neighborhood,
+		Description:  i.Description,
+		Means:        i.Means,
+		MeansDetail:  i.MeansDetail,
+		Involved:     involved,
+		CreatedAt:    i.CreatedAt, CreatedBy: i.CreatedBy,
 		UpdatedAt: i.UpdatedAt, UpdatedBy: i.UpdatedBy,
 	}
 }
@@ -80,15 +88,17 @@ func (a *app) handleIncidentsList(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(q.Get("limit"))
 	offset, _ := strconv.Atoi(q.Get("offset"))
 	res, err := a.incidents.List(r.Context(), incidents.ListOpts{
-		Limit:     limit,
-		Offset:    offset,
-		Type:      strings.TrimSpace(q.Get("type")),
-		IntelOnly: q.Get("intel") == "1" || q.Get("intel") == "true",
-		Search:    strings.TrimSpace(q.Get("search")),
-		DateFrom:  strings.TrimSpace(q.Get("date_from")),
-		DateTo:    strings.TrimSpace(q.Get("date_to")),
-		SortBy:    strings.TrimSpace(q.Get("sort_by")),
-		SortDir:   strings.TrimSpace(q.Get("sort_dir")),
+		Limit:        limit,
+		Offset:       offset,
+		Type:         strings.TrimSpace(q.Get("type")),
+		Means:        strings.TrimSpace(q.Get("means")),
+		City:         strings.TrimSpace(q.Get("city")),
+		Neighborhood: strings.TrimSpace(q.Get("neighborhood")),
+		Search:       strings.TrimSpace(q.Get("search")),
+		DateFrom:     strings.TrimSpace(q.Get("date_from")),
+		DateTo:       strings.TrimSpace(q.Get("date_to")),
+		SortBy:       strings.TrimSpace(q.Get("sort_by")),
+		SortDir:      strings.TrimSpace(q.Get("sort_dir")),
 	})
 	if err != nil {
 		log.Printf("incidents list: %v", err)
@@ -107,6 +117,79 @@ func (a *app) handleIncidentsList(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// ─── GET /api/incidents/geo ────────────────────────────────────────────
+//
+// Pontos georreferenciados do recorte, para o mapa do crime. Devolve a
+// ocorrência completa (com envolvidos) pra o popup do marcador não precisar
+// de um segundo round-trip. Sem paginação: o recorte temporal é o limitador,
+// com teto de segurança sinalizado por "truncated".
+
+func (a *app) handleIncidentsGeo(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePerm(w, r, "incident.read") {
+		return
+	}
+	q := r.URL.Query()
+	items, truncated, err := a.incidents.ListGeo(r.Context(), incidents.GeoOpts{
+		Type:         strings.TrimSpace(q.Get("type")),
+		Means:        strings.TrimSpace(q.Get("means")),
+		City:         strings.TrimSpace(q.Get("city")),
+		Neighborhood: strings.TrimSpace(q.Get("neighborhood")),
+		Search:       strings.TrimSpace(q.Get("search")),
+		DateFrom:     strings.TrimSpace(q.Get("date_from")),
+		DateTo:       strings.TrimSpace(q.Get("date_to")),
+	})
+	if err != nil {
+		log.Printf("incidents geo: %v", err)
+		httpx.Error(w, http.StatusInternalServerError, "erro ao carregar pontos")
+		return
+	}
+	out := make([]publicIncident, 0, len(items))
+	for i := range items {
+		out = append(out, toPublicIncident(&items[i]))
+	}
+	httpx.OK(w, map[string]any{
+		"items":     out,
+		"total":     len(out),
+		"truncated": truncated,
+	})
+}
+
+// ─── GET /api/incidents/locations ──────────────────────────────────────
+//
+// Municípios e bairros presentes no acervo, com contagem — alimenta os
+// filtros de recorte territorial e o autocompletar de bairro no cadastro.
+
+type publicPlaceFacet struct {
+	City         string `json:"city"`
+	Neighborhood string `json:"neighborhood,omitempty"`
+	Count        int    `json:"count"`
+}
+
+func (a *app) handleIncidentsLocations(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePerm(w, r, "incident.read") {
+		return
+	}
+	cities, neighborhoods, err := a.incidents.Locations(r.Context())
+	if err != nil {
+		log.Printf("incidents locations: %v", err)
+		httpx.Error(w, http.StatusInternalServerError, "erro ao carregar localidades")
+		return
+	}
+	toPublic := func(in []incidents.PlaceFacet) []publicPlaceFacet {
+		out := make([]publicPlaceFacet, 0, len(in))
+		for _, f := range in {
+			out = append(out, publicPlaceFacet{
+				City: f.City, Neighborhood: f.Neighborhood, Count: f.Count,
+			})
+		}
+		return out
+	}
+	httpx.OK(w, map[string]any{
+		"cities":        toPublic(cities),
+		"neighborhoods": toPublic(neighborhoods),
+	})
+}
+
 // ─── POST /api/incidents ───────────────────────────────────────────────
 
 type involvedInput struct {
@@ -115,15 +198,18 @@ type involvedInput struct {
 }
 
 type createIncidentRequest struct {
-	Type               string          `json:"type"`
-	OccurredOn         string          `json:"occurred_on"`
-	OccurredTime       string          `json:"occurred_time"`
-	CIOPSRecord        string          `json:"ciops_record"`
-	IntelParticipation bool            `json:"intel_participation"`
-	Latitude           *float64        `json:"latitude"`
-	Longitude          *float64        `json:"longitude"`
-	Description        string          `json:"description"`
-	Involved           []involvedInput `json:"involved"`
+	Type         string          `json:"type"`
+	OccurredOn   string          `json:"occurred_on"`
+	OccurredTime string          `json:"occurred_time"`
+	CIOPSRecord  string          `json:"ciops_record"`
+	Latitude     *float64        `json:"latitude"`
+	Longitude    *float64        `json:"longitude"`
+	City         string          `json:"city"`
+	Neighborhood string          `json:"neighborhood"`
+	Description  string          `json:"description"`
+	Means        string          `json:"means"`
+	MeansDetail  string          `json:"means_detail"`
+	Involved     []involvedInput `json:"involved"`
 }
 
 func (a *app) handleIncidentCreate(w http.ResponseWriter, r *http.Request) {
@@ -140,6 +226,11 @@ func (a *app) handleIncidentCreate(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusBadRequest, "tipo inválido (homicidio|apreensao|prisao)")
 		return
 	}
+	if !incidents.IsValidMeans(strings.TrimSpace(req.Means)) {
+		httpx.Error(w, http.StatusBadRequest,
+			"meio inválido (paf|arma_branca|asfixia|contundente|outros)")
+		return
+	}
 	occurredOn, err := time.Parse("2006-01-02", strings.TrimSpace(req.OccurredOn))
 	if err != nil {
 		httpx.Error(w, http.StatusBadRequest, "occurred_on inválido (esperado YYYY-MM-DD)")
@@ -152,15 +243,18 @@ func (a *app) handleIncidentCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	inc, err := a.incidents.Create(r.Context(), incidents.NewIncident{
-		Type:               req.Type,
-		OccurredOn:         occurredOn,
-		OccurredTime:       timePtr,
-		CIOPSRecord:        req.CIOPSRecord,
-		IntelParticipation: req.IntelParticipation,
-		Latitude:           req.Latitude,
-		Longitude:          req.Longitude,
-		Description:        req.Description,
-		CreatedBy:          me.ID,
+		Type:         req.Type,
+		OccurredOn:   occurredOn,
+		OccurredTime: timePtr,
+		CIOPSRecord:  req.CIOPSRecord,
+		Latitude:     req.Latitude,
+		Longitude:    req.Longitude,
+		City:         req.City,
+		Neighborhood: req.Neighborhood,
+		Description:  req.Description,
+		Means:        strings.TrimSpace(req.Means),
+		MeansDetail:  req.MeansDetail,
+		CreatedBy:    me.ID,
 	})
 	if err != nil {
 		log.Printf("incidents create: %v", err)
@@ -175,6 +269,10 @@ func (a *app) handleIncidentCreate(w http.ResponseWriter, r *http.Request) {
 		}
 		if err := a.incidents.AddEntity(r.Context(), inc.ID, inv.EntityID, inv.Role, me.ID); err != nil {
 			log.Printf("incidents add entity (create): %v", err)
+			continue
+		}
+		if isVictimRole(inv.Role) {
+			a.markVictimDeceased(r, inc, inv.EntityID, me.ID)
 		}
 	}
 	// Recarrega pra devolver os envolvidos resolvidos.
@@ -281,11 +379,28 @@ func (a *app) handleIncidentUpdate(w http.ResponseWriter, r *http.Request) {
 			opts.CIOPSRecord = &s
 		}
 	}
-	if v, ok := raw["intel_participation"]; ok {
-		var b bool
-		if err := json.Unmarshal(v, &b); err == nil {
-			opts.IntelParticipation = &b
+	// city/neighborhood aceitam "" (e null) como "limpar" — daí as flags *Set.
+	if v, ok := raw["city"]; ok {
+		opts.CitySet = true
+		var s string
+		if string(v) != "null" {
+			if err := json.Unmarshal(v, &s); err != nil {
+				httpx.Error(w, http.StatusBadRequest, "city inválido")
+				return
+			}
 		}
+		opts.City = &s
+	}
+	if v, ok := raw["neighborhood"]; ok {
+		opts.NeighborhoodSet = true
+		var s string
+		if string(v) != "null" {
+			if err := json.Unmarshal(v, &s); err != nil {
+				httpx.Error(w, http.StatusBadRequest, "neighborhood inválido")
+				return
+			}
+		}
+		opts.Neighborhood = &s
 	}
 	if v, ok := raw["latitude"]; ok {
 		opts.LatitudeSet = true
@@ -315,6 +430,39 @@ func (a *app) handleIncidentUpdate(w http.ResponseWriter, r *http.Request) {
 			opts.Description = &s
 		}
 	}
+	// means/means_detail aceitam "" (e null) como "limpar" — daí as flags *Set.
+	if v, ok := raw["means"]; ok {
+		opts.MeansSet = true
+		var s string
+		if string(v) != "null" {
+			if err := json.Unmarshal(v, &s); err != nil {
+				httpx.Error(w, http.StatusBadRequest, "means inválido")
+				return
+			}
+		}
+		s = strings.TrimSpace(s)
+		if !incidents.IsValidMeans(s) {
+			httpx.Error(w, http.StatusBadRequest,
+				"meio inválido (paf|arma_branca|asfixia|contundente|outros)")
+			return
+		}
+		opts.Means = &s
+	}
+	if v, ok := raw["means_detail"]; ok {
+		opts.MeansDetailSet = true
+		var s string
+		if string(v) != "null" {
+			if err := json.Unmarshal(v, &s); err != nil {
+				httpx.Error(w, http.StatusBadRequest, "means_detail inválido")
+				return
+			}
+		}
+		opts.MeansDetail = &s
+	}
+
+	// Snapshot anterior para o audit: com o dossiê editável, o trilho precisa
+	// mostrar o que mudou, e não só que houve edição.
+	before, errBefore := a.incidents.FindByID(r.Context(), id)
 
 	inc, err := a.incidents.Update(r.Context(), id, me.ID, opts)
 	if err != nil {
@@ -325,6 +473,8 @@ func (a *app) handleIncidentUpdate(w http.ResponseWriter, r *http.Request) {
 			httpx.Error(w, http.StatusConflict, "ocorrência excluída")
 		case errors.Is(err, incidents.ErrInvalidType):
 			httpx.Error(w, http.StatusBadRequest, "tipo inválido")
+		case errors.Is(err, incidents.ErrInvalidMeans):
+			httpx.Error(w, http.StatusBadRequest, "meio utilizado inválido")
 		default:
 			log.Printf("incidents update: %v", err)
 			httpx.Error(w, http.StatusInternalServerError, "erro ao atualizar")
@@ -332,12 +482,17 @@ func (a *app) handleIncidentUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	aid, sid, ip, ua := a.actorInfo(r)
-	_ = a.audit.Log(r.Context(), audit.Entry{
+	entry := audit.Entry{
 		ActorUserID: aid, ActorSessionID: sid, ActorIP: ip, ActorUserAgent: ua,
 		Action:       "incident.update",
 		ResourceType: audit.Ptr("incident"),
 		ResourceID:   audit.Ptr(id),
-	})
+		After:        toPublicIncident(inc),
+	}
+	if errBefore == nil {
+		entry.Before = toPublicIncident(before)
+	}
+	_ = a.audit.Log(r.Context(), entry)
 	httpx.OK(w, map[string]any{"incident": toPublicIncident(inc)})
 }
 
@@ -380,6 +535,44 @@ type addInvolvedRequest struct {
 	Role     string `json:"role"`
 }
 
+// isVictimRole indica o papel que, num homicídio, implica óbito da pessoa.
+func isVictimRole(role string) bool {
+	return incidents.NormalizeRole(role) == incidents.RoleVitima
+}
+
+// markVictimDeceased marca o óbito da pessoa vinculada como vítima de um
+// homicídio, datando pela data da ocorrência. Erros não abortam o vínculo —
+// o vínculo é o fato principal; o óbito é consequência e fica auditado à
+// parte. Devolve true se marcou.
+func (a *app) markVictimDeceased(r *http.Request, inc *incidents.Incident, entityID, actor string) bool {
+	if inc.Type != incidents.TypeHomicidio {
+		return false
+	}
+	occurredOn := inc.OccurredOn
+	before, err := a.entities.FindByID(r.Context(), entityID)
+	if err != nil || before.Kind != entities.KindPerson {
+		return false
+	}
+	after, err := a.entities.MarkDeceased(r.Context(), entityID, &inc.ID, &occurredOn, actor)
+	if err != nil {
+		log.Printf("marcar óbito da vítima %s: %v", entityID, err)
+		return false
+	}
+	aid, sid, ip, ua := a.actorInfo(r)
+	classPtr := after.Classification
+	_ = a.audit.Log(r.Context(), audit.Entry{
+		ActorUserID: aid, ActorSessionID: sid, ActorIP: ip, ActorUserAgent: ua,
+		Action:                 "entity.death.mark",
+		ResourceType:           audit.Ptr("entity"),
+		ResourceID:             audit.Ptr(entityID),
+		ResourceClassification: &classPtr,
+		Before:                 toPublicEntity(before),
+		After:                  toPublicEntity(after),
+		Reason:                 audit.Ptr("vinculada como vítima da ocorrência " + inc.ID),
+	})
+	return true
+}
+
 func (a *app) handleIncidentEntityAdd(w http.ResponseWriter, r *http.Request) {
 	if !a.requirePerm(w, r, "incident.update") {
 		return
@@ -399,10 +592,19 @@ func (a *app) handleIncidentEntityAdd(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusBadRequest, "entity_id obrigatório")
 		return
 	}
+	if incidents.NormalizeRole(req.Role) == "" {
+		httpx.Error(w, http.StatusBadRequest, "papel inválido (VÍTIMA|ACUSADO|TESTEMUNHA)")
+		return
+	}
 	if err := a.incidents.AddEntity(r.Context(), id, req.EntityID, req.Role, me.ID); err != nil {
 		log.Printf("incidents add entity: %v", err)
 		httpx.Error(w, http.StatusInternalServerError, "erro ao vincular entidade")
 		return
+	}
+	// Vítima de homicídio implica óbito. A confirmação (com checagem de
+	// homônimo) acontece na UI antes de chegar aqui.
+	if isVictimRole(req.Role) {
+		a.markVictimDeceased(r, inc, req.EntityID, me.ID)
 	}
 	aid, sid, ip, ua := a.actorInfo(r)
 	_ = a.audit.Log(r.Context(), audit.Entry{

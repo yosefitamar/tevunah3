@@ -4,16 +4,21 @@ import { useCallback, useEffect, useState } from "react";
 import { MapPin, Plus, Search, ShieldAlert, Users } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import {
+  INCIDENT_MEANS,
+  INCIDENT_MEANS_LABEL,
+  INCIDENT_MEANS_SHORT,
   INCIDENT_TYPE_LABEL,
   INCIDENT_TYPE_PILL,
   INCIDENT_TYPES,
   listIncidents,
   type Incident,
+  type IncidentMeans,
   type IncidentType,
   type IncidentsList,
 } from "@/lib/incidents-api";
 import { canCreateIncidents, canReadIncidents } from "@/lib/permissions";
-import { formatBR } from "@/lib/format";
+import { useIncidentLocations } from "@/lib/useIncidentLocations";
+import { formatBR, formatBRDate } from "@/lib/format";
 import type { ApiError } from "@/lib/api";
 import SortHeader, { type SortState } from "../shared/SortHeader";
 import Select from "../shared/Select";
@@ -24,11 +29,12 @@ const PAGE_SIZE = 25;
 
 type Filters = {
   type: "" | IncidentType;
-  intel: boolean;
+  means: IncidentMeans;
+  city: string;
   search: string;
 };
 
-const EMPTY_FILTERS: Filters = { type: "", intel: false, search: "" };
+const EMPTY_FILTERS: Filters = { type: "", means: "", city: "", search: "" };
 
 export default function OcorrenciasScreen() {
   const { user: me } = useAuth();
@@ -43,6 +49,7 @@ export default function OcorrenciasScreen() {
 
   const canRead = canReadIncidents(me);
   const canCreate = canCreateIncidents(me);
+  const { cities } = useIncidentLocations();
 
   const reload = useCallback(async () => {
     if (!canRead) return;
@@ -53,7 +60,8 @@ export default function OcorrenciasScreen() {
         limit: PAGE_SIZE,
         offset: page * PAGE_SIZE,
         type: filters.type || undefined,
-        intel: filters.intel || undefined,
+        means: filters.means || undefined,
+        city: filters.city || undefined,
         search: filters.search.trim() || undefined,
         sort_by: (sort?.field as "occurred_on" | "type" | "created_at" | "updated_at") || undefined,
         sort_dir: sort?.dir,
@@ -114,16 +122,32 @@ export default function OcorrenciasScreen() {
           ]}
         />
         <Select
-          value={filters.intel ? "1" : ""}
+          value={filters.means}
           onChange={(v) => {
-            setFilters({ ...filters, intel: v === "1" });
+            setFilters({ ...filters, means: v as IncidentMeans });
             setPage(0);
           }}
           className="sel--toolbar"
-          placeholder="INTEL · TODAS"
+          placeholder="MEIO · TODOS"
           options={[
-            { value: "", label: "INTEL · TODAS" },
-            { value: "1", label: "INTEL · COM PARTICIPAÇÃO" },
+            { value: "", label: "MEIO · TODOS" },
+            ...INCIDENT_MEANS.map((m) => ({ value: m, label: `MEIO · ${INCIDENT_MEANS_SHORT[m]}` })),
+          ]}
+        />
+        <Select
+          value={filters.city}
+          onChange={(v) => {
+            setFilters({ ...filters, city: v });
+            setPage(0);
+          }}
+          className="sel--toolbar"
+          placeholder="MUNICÍPIO · TODOS"
+          options={[
+            { value: "", label: "MUNICÍPIO · TODOS" },
+            ...cities.map((c) => ({
+              value: c.city,
+              label: `${c.city} (${c.count})`,
+            })),
           ]}
         />
         <div style={{ marginLeft: "auto" }} />
@@ -143,8 +167,9 @@ export default function OcorrenciasScreen() {
               <tr>
                 <SortHeader field="type" label="TIPO" sort={sort} onChange={setSort} width={130} />
                 <SortHeader field="occurred_on" label="DATA / HORA" sort={sort} onChange={setSort} width={150} />
+                <th style={{ width: 110 }}>MEIO</th>
                 <th>FICHA CIOPS</th>
-                <th style={{ width: 70 }}>INTEL</th>
+                <th style={{ width: 190 }}>LOCAL</th>
                 <th>DESCRIÇÃO</th>
                 <th style={{ width: 110 }}>ENVOLVIDOS</th>
                 <SortHeader field="updated_at" label="ATUALIZADO" sort={sort} onChange={setSort} width={140} />
@@ -153,14 +178,14 @@ export default function OcorrenciasScreen() {
             <tbody>
               {loading && (
                 <tr>
-                  <td colSpan={7} className="muted" style={{ textAlign: "center", padding: 32 }}>
+                  <td colSpan={8} className="muted" style={{ textAlign: "center", padding: 32 }}>
                     // CARREGANDO…
                   </td>
                 </tr>
               )}
               {!loading && items.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="muted" style={{ textAlign: "center", padding: 32 }}>
+                  <td colSpan={8} className="muted" style={{ textAlign: "center", padding: 32 }}>
                     // NENHUMA OCORRÊNCIA ENCONTRADA
                   </td>
                 </tr>
@@ -230,25 +255,38 @@ function Row({ incident, onOpen }: { incident: Incident; onOpen: () => void }) {
         </span>
       </td>
       <td style={{ whiteSpace: "nowrap" }}>
-        {formatBR(incident.occurred_on)}
+        {formatBRDate(incident.occurred_on)}
         {incident.occurred_time ? (
           <span className="muted"> · {incident.occurred_time}</span>
         ) : null}
       </td>
+      <td
+        className={incident.means ? undefined : "muted"}
+        title={incident.means ? INCIDENT_MEANS_LABEL[incident.means] : undefined}
+      >
+        {incident.means ? INCIDENT_MEANS_SHORT[incident.means] : "—"}
+      </td>
       <td className="muted">{incident.ciops_record || "—"}</td>
       <td>
-        {incident.intel_participation ? (
-          <span className="pill info">SIM</span>
+        {incident.city || incident.neighborhood ? (
+          <>
+            <div style={{ color: "var(--fg-0)" }}>{incident.neighborhood || "—"}</div>
+            <div className="muted" style={{ fontSize: 10 }}>
+              {incident.city}
+            </div>
+          </>
         ) : (
           <span className="muted">—</span>
         )}
       </td>
       <td style={{ color: "var(--fg-0)" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <div className="tbl-desc-cell" title={desc || undefined}>
           {(incident.latitude != null || incident.longitude != null) && (
             <MapPin size={12} strokeWidth={1.6} className="muted" />
           )}
-          {short ? short : <span className="muted">(sem descrição)</span>}
+          <span className="tbl-desc-text">
+            {short ? short : <span className="muted">(sem descrição)</span>}
+          </span>
         </div>
       </td>
       <td className="muted">

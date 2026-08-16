@@ -199,6 +199,24 @@ export function restoreEntity(id: string, reason?: string) {
   });
 }
 
+// ────── Óbito ──────
+// O caminho normal é automático (vincular como VÍTIMA de homicídio). Estas
+// duas cobrem o óbito sem ocorrência cadastrada e a correção de homônimo
+// confirmado por engano. Ambas exigem entity.update.
+
+export function markEntityDeath(id: string, deceasedOn?: string) {
+  return api<{ entity: Entity }>(`/api/entities/${encodeURIComponent(id)}/death`, {
+    method: "POST",
+    body: JSON.stringify({ deceased_on: deceasedOn ?? "" }),
+  });
+}
+
+export function clearEntityDeath(id: string) {
+  return api<{ entity: Entity }>(`/api/entities/${encodeURIComponent(id)}/death`, {
+    method: "DELETE",
+  });
+}
+
 // URL pra exibir a foto. O backend serve com cache curto (5 min); o querystring
 // `v` força bust quando o entity.version muda.
 export function photoURL(id: string, version: number): string {

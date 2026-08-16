@@ -56,6 +56,13 @@ type personAttrsJSON struct {
 	OrcrimName  *string         `json:"orcrim_name,omitempty"`
 	OrcrimAlias *string         `json:"orcrim_alias,omitempty"`
 	Addresses   []publicAddress `json:"addresses,omitempty"`
+
+	// Óbito. death_incident_id é o ponto de partida do link para o mapa do
+	// crime; some quando a vítima é desvinculada da ocorrência, sem que o
+	// óbito deixe de existir.
+	Deceased        bool    `json:"deceased"`
+	DeceasedOn      *string `json:"deceased_on,omitempty"`
+	DeathIncidentID *string `json:"death_incident_id,omitempty"`
 }
 
 type organizationAttrsJSON struct {
@@ -110,10 +117,16 @@ func toPublicEntity(e *entities.Entity) publicEntity {
 				OrcrimID:    e.Person.OrcrimID,
 				OrcrimName:  e.Person.OrcrimName,
 				OrcrimAlias: e.Person.OrcrimAlias,
+				Deceased:        e.Person.Deceased,
+				DeathIncidentID: e.Person.DeathIncidentID,
 			}
 			if e.Person.DateOfBirth != nil {
 				s := e.Person.DateOfBirth.Format("2006-01-02")
 				a.DateOfBirth = &s
+			}
+			if e.Person.DeceasedOn != nil {
+				s := e.Person.DeceasedOn.Format("2006-01-02")
+				a.DeceasedOn = &s
 			}
 			if a.Aliases == nil {
 				a.Aliases = []string{}

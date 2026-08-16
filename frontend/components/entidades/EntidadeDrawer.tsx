@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Car, Link2, Network, Pencil, Plus, Trash2, X } from "lucide-react";
+import { Car, Link2, MapPin, Network, Pencil, Plus, RotateCcw, Trash2, X } from "lucide-react";
 import GraphModal from "./GraphModal";
 import MotherField from "./MotherField";
 import TagInput from "../shared/TagInput";
@@ -51,6 +51,7 @@ import {
 import {
   createEntityLink,
   createPersonAddress,
+  clearEntityDeath,
   deleteEntity,
   deleteEntityLink,
   deleteEntityPhoto,
@@ -65,11 +66,13 @@ import {
   updatePersonAddress,
   uploadEntityPhoto,
 } from "@/lib/entities-api";
+import DeceasedPhoto from "../shared/DeceasedPhoto";
+import { useNavigation } from "@/contexts/NavigationContext";
 import PrimaryPhotoPicker from "./PrimaryPhotoPicker";
 import CreateEntidadeModal from "./CreateEntidadeModal";
 import { PersistedGalleryEditor } from "./GalleryEditor";
 import { canDeleteEntities, canEditEntities } from "@/lib/permissions";
-import { formatBR } from "@/lib/format";
+import { formatBR, formatBRDate } from "@/lib/format";
 import type { ApiError } from "@/lib/api";
 
 type Props = {
@@ -93,6 +96,7 @@ export default function EntidadeDrawer({
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [graphOpen, setGraphOpen] = useState(false);
+  const { navigate } = useNavigation();
 
   const reload = () => {
     setLoading(true);
@@ -107,6 +111,30 @@ export default function EntidadeDrawer({
     reload();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entityId]);
+
+  async function handleClearDeath() {
+    if (!data) return;
+    const ok = await modal.confirm({
+      variant: "warning",
+      title: "DESFAZER ÓBITO",
+      message: `"${data.name.toUpperCase()}" deixará de constar como óbito. Use quando a marcação recaiu sobre um homônimo. A ação fica registrada na auditoria.`,
+      confirm: "DESFAZER",
+      cancel: "CANCELAR",
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      const r = await clearEntityDeath(data.id);
+      setData(r.entity);
+      onChanged();
+    } catch (e) {
+      modal.alert({
+        variant: "error",
+        title: "ERRO",
+        message: (e as ApiError).message || "Erro ao desfazer óbito",
+      });
+    }
+  }
 
   async function handleDelete() {
     if (!data) return;
@@ -175,6 +203,11 @@ export default function EntidadeDrawer({
               canDelete={canDeleteEntities(me)}
               onEdit={() => setEditing(true)}
               onDelete={handleDelete}
+              onClearDeath={handleClearDeath}
+              onOpenMap={(incidentId) => {
+                onClose();
+                navigate({ module: "mapa", incidentId });
+              }}
             />
           )}
 
@@ -223,12 +256,16 @@ export default function EntidadeDrawer({
 function ViewMode({
   data,
   canEdit,
+  onClearDeath,
+  onOpenMap,
   canDelete,
   onEdit,
   onDelete,
 }: {
   data: Entity;
   canEdit: boolean;
+  onClearDeath: () => void;
+  onOpenMap: (incidentId: string) => void;
   canDelete: boolean;
   onEdit: () => void;
   onDelete: () => void;
@@ -238,10 +275,22 @@ function ViewMode({
     (isPlace(data) && data.attrs?.has_photo) ||
     (isVehicle(data) && data.attrs?.has_photo);
 
+  // Óbito é atributo de pessoa; nos demais kinds nunca está marcado.
+  const person = isPerson(data) ? data.attrs : undefined;
+  const deceased = person?.deceased === true;
+
   return (
     <>
       <div className="dossier-head dossier-head--with-photo">
-        {hasPrimaryPhoto && (
+        {hasPrimaryPhoto && deceased && (
+          <DeceasedPhoto
+            className="dossier-photo"
+            src={photoURL(data.id, data.version)}
+            alt={`foto de ${data.name}`}
+            deceased
+          />
+        )}
+        {hasPrimaryPhoto && !deceased && (
           <a
             className="dossier-photo"
             href={photoURL(data.id, data.version)}
@@ -266,6 +315,21 @@ function ViewMode({
             <span>·</span>
             <span>ATUALIZADO {formatBR(data.updated_at)}</span>
           </div>
+          {deceased && (
+            <div className="dossier-death">
+              <span className="pill deceased">ÓBITO</span>
+              {person?.deceased_on && <span>EM {formatBRDate(person.deceased_on)}</span>}
+              {person?.death_incident_id && (
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={() => onOpenMap(person.death_incident_id as string)}
+                >
+                  <MapPin size={12} strokeWidth={1.8} /> VER NO MAPA DO CRIME
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -362,6 +426,11 @@ function ViewMode({
             <Pencil size={14} /> EDITAR
           </button>
         )}
+        {canEdit && deceased && (
+          <button type="button" className="btn btn-ghost" onClick={onClearDeath}>
+            <RotateCcw size={14} /> DESFAZER ÓBITO
+          </button>
+        )}
         {canDelete && (
           <button type="button" className="btn btn-danger" onClick={onDelete}>
             <Trash2 size={14} /> EXCLUIR
@@ -381,7 +450,7 @@ function PersonView({ attrs }: { attrs?: PersonAttrs }) {
     <dl className="dossier-list">
       <Row label="NOME DA MÃE" value={attrs.mother_name ?? "—"} />
       <Row label="GÊNERO" value={genderLabel} />
-      <Row label="NASCIMENTO" value={attrs.date_of_birth ?? "—"} />
+      <Row label="NASCIMENTO" value={formatBRDate(attrs.date_of_birth) } />
       <Row label="CPF" value={attrs.cpf ? formatCpfMask(attrs.cpf) : "—"} />
       <Row label="ORCRIM" value={orcrimLabel(attrs)} />
       <Row label="APELIDOS" value={attrs.aliases?.join(", ") || "—"} />
@@ -396,7 +465,7 @@ function OrganizationView({ attrs }: { attrs?: OrganizationAttrs }) {
       <Row label="SIGLA" value={attrs.aliases?.[0] ?? "—"} />
       <Row label="RAZÃO SOCIAL" value={attrs.legal_name ?? "—"} />
       <Row label="CNPJ / TAX ID" value={attrs.tax_id ?? "—"} />
-      <Row label="FUNDADA EM" value={attrs.founded_at ?? "—"} />
+      <Row label="FUNDADA EM" value={formatBRDate(attrs.founded_at)} />
     </dl>
   );
 }

@@ -6,6 +6,7 @@ import { type PaletteId } from "@/lib/palettes";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { SystemSettingsProvider, useSystemSettings } from "@/contexts/SystemSettingsContext";
 import { ModalProvider } from "@/contexts/ModalContext";
+import { NavigationProvider } from "@/contexts/NavigationContext";
 import Sidebar from "./Sidebar";
 import Topbar from "./Topbar";
 import PaletteSwitcher from "./PaletteSwitcher";
@@ -21,6 +22,7 @@ import {
   ScreenAuditoria,
   ScreenEntidades,
   ScreenInformes,
+  ScreenMapa,
   ScreenOcorrencias,
   ScreenRelatorios,
 } from "./screens";
@@ -30,6 +32,7 @@ const VIEWS: Record<ModuleId, React.ComponentType> = {
   dashboard: Dashboard,
   entidades: ScreenEntidades,
   ocorrencias: ScreenOcorrencias,
+  mapa: ScreenMapa,
   relatorios: ScreenRelatorios,
   informes: ScreenInformes,
   agentes: ScreenAgentes,
@@ -59,6 +62,7 @@ function AuthenticatedShell() {
   const sideW = collapsed ? "62px" : "248px";
 
   return (
+    <NavigationProvider active={safeActive} setActive={setActive}>
     <div className="shell" style={{ ["--side-w" as string]: sideW } as React.CSSProperties}>
       <div className="classification">
         <span>◆ {agencyLabel}</span>
@@ -92,6 +96,7 @@ function AuthenticatedShell() {
       {settingsOpen && <PaletteSwitcher palette={palette} setPalette={setPalette} />}
       {sessionExpired && <SessionExpiredOverlay />}
     </div>
+    </NavigationProvider>
   );
 }
 

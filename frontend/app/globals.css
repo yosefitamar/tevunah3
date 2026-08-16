@@ -2770,6 +2770,13 @@ body.session-locked > *:not(.session-overlay-root) {
   margin-top: 4px;
 }
 
+/* Corpo sem recorte: `overflow-y: auto` do .modal-bd clipa o popover dos
+   selects quando o campo está perto do rodapé. Use em modais curtos, que
+   cabem inteiros na tela e não precisam rolar. */
+.modal-bd--no-clip {
+  overflow: visible;
+}
+
 /* ───────── PDF preview modal ─────────
    Variante grande, fluida — iframe ocupa o body inteiro sem padding pra o
    viewer nativo do navegador renderizar com espaço útil. */
@@ -4646,4 +4653,436 @@ body.session-locked > *:not(.session-overlay-root) {
 .action-list--inline .action-row-label {
   font-size: 10.5px;
   white-space: nowrap;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   MAPA DO CRIME
+   Leaflet + OpenStreetMap. As tiles vêm claras e o app é dark, então o
+   "modo escuro" as inverte/dessatura no próprio CSS — sem provider pago
+   e sem quebrar a atribuição, que continua legível.
+   ═══════════════════════════════════════════════════════════════════ */
+
+.map-layout {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr 268px;
+  gap: 10px;
+}
+@media (max-width: 1100px) {
+  .map-layout { grid-template-columns: 1fr; }
+  .map-side { display: none; }
+}
+
+.map-panel { overflow: hidden; }
+
+.map-side {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  min-height: 0;
+}
+.map-side::-webkit-scrollbar { width: 8px; }
+.map-side::-webkit-scrollbar-track { background: var(--bg-1); }
+.map-side::-webkit-scrollbar-thumb { background: var(--line-2); }
+
+.crime-map {
+  flex: 1;
+  min-width: 0;
+  min-height: 320px;
+  background: var(--bg-0);
+}
+
+/* Wrapper do mapa — leva a classe do modo escuro, já que o MapContainer só
+   lê className na montagem e não reage ao toggle. */
+.crime-map-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+/* Modo escuro: tiles escurecidas pra casar com a paleta do terminal. */
+.crime-map-wrap--dark .leaflet-tile-pane {
+  filter: invert(1) hue-rotate(180deg) brightness(0.86) contrast(0.92) saturate(0.55);
+}
+
+.map-loading {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+}
+
+/* ─── Controles e atribuição do Leaflet no tema do app ─── */
+.crime-map .leaflet-control-zoom a {
+  background: var(--bg-1);
+  color: var(--fg-1);
+  border-color: var(--line);
+}
+.crime-map .leaflet-control-zoom a:hover {
+  background: var(--bg-2);
+  color: var(--accent);
+}
+.crime-map .leaflet-control-attribution {
+  background: rgba(0, 0, 0, 0.55);
+  color: var(--fg-3);
+  font-size: 9px;
+}
+.crime-map .leaflet-control-attribution a { color: var(--fg-2); }
+
+/* ─── Popup ─── */
+.crime-map .leaflet-popup-content-wrapper,
+.crime-map .leaflet-popup-tip {
+  background: var(--bg-1);
+  color: var(--fg-1);
+  border: 1px solid var(--line-2);
+  border-radius: 0;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.6);
+}
+.crime-map .leaflet-popup-content {
+  margin: 0;
+  font-family: inherit;
+}
+.crime-map .leaflet-popup-close-button { color: var(--fg-3); }
+
+.map-popup {
+  padding: 10px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 360px;
+  overflow-y: auto;
+}
+.map-popup::-webkit-scrollbar { width: 6px; }
+.map-popup::-webkit-scrollbar-track { background: var(--bg-1); }
+.map-popup::-webkit-scrollbar-thumb { background: var(--line-2); }
+
+.map-popup-hd {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding-right: 14px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 6px;
+}
+.map-popup-type {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  color: var(--accent);
+}
+.map-popup-when {
+  font-size: 10px;
+  color: var(--fg-2);
+  white-space: nowrap;
+}
+
+.map-popup-photo {
+  width: 100%;
+  max-height: 130px;
+  object-fit: cover;
+  border: 1px solid var(--line);
+}
+
+.map-popup-dl {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 10px;
+  margin: 0;
+}
+.map-popup-dl dt {
+  font-size: 8.5px;
+  letter-spacing: 0.16em;
+  color: var(--fg-3);
+  text-transform: uppercase;
+}
+.map-popup-dl dd {
+  margin: 1px 0 0;
+  font-size: 10.5px;
+  color: var(--fg-0);
+  line-height: 1.4;
+}
+
+.map-popup-desc {
+  font-size: 10.5px;
+  line-height: 1.6;
+  color: var(--fg-1);
+  border-left: 2px solid var(--line-2);
+  padding-left: 8px;
+  white-space: pre-wrap;
+}
+
+.map-popup-block { display: flex; flex-direction: column; gap: 4px; }
+.map-popup-block-ttl {
+  font-size: 8.5px;
+  letter-spacing: 0.16em;
+  color: var(--fg-3);
+  text-transform: uppercase;
+}
+
+.map-popup-inv {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.map-popup-inv-thumb {
+  width: 20px;
+  height: 20px;
+  object-fit: cover;
+  border: 1px solid var(--line-2);
+  flex: 0 0 auto;
+}
+.map-popup-inv-thumb--empty { background: var(--bg-2); }
+.map-popup-inv-name {
+  font-size: 10.5px;
+  color: var(--fg-0);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.map-popup-btn {
+  width: 100%;
+  justify-content: center;
+  margin-top: 2px;
+}
+
+/* ─── Legenda lateral ─── */
+.map-legend-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 10.5px;
+}
+.map-legend-row:last-child { border-bottom: none; }
+.map-legend-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+.map-legend-lbl {
+  flex: 1;
+  min-width: 0;
+  color: var(--fg-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.map-legend-val {
+  color: var(--fg-0);
+  font-feature-settings: "tnum";
+  white-space: nowrap;
+}
+
+/* Linha da legenda como botão (bairros clicáveis aprofundam o recorte). */
+.map-legend-row--action {
+  width: 100%;
+  background: none;
+  border-left: none;
+  border-right: none;
+  border-top: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  padding: 5px 2px;
+}
+.map-legend-row--action:hover:not(:disabled) {
+  background: var(--bg-2);
+  color: var(--accent);
+}
+.map-legend-row--action:disabled {
+  cursor: default;
+  opacity: 0.75;
+}
+
+/* Célula de descrição da listagem de ocorrências: uma linha com reticências.
+   Com as colunas de MEIO e LOCAL a coluna ficou estreita, e sem isto um
+   texto longo empurra a altura da linha para muitas linhas. */
+.tbl-desc-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.tbl-desc-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 42ch;
+}
+
+/* Contador de filtros ativos dentro do botão FILTROS. */
+.btn-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  margin-left: 2px;
+  border-radius: 999px;
+  background: var(--bg-0);
+  color: var(--accent);
+  font-size: 9px;
+  font-weight: 600;
+  font-feature-settings: "tnum";
+}
+
+/* Resumo do recorte ao lado do botão FILTROS: com os campos dentro do modal,
+   é o que mantém o recorte corrente visível sem abrir nada. */
+.map-filter-summary {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 60ch;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   ÓBITO — tratamento visual da foto
+   Dessatura + tarja. É só apresentação: o arquivo no acervo continua
+   intacto e um clique abre o original.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* Moldura da foto: recebe a classe do contexto (dimensão/posicionamento) e
+   a imagem preenche. É o que permite reaproveitar o mesmo componente na foto
+   do dossiê, na miniatura e no preview flutuante da lista de envolvidos. */
+/* :where() zera a especificidade — a classe do contexto (.qual-thumb, que é
+   absoluta, .dossier-photo etc.) continua mandando no posicionamento; aqui
+   ficam só os padrões de moldura. */
+:where(.photo-frame) {
+  position: relative;
+  display: inline-flex;
+  line-height: 0;
+  padding: 0;
+  margin: 0;
+  border: none;
+  background: none;
+  appearance: none;
+  overflow: hidden;
+}
+:where(.photo-frame) > img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.deceased-photo { cursor: zoom-in; }
+.deceased-photo > img {
+  filter: grayscale(1) contrast(1.05) brightness(0.9);
+}
+
+.deceased-band {
+  position: absolute;
+  left: 0;
+  right: 0;
+  /* Rodapé da foto: no meio, a tarja cobria justamente o rosto — que é o
+     que o agente precisa reconhecer. */
+  bottom: 0;
+  background: var(--crit);
+  color: #fff;
+  /* A tarja cobre fotos de tamanhos bem diferentes (dossiê ~90px, lista
+     ~28px): sem letter-spacing largo o rótulo continua legível na menor. */
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-align: center;
+  padding: 3px 2px;
+  line-height: 1.1;
+  text-transform: uppercase;
+  pointer-events: none;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+}
+/* Miniaturas (~28px) não comportam a palavra: vira uma barra sólida. O
+   significado vem do conjunto — foto em P&B + papel VÍTIMA na mesma linha —
+   e o rótulo continua no aria-label para leitores de tela. */
+.deceased-band--compact {
+  font-size: 0;
+  line-height: 0;
+  height: 5px;
+  padding: 0;
+}
+
+/* Lightbox da foto original (sem filtro, sem tarja). */
+.deceased-original {
+  background: var(--bg-1);
+  border: 1px solid var(--line-2);
+  max-width: min(90vw, 720px);
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 0 0 1px var(--bg-0), 0 12px 60px rgba(0, 0, 0, 0.75);
+}
+.deceased-original img {
+  max-width: 100%;
+  max-height: calc(90vh - 40px);
+  object-fit: contain;
+}
+
+/* Selo textual de óbito para cabeçalhos de dossiê e linhas de lista. */
+.pill.deceased {
+  background: var(--crit);
+  color: #fff;
+  font-weight: 700;
+}
+.pill.deceased::before { background: #fff; }
+
+/* Cabeçalho do dossiê com ação à direita (alternar visualizar/editar). */
+.dossier-head--actions {
+  flex-direction: row;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.dossier-head--actions .dossier-meta { flex: 1; min-width: 0; }
+
+/* Confirmação de vítima: foto ao lado dos dados de identificação. */
+.victim-confirm {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+.victim-confirm-photo {
+  width: 96px;
+  height: 120px;
+  object-fit: cover;
+  border: 1px solid var(--line-2);
+  flex: 0 0 auto;
+}
+.victim-confirm-data { flex: 1; min-width: 0; }
+
+/* Faixa de óbito no cabeçalho do dossiê: selo + data + atalho pro mapa. */
+.dossier-death {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: var(--fg-2);
+}
+
+/* Papel do envolvido na linha da lista (substitui o antigo "PERSON"). */
+.qual-row-meta.role-tone {
+  font-weight: 600;
+  letter-spacing: 0.14em;
+}
+.role-tone--victim { color: var(--crit); }
+.role-tone--accused { color: var(--warn); }
+
+/* Busca do mapa: não cresce como a das telas de listagem — divide a toolbar
+   com o botão de filtros, o resumo do recorte e as ações. */
+.map-search {
+  flex: 0 1 300px;
+  min-width: 180px;
 }

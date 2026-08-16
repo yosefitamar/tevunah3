@@ -185,6 +185,11 @@ func main() {
 	mux.Handle("DELETE /api/reports/{id}/qualifications/{qid}/photo", auth(http.HandlerFunc(a.handleQualificationPhotoDelete)))
 
 	mux.Handle("GET /api/incidents", auth(http.HandlerFunc(a.handleIncidentsList)))
+	// Precede /api/incidents/{id} — padrão literal vence o wildcard no ServeMux.
+	mux.Handle("GET /api/incidents/geo", auth(http.HandlerFunc(a.handleIncidentsGeo)))
+	mux.Handle("GET /api/incidents/locations", auth(http.HandlerFunc(a.handleIncidentsLocations)))
+	mux.Handle("POST /api/entities/{id}/death", auth(http.HandlerFunc(a.handleEntityDeathMark)))
+	mux.Handle("DELETE /api/entities/{id}/death", auth(http.HandlerFunc(a.handleEntityDeathClear)))
 	mux.Handle("POST /api/incidents", auth(http.HandlerFunc(a.handleIncidentCreate)))
 	mux.Handle("GET /api/incidents/{id}", auth(http.HandlerFunc(a.handleIncidentDetail)))
 	mux.Handle("PATCH /api/incidents/{id}", auth(http.HandlerFunc(a.handleIncidentUpdate)))

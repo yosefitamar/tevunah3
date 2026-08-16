@@ -15,6 +15,8 @@ type ComboboxProps = {
   maxItems?: number;
   /** Desabilita o input (não permite digitação nem abertura do popover). */
   disabled?: boolean;
+  /** Notifica a saída do campo — útil para telas que persistem no blur. */
+  onBlur?: (v: string) => void;
   id?: string;
 };
 
@@ -33,6 +35,7 @@ export default function Combobox({
   uppercase = false,
   maxItems = 8,
   disabled = false,
+  onBlur,
   id,
 }: ComboboxProps) {
   const [open, setOpen] = useState(false);
@@ -103,6 +106,7 @@ export default function Combobox({
           setHover(-1);
         }}
         onKeyDown={onKey}
+        onBlur={(e) => onBlur?.(e.target.value)}
         className="combobox-input"
       />
       <button

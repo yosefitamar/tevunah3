@@ -103,6 +103,13 @@ type PersonAttrs struct {
 	OrcrimName  *string
 	OrcrimAlias *string
 	Addresses   []PersonAddress
+
+	// Óbito. Marcado ao vincular a pessoa como vítima de homicídio; a
+	// ocorrência de origem pode ser desfeita sem desfazer a morte, então
+	// DeathIncidentID é opcional mesmo com Deceased = true.
+	Deceased        bool
+	DeceasedOn      *time.Time
+	DeathIncidentID *string
 }
 
 // OrganizationAttrs são os atributos da tabela app.entity_organizations.
@@ -369,7 +376,8 @@ func (r *Repo) List(ctx context.Context, opts ListOpts) (*ListResult, error) {
 		       COALESCE(to_jsonb(o.aliases), 'null'::jsonb) AS org_aliases_json,
 		       v.plate, v.category, v.brand, v.model, v.color, v.photo_path,
 		       COALESCE(to_jsonb(p.aliases), 'null'::jsonb) AS person_aliases_json,
-		       p.gender, p.date_of_birth, p.mother_name, p.cpf, p.photo_path
+		       p.gender, p.date_of_birth, p.mother_name, p.cpf, p.photo_path,
+		       COALESCE(p.deceased, false)
 		  FROM app.entities e
 		  LEFT JOIN app.entity_persons p ON p.entity_id = e.id
 		  LEFT JOIN app.entity_organizations o ON o.entity_id = e.id
@@ -408,12 +416,14 @@ func (r *Repo) List(ctx context.Context, opts ListOpts) (*ListResult, error) {
 		var personAliasesJSON []byte
 		var personGender, personMother, personCPF, personPhotoPath sql.NullString
 		var personDOB sql.NullTime
+		var personDeceased bool
 		if err := rows.Scan(
 			&e.ID, &kind, &e.Name, &description, &e.Classification, &e.Version,
 			&e.CreatedAt, &createdBy, &e.UpdatedAt, &updatedBy,
 			&deletedAt, &deletedBy, &tagsCSV, &orgAliasesJSON,
 			&vehiclePlate, &vehicleCategory, &vehicleBrand, &vehicleModel, &vehicleColor, &vehiclePhotoPath,
 			&personAliasesJSON, &personGender, &personDOB, &personMother, &personCPF, &personPhotoPath,
+			&personDeceased,
 		); err != nil {
 			return nil, err
 		}
@@ -481,6 +491,8 @@ func (r *Repo) List(ctx context.Context, opts ListOpts) (*ListResult, error) {
 				s := personPhotoPath.String
 				pa.PhotoPath = &s
 			}
+			// A listagem precisa do óbito para aplicar a tarja na miniatura.
+			pa.Deceased = personDeceased
 			e.Person = pa
 		}
 		items = append(items, e)
@@ -751,6 +763,75 @@ func classifyUniqueErr(err error, k Kind, _ *PersonAttrs) error {
 	return fmt.Errorf("db: %w", err)
 }
 
+// ─────────────────────────── Óbito ────────────────────────────
+
+// ErrNotPerson é retornado pelas operações de óbito sobre entidade que não
+// é pessoa (organização, lugar, veículo não morrem).
+var ErrNotPerson = errors.New("entidade não é uma pessoa")
+
+// MarkDeceased marca a pessoa como morta. incidentID e occurredOn são a
+// ocorrência que originou a marcação (ambos opcionais — um óbito pode ser
+// registrado sem ocorrência vinculada). Idempotente: marcar de novo só
+// atualiza a origem.
+//
+// Não bumpa `version` da entidade: óbito não é edição de conteúdo do
+// dossiê e não deve invalidar a edição aberta de outro agente.
+func (r *Repo) MarkDeceased(ctx context.Context, entityID string, incidentID *string, occurredOn *time.Time, actor string) (*Entity, error) {
+	e, err := r.FindByID(ctx, entityID)
+	if err != nil {
+		return nil, err
+	}
+	if e.Kind != KindPerson {
+		return nil, ErrNotPerson
+	}
+	if e.DeletedAt != nil {
+		return nil, ErrAlreadyDeleted
+	}
+	if _, err := r.db.ExecContext(ctx, `
+		UPDATE app.entity_persons
+		   SET deceased = true,
+		       deceased_on = $2,
+		       death_incident_id = $3
+		 WHERE entity_id = $1`,
+		entityID, nilTime(occurredOn), nilUUID(incidentID),
+	); err != nil {
+		return nil, fmt.Errorf("marcar óbito: %w", err)
+	}
+	if _, err := r.db.ExecContext(ctx, `
+		UPDATE app.entities SET updated_at = now(), updated_by = $2 WHERE id = $1`,
+		entityID, actor,
+	); err != nil {
+		return nil, err
+	}
+	return r.FindByID(ctx, entityID)
+}
+
+// ClearDeceased desfaz a marcação de óbito (correção de homônimo confirmado
+// por engano). Limpa também data e ocorrência de origem.
+func (r *Repo) ClearDeceased(ctx context.Context, entityID, actor string) (*Entity, error) {
+	e, err := r.FindByID(ctx, entityID)
+	if err != nil {
+		return nil, err
+	}
+	if e.Kind != KindPerson {
+		return nil, ErrNotPerson
+	}
+	if _, err := r.db.ExecContext(ctx, `
+		UPDATE app.entity_persons
+		   SET deceased = false, deceased_on = NULL, death_incident_id = NULL
+		 WHERE entity_id = $1`, entityID,
+	); err != nil {
+		return nil, fmt.Errorf("desfazer óbito: %w", err)
+	}
+	if _, err := r.db.ExecContext(ctx, `
+		UPDATE app.entities SET updated_at = now(), updated_by = $2 WHERE id = $1`,
+		entityID, actor,
+	); err != nil {
+		return nil, err
+	}
+	return r.FindByID(ctx, entityID)
+}
+
 // ─────────────────────────── Busca de duplicates (pessoa) ─────────────────
 
 // PersonDuplicate é um match de homônimo com score = quantidade de critérios
@@ -925,10 +1006,13 @@ func (r *Repo) loadChild(ctx context.Context, e *Entity) error {
 		var dob sql.NullTime
 		var gender, motherName, cpf, photoPath sql.NullString
 		var orcrimID, orcrimName, orcrimAlias sql.NullString
+		var deceasedOn sql.NullTime
+		var deathIncidentID sql.NullString
 		err := r.db.QueryRowContext(ctx, `
 			SELECT to_jsonb(p.aliases), p.gender, p.date_of_birth,
 			       p.mother_name, p.cpf, p.photo_path,
-			       p.orcrim_id, oc.name, oco.aliases[1]
+			       p.orcrim_id, oc.name, oco.aliases[1],
+			       p.deceased, p.deceased_on, p.death_incident_id
 			  FROM app.entity_persons p
 			  LEFT JOIN app.entities oc
 			    ON oc.id = p.orcrim_id AND oc.deleted_at IS NULL
@@ -936,7 +1020,8 @@ func (r *Repo) loadChild(ctx context.Context, e *Entity) error {
 			    ON oco.entity_id = p.orcrim_id
 			 WHERE p.entity_id = $1`, e.ID,
 		).Scan(&aliasesJSON, &gender, &dob, &motherName, &cpf, &photoPath,
-			&orcrimID, &orcrimName, &orcrimAlias)
+			&orcrimID, &orcrimName, &orcrimAlias,
+			&a.Deceased, &deceasedOn, &deathIncidentID)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				e.Person = &PersonAttrs{Aliases: []string{}, Addresses: []PersonAddress{}}
@@ -958,6 +1043,11 @@ func (r *Repo) loadChild(ctx context.Context, e *Entity) error {
 		a.MotherName = nullStr(motherName)
 		a.CPF = nullStr(cpf)
 		a.PhotoPath = nullStr(photoPath)
+		if deceasedOn.Valid {
+			t := deceasedOn.Time
+			a.DeceasedOn = &t
+		}
+		a.DeathIncidentID = nullStr(deathIncidentID)
 		a.OrcrimID = nullStr(orcrimID)
 		a.OrcrimName = nullStr(orcrimName)
 		a.OrcrimAlias = nullStr(orcrimAlias)

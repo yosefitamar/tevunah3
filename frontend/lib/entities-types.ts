@@ -80,6 +80,13 @@ export type PersonAttrs = {
   orcrim_name?: string;
   orcrim_alias?: string;
   addresses?: PersonAddress[];
+
+  // Óbito. `death_incident_id` some quando a vítima é desvinculada da
+  // ocorrência, sem que o óbito deixe de valer — por isso é opcional
+  // mesmo com deceased = true.
+  deceased?: boolean;
+  deceased_on?: string; // YYYY-MM-DD
+  death_incident_id?: string;
 };
 
 export type OrganizationAttrs = {

@@ -17,15 +17,68 @@ export const INCIDENT_TYPE_PILL: Record<IncidentType, string> = {
 
 export const INCIDENT_TYPES: IncidentType[] = ["homicidio", "apreensao", "prisao"];
 
-// Papéis sugeridos pro vínculo de entidade (texto livre — a UI sugere estes).
-export const INVOLVED_ROLE_SUGGESTIONS = [
-  "AUTOR",
-  "SUSPEITO",
-  "PRESO",
-  "VÍTIMA",
-  "TESTEMUNHA",
-  "ENVOLVIDO",
+// ─── Meio utilizado (CVLI) ────────────────────────────────────────────
+// Aplicável a homicídio. "" = não informado.
+export type IncidentMeans =
+  | ""
+  | "paf"
+  | "arma_branca"
+  | "asfixia"
+  | "contundente"
+  | "outros";
+
+export const INCIDENT_MEANS: Exclude<IncidentMeans, "">[] = [
+  "paf",
+  "arma_branca",
+  "asfixia",
+  "contundente",
+  "outros",
 ];
+
+export const INCIDENT_MEANS_LABEL: Record<IncidentMeans, string> = {
+  "": "NÃO INFORMADO",
+  paf: "PAF (ARMA DE FOGO)",
+  arma_branca: "ARMA BRANCA",
+  asfixia: "ASFIXIA / ESTRANGULAMENTO",
+  contundente: "OBJETO CONTUNDENTE",
+  outros: "OUTROS",
+};
+
+// Rótulo curto pra legenda do mapa e células de tabela.
+export const INCIDENT_MEANS_SHORT: Record<IncidentMeans, string> = {
+  "": "N/I",
+  paf: "PAF",
+  arma_branca: "BRANCA",
+  asfixia: "ASFIXIA",
+  contundente: "CONTUNDENTE",
+  outros: "OUTROS",
+};
+
+// Cor do ponto no mapa por meio utilizado (usa os tokens da paleta ativa).
+export const INCIDENT_MEANS_COLOR: Record<IncidentMeans, string> = {
+  "": "var(--fg-3)",
+  paf: "var(--crit)",
+  arma_branca: "var(--warn)",
+  asfixia: "var(--info)",
+  contundente: "var(--accent)",
+  outros: "var(--fg-2)",
+};
+
+// isVictimRole reconhece o papel que, num homicídio, implica óbito. Espelha
+// a checagem do backend (o papel é texto livre e pode vir sem acento).
+export function isVictimRole(role: string): boolean {
+  const r = role.trim().toUpperCase();
+  return r === "VÍTIMA" || r === "VITIMA";
+}
+
+// Papéis do envolvido na ocorrência. Lista fechada: o papel é chave de
+// leitura do caso (e VÍTIMA dispara o óbito), então não pode variar por
+// grafia. Uma ocorrência aceita quantas pessoas forem necessárias em cada
+// papel — várias vítimas, vários acusados, várias testemunhas.
+//
+// Registros anteriores a esta versão podem ter papéis fora da lista (AUTOR,
+// SUSPEITO, PRESO, ENVOLVIDO); eles continuam sendo exibidos como estão.
+export const INVOLVED_ROLES = ["VÍTIMA", "ACUSADO", "TESTEMUNHA"];
 
 export type InvolvedEntity = {
   entity_id: string;
@@ -34,6 +87,9 @@ export type InvolvedEntity = {
   role: string;
   has_photo: boolean;
   version: number;
+  // Óbito da pessoa — a lista de envolvidos aplica a tarja sem buscar a
+  // entidade inteira.
+  deceased: boolean;
 };
 
 export type Incident = {
@@ -42,11 +98,14 @@ export type Incident = {
   occurred_on: string; // YYYY-MM-DD
   occurred_time?: string; // HH:MM
   ciops_record: string;
-  intel_participation: boolean;
   has_photo: boolean;
   latitude?: number;
   longitude?: number;
+  city: string;
+  neighborhood: string;
   description: string;
+  means: IncidentMeans;
+  means_detail: string;
   involved: InvolvedEntity[];
   created_at: string;
   created_by: string;
@@ -65,8 +124,10 @@ export type ListIncidentsOpts = {
   limit?: number;
   offset?: number;
   type?: "" | IncidentType;
+  means?: IncidentMeans;
+  city?: string;
+  neighborhood?: string;
   search?: string;
-  intel?: boolean;
   date_from?: string;
   date_to?: string;
   sort_by?: "occurred_on" | "type" | "created_at" | "updated_at";
@@ -78,8 +139,10 @@ function qs(opts: ListIncidentsOpts): string {
   if (opts.limit) p.set("limit", String(opts.limit));
   if (opts.offset) p.set("offset", String(opts.offset));
   if (opts.type) p.set("type", opts.type);
+  if (opts.means) p.set("means", opts.means);
+  if (opts.city) p.set("city", opts.city);
+  if (opts.neighborhood) p.set("neighborhood", opts.neighborhood);
   if (opts.search) p.set("search", opts.search);
-  if (opts.intel) p.set("intel", "1");
   if (opts.date_from) p.set("date_from", opts.date_from);
   if (opts.date_to) p.set("date_to", opts.date_to);
   if (opts.sort_by) p.set("sort_by", opts.sort_by);
@@ -90,6 +153,51 @@ function qs(opts: ListIncidentsOpts): string {
 
 export function listIncidents(opts: ListIncidentsOpts = {}) {
   return api<IncidentsList>(`/api/incidents${qs(opts)}`);
+}
+
+// ─── Mapa do crime ────────────────────────────────────────────────────
+
+export type GeoIncidentsOpts = {
+  type?: "" | IncidentType;
+  means?: IncidentMeans;
+  city?: string;
+  neighborhood?: string;
+  date_from?: string;
+  date_to?: string;
+};
+
+export type GeoIncidents = {
+  items: Incident[];
+  total: number;
+  // true = o recorte estourou o teto do servidor e a resposta foi cortada.
+  truncated: boolean;
+};
+
+// Pontos georreferenciados do recorte (sem paginação — o recorte temporal é
+// o limitador). Traz a ocorrência inteira pra o popup do marcador não
+// precisar de outra requisição.
+export function listIncidentsGeo(opts: GeoIncidentsOpts = {}) {
+  return api<GeoIncidents>(`/api/incidents/geo${qs(opts)}`);
+}
+
+// ─── Recorte territorial ──────────────────────────────────────────────
+
+export type PlaceFacet = {
+  city: string;
+  neighborhood?: string;
+  count: number;
+};
+
+export type IncidentLocations = {
+  cities: PlaceFacet[];
+  neighborhoods: PlaceFacet[];
+};
+
+// Municípios e bairros que existem no acervo (com contagem). Alimenta os
+// filtros do mapa e o autocompletar de bairro no cadastro — filtrar por um
+// lugar sem ocorrência não teria serventia.
+export function listIncidentLocations() {
+  return api<IncidentLocations>(`/api/incidents/locations`);
 }
 
 export function getIncident(id: string) {
@@ -103,10 +211,13 @@ export type NewIncidentInput = {
   occurred_on: string;
   occurred_time?: string;
   ciops_record?: string;
-  intel_participation?: boolean;
   latitude?: number | null;
   longitude?: number | null;
+  city?: string;
+  neighborhood?: string;
   description?: string;
+  means?: IncidentMeans;
+  means_detail?: string;
   involved?: NewInvolvedInput[];
 };
 
@@ -122,10 +233,13 @@ export type UpdateIncidentInput = {
   occurred_on?: string;
   occurred_time?: string | null;
   ciops_record?: string;
-  intel_participation?: boolean;
   latitude?: number | null;
   longitude?: number | null;
+  city?: string;
+  neighborhood?: string;
   description?: string;
+  means?: IncidentMeans;
+  means_detail?: string;
 };
 
 export function updateIncident(id: string, input: UpdateIncidentInput) {

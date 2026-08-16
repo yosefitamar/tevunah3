@@ -4,11 +4,20 @@ import { useEffect, useRef, useState } from "react";
 import { Plus, Search } from "lucide-react";
 import { listEntities, photoURL } from "@/lib/entities-api";
 import type { Entity, PersonAttrs } from "@/lib/entities-types";
-import { INVOLVED_ROLE_SUGGESTIONS } from "@/lib/incidents-api";
+import { INVOLVED_ROLES } from "@/lib/incidents-api";
 import type { ApiError } from "@/lib/api";
-import Combobox from "../shared/Combobox";
+import Select from "../shared/Select";
 
-type Picked = { id: string; name: string; kind: string; version: number };
+// A confirmação de vítima precisa dos dados de identificação (CPF, mãe,
+// nascimento, foto) para o agente descartar homônimo — daí os attrs virem
+// junto da escolha, e não só o id.
+type Picked = {
+  id: string;
+  name: string;
+  kind: string;
+  version: number;
+  attrs?: PersonAttrs;
+};
 
 type Props = {
   /** IDs já vinculados — filtrados dos resultados. */
@@ -25,7 +34,7 @@ type Props = {
  */
 export default function InvolvedPicker({ exclude, onPick, disabled }: Props) {
   const [q, setQ] = useState("");
-  const [role, setRole] = useState("ENVOLVIDO");
+  const [role, setRole] = useState("");
   const [results, setResults] = useState<Entity[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -58,7 +67,17 @@ export default function InvolvedPicker({ exclude, onPick, disabled }: Props) {
   const visible = results.filter((e) => !excludeSet.has(e.id));
 
   function pick(e: Entity) {
-    onPick({ id: e.id, name: e.name, kind: e.kind, version: e.version }, role.trim());
+    if (!role) return;
+    onPick(
+      {
+        id: e.id,
+        name: e.name,
+        kind: e.kind,
+        version: e.version,
+        attrs: (e.attrs ?? undefined) as PersonAttrs | undefined,
+      },
+      role.trim(),
+    );
     setQ("");
     setResults([]);
     inputRef.current?.focus();
@@ -71,12 +90,14 @@ export default function InvolvedPicker({ exclude, onPick, disabled }: Props) {
       <div className="form-grid-2">
         <div className="form-field">
           <span>PAPEL</span>
-          <Combobox
+          <Select
             value={role}
             onChange={setRole}
-            options={INVOLVED_ROLE_SUGGESTIONS}
-            uppercase
-            placeholder="ex.: AUTOR, VÍTIMA…"
+            placeholder="SELECIONE…"
+            options={[
+              { value: "", label: "SELECIONE…" },
+              ...INVOLVED_ROLES.map((r) => ({ value: r, label: r })),
+            ]}
           />
         </div>
         <div className="form-field">
@@ -102,6 +123,11 @@ export default function InvolvedPicker({ exclude, onPick, disabled }: Props) {
       )}
 
       <div className="qual-picker-results">
+        {!role && q.trim() && (
+          <div className="muted" style={{ fontSize: 11 }}>
+            // ESCOLHA O PAPEL ANTES DE VINCULAR
+          </div>
+        )}
         {loading && (
           <div className="muted" style={{ fontSize: 11 }}>
             // BUSCANDO…
@@ -124,6 +150,7 @@ export default function InvolvedPicker({ exclude, onPick, disabled }: Props) {
               key={e.id}
               type="button"
               className="qual-picker-row"
+              disabled={!role}
               onClick={() => pick(e)}
             >
               <span className="qual-picker-row-name">{display}</span>

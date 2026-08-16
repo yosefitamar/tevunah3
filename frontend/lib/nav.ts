@@ -13,6 +13,7 @@ export type ModuleId =
   | "dashboard"
   | "entidades"
   | "ocorrencias"
+  | "mapa"
   | "relatorios"
   | "informes"
   | "agentes"
@@ -32,11 +33,12 @@ export const NAV: NavEntry[] = [
   { id: "relatorios", key: "03", lbl: "RELATÓRIOS", glyph: "▥" },
   { id: "informes", key: "04", lbl: "INFORMES", glyph: "✎" },
   { id: "ocorrencias", key: "05", lbl: "OCORRÊNCIAS", glyph: "◎" },
-  { id: "agentes", key: "06", lbl: "AGENTES", glyph: "◬" },
+  { id: "mapa", key: "06", lbl: "MAPA DO CRIME", glyph: "⌖" },
+  { id: "agentes", key: "07", lbl: "AGENTES", glyph: "◬" },
 
   { group: "SUPERVISÃO" },
-  { id: "aprovacoes", key: "07", lbl: "APROVAÇÕES", glyph: "✓" },
-  { id: "auditoria", key: "08", lbl: "AUDITORIA", glyph: "▤" },
+  { id: "aprovacoes", key: "08", lbl: "APROVAÇÕES", glyph: "✓" },
+  { id: "auditoria", key: "09", lbl: "AUDITORIA", glyph: "▤" },
 
   { group: "SISTEMA" },
   { id: "admin", key: "99", lbl: "ADMIN", glyph: "⚙" },
@@ -52,6 +54,7 @@ export const MODULE_TITLES: Record<ModuleId, string> = {
   relatorios: "RELATÓRIOS",
   informes: "INFORMES",
   ocorrencias: "OCORRÊNCIAS",
+  mapa: "MAPA DO CRIME",
   agentes: "AGENTES",
   aprovacoes: "APROVAÇÕES",
   auditoria: "AUDITORIA",

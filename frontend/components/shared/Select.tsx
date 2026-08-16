@@ -43,6 +43,7 @@ export default function Select({
   const [hover, setHover] = useState<number>(-1);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const btnRef = useRef<HTMLButtonElement | null>(null);
+  const hoveredRef = useRef<HTMLLIElement | null>(null);
 
   const current = options.find((o) => o.value === value);
   const label = current ? current.label : placeholder;
@@ -62,6 +63,12 @@ export default function Select({
       setHover(idx >= 0 ? idx : 0);
     }
   }, [open, value, options]);
+
+  // Mantém a opção destacada visível — seta e type-ahead podem levar o
+  // destaque para fora da área rolável em listas longas.
+  useEffect(() => {
+    if (open) hoveredRef.current?.scrollIntoView({ block: "nearest" });
+  }, [open, hover]);
 
   function commit(v: string) {
     onChange(v);
@@ -108,7 +115,45 @@ export default function Select({
       setOpen(false);
     } else if (e.key === "Tab") {
       setOpen(false);
+    } else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      // Type-ahead: digitar salta para a opção que começa com o que foi
+      // teclado (como no <select> nativo). Sem isto, listas longas — os 184
+      // municípios do Ceará, por exemplo — só se navegam rolando.
+      e.preventDefault();
+      typeAhead(e.key);
     }
+  }
+
+  // Buffer do type-ahead: teclas em sequência formam o prefixo; a pausa o
+  // reinicia, então "F","O","R" busca "FOR" mas "F" … "F" cicla os "F".
+  const typeBuf = useRef("");
+  const typeTimer = useRef<number | null>(null);
+
+  function typeAhead(key: string) {
+    if (typeTimer.current) window.clearTimeout(typeTimer.current);
+    typeBuf.current += key.toLowerCase();
+    typeTimer.current = window.setTimeout(() => {
+      typeBuf.current = "";
+    }, 800);
+
+    const buf = typeBuf.current;
+    const match = (o: SelectOption) =>
+      !o.disabled && o.label.toLowerCase().startsWith(buf);
+
+    // Com um único caractere repetido, cicla entre as opções que começam com
+    // ele em vez de travar sempre na primeira.
+    const repeated = buf.length > 1 && buf.split("").every((c) => c === buf[0]);
+    if (repeated) {
+      const c = buf[0];
+      const cyclic = (o: SelectOption) =>
+        !o.disabled && o.label.toLowerCase().startsWith(c);
+      const after = options.findIndex((o, i) => i > hover && cyclic(o));
+      const idx = after >= 0 ? after : options.findIndex(cyclic);
+      if (idx >= 0) setHover(idx);
+      return;
+    }
+    const idx = options.findIndex(match);
+    if (idx >= 0) setHover(idx);
   }
 
   return (
@@ -151,6 +196,7 @@ export default function Select({
                 (o.value === value ? " sel-item--sel" : "") +
                 (o.disabled ? " sel-item--disabled" : "")
               }
+              ref={i === hover ? hoveredRef : undefined}
               onMouseEnter={() => !o.disabled && setHover(i)}
               onMouseDown={(e) => {
                 e.preventDefault();

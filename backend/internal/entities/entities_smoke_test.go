@@ -4,8 +4,10 @@ package entities
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"testing"
+	"time"
 
 	idb "github.com/belia/tevunah/backend/internal/db"
 )
@@ -32,7 +34,11 @@ func TestSmoke_CreateUpdateSoftDelete(t *testing.T) {
 
 	gender := "M"
 	motherName := "Maria de Souza"
-	cpf := "12345678901"
+	// CPF único por execução: o índice entity_persons_cpf_uniq é global (não
+	// filtra deleted_at) e o papel da aplicação não tem DELETE nesta tabela,
+	// então um CPF fixo faria a segunda execução falhar com "CPF já
+	// cadastrado" sobre o resíduo da primeira.
+	cpf := fmt.Sprintf("%011d", time.Now().UnixNano()%100000000000)
 	created, err := r.Create(ctx, NewEntity{
 		Kind:           KindPerson,
 		Name:           "Smoke Test Person",
@@ -49,10 +55,20 @@ func TestSmoke_CreateUpdateSoftDelete(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
+	// Descarte pelo caminho do produto: o papel da aplicação não tem DELETE em
+	// entities/entity_persons (o app é soft-delete por design), então marcar
+	// deleted_at é o mais próximo de limpar que o teste consegue — e já tira o
+	// registro das listagens.
 	defer func() {
-		_, _ = db.ExecContext(ctx, `DELETE FROM app.entity_tags WHERE entity_id = $1`, created.ID)
-		_, _ = db.ExecContext(ctx, `DELETE FROM app.entity_persons WHERE entity_id = $1`, created.ID)
-		_, _ = db.ExecContext(ctx, `DELETE FROM app.entities WHERE id = $1`, created.ID)
+		if _, err := db.ExecContext(ctx,
+			`DELETE FROM app.entity_tags WHERE entity_id = $1`, created.ID); err != nil {
+			t.Errorf("limpeza (entity_tags): %v", err)
+		}
+		if _, err := db.ExecContext(ctx,
+			`UPDATE app.entities SET deleted_at = now(), deleted_by = $2
+			  WHERE id = $1 AND deleted_at IS NULL`, created.ID, actor); err != nil {
+			t.Errorf("limpeza (entities): %v", err)
+		}
 	}()
 
 	if created.Version != 1 {

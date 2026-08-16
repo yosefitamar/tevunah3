@@ -6,6 +6,7 @@ import AprovacoesScreen from "./aprovacoes/AprovacoesScreen";
 import AuditoriaScreen from "./auditoria/AuditoriaScreen";
 import EntidadesScreen from "./entidades/EntidadesScreen";
 import OcorrenciasScreen from "./ocorrencias/OcorrenciasScreen";
+import MapaScreen from "./mapa/MapaScreen";
 import RelatoriosScreen from "./relatorios/RelatoriosScreen";
 import InformesScreen from "./informes/InformesScreen";
 
@@ -31,6 +32,8 @@ export const ScreenAgentes = AgentesScreen;
 export const ScreenEntidades = EntidadesScreen;
 
 export const ScreenOcorrencias = OcorrenciasScreen;
+
+export const ScreenMapa = MapaScreen;
 
 export const ScreenAprovacoes = AprovacoesScreen;
 

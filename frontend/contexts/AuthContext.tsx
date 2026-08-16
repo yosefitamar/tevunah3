@@ -19,6 +19,7 @@ import {
 import type { RoleRow, User } from "@/lib/types";
 import { roleLabel as resolveRoleLabel } from "@/lib/types";
 import { listRoles } from "@/lib/roles-api";
+import { useSessionKeepAlive } from "@/lib/useSessionKeepAlive";
 
 type LoginInput = { email: string; password: string; totp_code?: string };
 
@@ -108,6 +109,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setSessionExpiresHandler((d) => setSessionExpiresAt(d));
     return () => setSessionExpiresHandler(null);
   }, []);
+
+  // Keep-alive por atividade: telas de trabalho longo (redigir relatório,
+  // anexar fotos) podem passar minutos sem chamada de rede, e o TTL só renova
+  // com requisição autenticada. O hook renova enquanto houver digitação/cliques
+  // na aba visível — estação abandonada continua expirando normalmente.
+  const markSessionExpired = useCallback(() => setSessionExpired(true), []);
+  useSessionKeepAlive(!!user && !sessionExpired, markSessionExpired);
 
   // Quando o relógio bate na expiração, dispara o overlay sem esperar um 401.
   // Sem isso, um usuário inativo veria o timer chegar a 00:00 e nada

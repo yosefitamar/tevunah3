@@ -6,6 +6,7 @@
 //	POST   /api/auth/login    -> {email, password, totp_code} -> {token, user}
 //	GET    /api/auth/me       -> usuário autenticado (Bearer)
 //	POST   /api/auth/logout   -> encerra a sessão atual
+//	POST   /api/auth/heartbeat -> renova o TTL idle (keep-alive por atividade na UI)
 package main
 
 import (
@@ -94,9 +95,10 @@ func main() {
 	mux.HandleFunc("GET /api/health", a.handleHealth)
 	mux.HandleFunc("POST /api/auth/login", a.handleLogin)
 
-	auth := middleware.RequireAuth(a.sessions, a.users)
+	auth := middleware.RequireAuth(a.sessions, a.users, a.refreshSessionCookie)
 	mux.Handle("GET /api/auth/me", auth(http.HandlerFunc(a.handleMe)))
 	mux.Handle("POST /api/auth/logout", auth(http.HandlerFunc(a.handleLogout)))
+	mux.Handle("POST /api/auth/heartbeat", auth(http.HandlerFunc(a.handleHeartbeat)))
 	mux.Handle("POST /api/auth/password/change", auth(http.HandlerFunc(a.handlePasswordChange)))
 	mux.Handle("POST /api/auth/totp/setup", auth(http.HandlerFunc(a.handleTOTPSetup)))
 
@@ -458,6 +460,21 @@ func (a *app) handleMe(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	httpx.OK(w, resp)
+}
+
+// handleHeartbeat existe só para renovar a sessão: todo o trabalho (Touch no
+// Redis, cookie deslizante e header X-Session-Expires-At) já foi feito pelo
+// middleware autenticado. O frontend só chama quando detecta atividade real do
+// agente (digitação, colagem, anexos) numa tela sem tráfego de rede — caso do
+// redator preenchendo um relatório longo. Sem corpo de resposta.
+func (a *app) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
+	httpx.NoContent(w)
+}
+
+// refreshSessionCookie reemite o cookie com o MaxAge cheio a cada requisição
+// autenticada (cookie deslizante, casado com o TTL idle do Redis).
+func (a *app) refreshSessionCookie(w http.ResponseWriter, token string) {
+	a.setSessionCookie(w, token, int(a.sessions.TTL().Seconds()))
 }
 
 // setSessionCookie emite o cookie HttpOnly da sessão.

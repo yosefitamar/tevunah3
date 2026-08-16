@@ -22,6 +22,7 @@ func TestIsPendingCredentialAllowed(t *testing.T) {
 		{"ambas flags: setup de TOTP liberado", true, true, "/api/auth/totp/setup", true},
 		{"ambas flags: me liberado", true, true, "/api/auth/me", true},
 		{"ambas flags: logout liberado", true, true, "/api/auth/logout", true},
+		{"ambas flags: heartbeat liberado", true, true, "/api/auth/heartbeat", true},
 		{"ambas flags: resto bloqueado", true, true, "/api/users", false},
 
 		{"só TOTP: setup liberado", true, false, "/api/auth/totp/setup", true},

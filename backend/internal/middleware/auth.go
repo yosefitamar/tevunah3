@@ -45,8 +45,15 @@ func SessionFrom(ctx context.Context) *session.Session {
 // SessionCookieName é o nome do cookie HttpOnly de sessão.
 const SessionCookieName = "tevunah_session"
 
+// RefreshCookieFunc reemite o cookie de sessão com o MaxAge cheio. É injetada
+// pelo main (que conhece env/Secure) para manter o cookie deslizante junto com
+// o TTL idle do Redis — sem isso, o cookie morreria no browser no MaxAge fixo
+// emitido no login, derrubando o agente mesmo com a sessão viva no servidor.
+type RefreshCookieFunc func(w http.ResponseWriter, token string)
+
 // RequireAuth lê o token (cookie OU Bearer), valida sessão, refresha TTL e injeta o usuário.
-func RequireAuth(store *session.Store, repo *users.Repo) func(http.Handler) http.Handler {
+// refreshCookie pode ser nil (ex.: testes / clientes Bearer).
+func RequireAuth(store *session.Store, repo *users.Repo, refreshCookie RefreshCookieFunc) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			tok := tokenFrom(r)
@@ -91,6 +98,10 @@ func RequireAuth(store *session.Store, repo *users.Repo) func(http.Handler) http
 				httpx.Error(w, http.StatusInternalServerError, "erro ao renovar sessão")
 				return
 			}
+			// Cookie deslizante: acompanha o TTL renovado acima.
+			if refreshCookie != nil {
+				refreshCookie(w, sess.Token)
+			}
 			// Expõe a nova expiração ao cliente para o timer de sessão na UI.
 			// Calculada a partir do LastSeenAt recém-atualizado por Touch.
 			expiresAt := sess.LastSeenAt.Add(store.TTL())
@@ -105,7 +116,9 @@ func RequireAuth(store *session.Store, repo *users.Repo) func(http.Handler) http
 // e o endpoint de resolução correspondente a cada flag ativa.
 func isPendingCredentialAllowed(u *users.User, path string) bool {
 	switch path {
-	case "/api/auth/me", "/api/auth/logout":
+	case "/api/auth/me", "/api/auth/logout", "/api/auth/heartbeat":
+		// heartbeat entra aqui porque o enrollment de TOTP (escanear QR no
+		// celular) é justamente uma etapa longa sem tráfego de rede.
 		return true
 	case "/api/auth/totp/setup":
 		return u.MustSetupTOTP

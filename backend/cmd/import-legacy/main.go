@@ -480,9 +480,9 @@ func (i *Importer) importSuspects() error {
 		err := i.tx.QueryRowContext(i.ctx, `
 			INSERT INTO app.entities
 			  (kind, name, description, classification, created_by, updated_by)
-			VALUES ('person', $1, $2, 1, $3, $3)
+			VALUES ('person', app.unaccent_txt(upper($1)), $2, 1, $3, $3)
 			RETURNING id`,
-			strings.ToUpper(name), desc, i.sentinelID,
+			name, desc, i.sentinelID,
 		).Scan(&entityID)
 		if err != nil {
 			return fmt.Errorf("entity %d: %w", r.id, err)
@@ -502,14 +502,24 @@ func (i *Importer) importSuspects() error {
 		if _, err := i.tx.ExecContext(i.ctx, `
 			INSERT INTO app.entity_persons
 			  (entity_id, aliases, mother_name, cpf, photo_path)
-			VALUES ($1, $2, $3, $4, $5)`,
+			VALUES ($1,
+			        (SELECT COALESCE(array_agg(app.unaccent_txt(a) ORDER BY ord), '{}')
+			           FROM unnest($2::text[]) WITH ORDINALITY AS t(a, ord)),
+			        app.unaccent_txt($3), $4, $5)`,
 			entityID, aliasArr, nullableUpper(r.mother), normalizeCPF(r.cpf), photoFilename,
 		); err != nil {
 			return fmt.Errorf("entity_persons %d: %w", r.id, err)
 		}
 
-		// Flags is_dead/is_arrested → tags livres.
+		// Flags is_dead/is_arrested → tags livres. is_dead alimenta também a
+		// coluna deceased, que é o que a UI usa para sinalizar óbito.
 		if r.isDead.Bool {
+			if _, err := i.tx.ExecContext(i.ctx,
+				`UPDATE app.entity_persons SET deceased = true WHERE entity_id = $1`,
+				entityID,
+			); err != nil {
+				return fmt.Errorf("entity_persons deceased %d: %w", r.id, err)
+			}
 			if err := i.addTag(entityID, "falecido"); err != nil {
 				return err
 			}

@@ -4939,7 +4939,7 @@ body.session-locked > *:not(.session-overlay-root) {
 
 /* Resumo do recorte ao lado do botão FILTROS: com os campos dentro do modal,
    é o que mantém o recorte corrente visível sem abrir nada. */
-.map-filter-summary {
+.filter-summary {
   font-size: 10px;
   letter-spacing: 0.1em;
   overflow: hidden;
@@ -5036,6 +5036,20 @@ body.session-locked > *:not(.session-overlay-root) {
 }
 .pill.deceased::before { background: #fff; }
 
+/* Nome na listagem de entidades: o selo de óbito acompanha o nome na mesma
+   célula e desce para a linha de baixo quando a coluna aperta. */
+.entity-row-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.entity-row-name .pill.deceased {
+  flex: none;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+}
+
 /* Cabeçalho do dossiê com ação à direita (alternar visualizar/editar). */
 .dossier-head--actions {
   flex-direction: row;
@@ -5080,9 +5094,10 @@ body.session-locked > *:not(.session-overlay-root) {
 .role-tone--victim { color: var(--crit); }
 .role-tone--accused { color: var(--warn); }
 
-/* Busca do mapa: não cresce como a das telas de listagem — divide a toolbar
-   com o botão de filtros, o resumo do recorte e as ações. */
-.map-search {
+/* Busca das telas com botão FILTROS (mapa e ocorrências): não cresce como a
+   das demais listagens — divide a toolbar com o botão, o resumo do recorte e
+   as ações. */
+.toolbar-search--wide {
   flex: 0 1 300px;
   min-width: 180px;
 }

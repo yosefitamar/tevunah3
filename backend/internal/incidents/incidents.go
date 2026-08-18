@@ -146,10 +146,12 @@ type NewIncident struct {
 	Longitude    *float64
 	City         string
 	Neighborhood string
-	Description  string
-	Means        string
-	MeansDetail  string
-	CreatedBy    string
+	// Description é gravada em MAIÚSCULAS, como os demais textos livres do
+	// sistema.
+	Description string
+	Means       string
+	MeansDetail string
+	CreatedBy   string
 }
 
 // UpdateOpts é o input do Update. Campos nil = não tocar.
@@ -193,19 +195,21 @@ type ListOpts struct {
 // searchClause casa o termo contra a própria ocorrência (descrição, ficha
 // CIOPS) e contra quem está vinculado a ela (nome, alcunha e CPF). É o que
 // permite achar um homicídio pela vítima ou pelo acusado, não só pelo texto
-// do relato. `%s` recebe o índice do parâmetro com o termo em minúsculas.
+// do relato. Os campos de texto livre passam por app.norm_txt() dos dois
+// lados, então acento digitado (ou omitido) não muda o resultado.
 func searchClause(termParam, likeParam string) string {
-	return `(` + termParam + ` = '' OR lower(i.description) LIKE ` + likeParam + `
+	norm := `app.norm_txt(` + likeParam + `)`
+	return `(` + termParam + ` = '' OR app.norm_txt(i.description) LIKE ` + norm + `
 	          OR lower(i.ciops_record) LIKE ` + likeParam + `
 	          OR EXISTS (
 	               SELECT 1 FROM app.incident_entities ie
 	               JOIN app.entities e ON e.id = ie.entity_id
 	               LEFT JOIN app.entity_persons p ON p.entity_id = e.id
 	              WHERE ie.incident_id = i.id
-	                AND (lower(e.name) LIKE ` + likeParam + `
+	                AND (app.norm_txt(e.name) LIKE ` + norm + `
 	                     OR lower(COALESCE(p.cpf, '')) LIKE ` + likeParam + `
 	                     OR EXISTS (SELECT 1 FROM unnest(COALESCE(p.aliases, '{}')) al
-	                                 WHERE lower(al) LIKE ` + likeParam + `))
+	                                 WHERE app.norm_txt(al) LIKE ` + norm + `))
 	             ))`
 }
 
@@ -264,7 +268,7 @@ func (r *Repo) Create(ctx context.Context, in NewIncident) (*Incident, error) {
 		strings.TrimSpace(in.CIOPSRecord),
 		nilFloat(in.Latitude), nilFloat(in.Longitude),
 		upperTrim(in.City), upperTrim(in.Neighborhood),
-		strings.TrimSpace(in.Description),
+		upperTrim(in.Description),
 		in.Means, strings.TrimSpace(in.MeansDetail), in.CreatedBy,
 	).Scan(&id)
 	if err != nil {
@@ -577,7 +581,7 @@ func (r *Repo) Update(ctx context.Context, id, updatedBy string, p UpdateOpts) (
 		useTime, timeArg,
 		nilTrimP(p.CIOPSRecord),
 		useLat, latArg, useLng, lngArg,
-		nilTrimP(p.Description), updatedBy, id,
+		nilUpperTrimP(p.Description), updatedBy, id,
 		p.MeansSet, meansArg, p.MeansDetailSet, detailArg,
 		p.CitySet, cityArg, p.NeighborhoodSet, neighborhoodArg,
 	)
@@ -815,6 +819,15 @@ func nilTrimP(p *string) any {
 		return nil
 	}
 	return strings.TrimSpace(*p)
+}
+
+// nilUpperTrimP é nilTrimP com upper: usado nos campos de texto livre que o
+// sistema grava em MAIÚSCULAS.
+func nilUpperTrimP(p *string) any {
+	if p == nil {
+		return nil
+	}
+	return upperTrim(*p)
 }
 
 // upperTrim normaliza campos textuais para MAIÚSCULAS sem espaços nas

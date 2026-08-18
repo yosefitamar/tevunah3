@@ -29,7 +29,7 @@ import {
   vehicleListLabel,
   type EntityKind,
 } from "@/lib/entities-types";
-import { formatBR } from "@/lib/format";
+import { formatBR, formatBRDate } from "@/lib/format";
 import SortHeader, { type SortState } from "../shared/SortHeader";
 import Select from "../shared/Select";
 import CreateEntidadeModal from "./CreateEntidadeModal";
@@ -284,11 +284,28 @@ export default function EntidadesScreen() {
                   >
                     <td className="muted">{ENTITY_KIND_LABEL[e.kind]}</td>
                     <td style={{ color: "var(--fg-0)", fontWeight: 600 }}>
-                      {isVehicle(e)
-                        ? vehicleListLabel(e.attrs, e.name).toUpperCase()
-                        : isPerson(e)
-                          ? personListLabel(e.name, e.attrs?.aliases).toUpperCase()
-                          : e.name.toUpperCase()}
+                      <span className="entity-row-name">
+                        {isVehicle(e)
+                          ? vehicleListLabel(e.attrs, e.name).toUpperCase()
+                          : isPerson(e)
+                            ? personListLabel(e.name, e.attrs?.aliases).toUpperCase()
+                            : e.name.toUpperCase()}
+                        {/* Óbito precisa saltar aos olhos na varredura da lista:
+                            trabalhar um morto como alvo vivo é erro operacional. */}
+                        {isPerson(e) && e.attrs?.deceased && (
+                          <span
+                            className="pill deceased"
+                            title={
+                              e.attrs.deceased_on
+                                ? `Óbito em ${formatBRDate(e.attrs.deceased_on)}`
+                                : "Óbito sem data registrada"
+                            }
+                          >
+                            ÓBITO
+                            {e.attrs.deceased_on ? ` · ${formatBRDate(e.attrs.deceased_on)}` : ""}
+                          </span>
+                        )}
+                      </span>
                     </td>
                     <td>
                       {e.tags.length === 0 ? (

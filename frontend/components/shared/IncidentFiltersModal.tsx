@@ -12,10 +12,12 @@ import {
   type PlaceFacet,
 } from "@/lib/incidents-api";
 import { RANGE_IDS, RANGE_LABEL, type RangeId } from "@/lib/date-ranges";
-import DateInput from "../shared/DateInput";
-import Select from "../shared/Select";
+import DateInput from "./DateInput";
+import Select from "./Select";
 
-export type MapFilters = {
+// Recorte de ocorrências compartilhado pelo mapa do crime e pela listagem —
+// as duas telas leem a mesma base e precisam oferecer os mesmos cortes.
+export type IncidentFilters = {
   range: RangeId;
   from: string; // usados só quando range === "custom"
   to: string;
@@ -26,20 +28,23 @@ export type MapFilters = {
 };
 
 type Props = {
-  value: MapFilters;
-  defaults: MapFilters;
+  /** Título do modal — identifica a tela que abriu ("DO MAPA", "DAS OCORRÊNCIAS"). */
+  title: string;
+  value: IncidentFilters;
+  defaults: IncidentFilters;
   cities: PlaceFacet[];
   neighborhoodsOf: (city: string) => string[];
-  onApply: (f: MapFilters) => void;
+  onApply: (f: IncidentFilters) => void;
   onClose: () => void;
 };
 
 /**
- * Modal com todos os recortes do mapa. O estado é rascunho: só vai para a
- * tela em APLICAR, então mexer nos campos não dispara uma consulta a cada
- * clique — o recorte inteiro viaja de uma vez.
+ * Modal com todos os recortes de ocorrências. O estado é rascunho: só vai
+ * para a tela em APLICAR, então mexer nos campos não dispara uma consulta a
+ * cada clique — o recorte inteiro viaja de uma vez.
  */
-export default function FiltrosModal({
+export default function IncidentFiltersModal({
+  title,
   value,
   defaults,
   cities,
@@ -47,7 +52,7 @@ export default function FiltrosModal({
   onApply,
   onClose,
 }: Props) {
-  const [draft, setDraft] = useState<MapFilters>(value);
+  const [draft, setDraft] = useState<IncidentFilters>(value);
 
   function submit(e: FormEvent) {
     e.preventDefault();
@@ -58,7 +63,7 @@ export default function FiltrosModal({
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 560 }}>
         <div className="modal-hd">
-          <span>FILTROS DO MAPA</span>
+          <span>{title}</span>
           <button type="button" className="action-btn" onClick={onClose} aria-label="Fechar">
             <X size={14} />
           </button>

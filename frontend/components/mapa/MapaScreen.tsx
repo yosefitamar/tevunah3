@@ -22,7 +22,9 @@ import { useNavigation } from "@/contexts/NavigationContext";
 import { formatBRDate } from "@/lib/format";
 import type { ApiError } from "@/lib/api";
 import OcorrenciaDrawer from "../ocorrencias/OcorrenciaDrawer";
-import FiltrosModal, { type MapFilters } from "./FiltrosModal";
+import IncidentFiltersModal, {
+  type IncidentFilters,
+} from "../shared/IncidentFiltersModal";
 
 // O Leaflet acessa `window` já no import — carrega só no cliente.
 const CrimeMap = dynamic(() => import("./CrimeMap"), {
@@ -32,7 +34,7 @@ const CrimeMap = dynamic(() => import("./CrimeMap"), {
   ),
 });
 
-const DEFAULT_FILTERS: MapFilters = {
+const DEFAULT_FILTERS: IncidentFilters = {
   range: "mes_atual",
   from: "",
   to: "",
@@ -45,7 +47,7 @@ const DEFAULT_FILTERS: MapFilters = {
 
 export default function MapaScreen() {
   const { user: me } = useAuth();
-  const [filters, setFilters] = useState<MapFilters>(DEFAULT_FILTERS);
+  const [filters, setFilters] = useState<IncidentFilters>(DEFAULT_FILTERS);
   const [showFilters, setShowFilters] = useState(false);
   // Busca livre: fica fora do modal porque é o gesto mais frequente do
   // analista ("cadê a ocorrência do fulano?") e não um recorte que se
@@ -216,7 +218,7 @@ export default function MapaScreen() {
   return (
     <div className="screen-fill">
       <div className="toolbar">
-        <div className="toolbar-search map-search">
+        <div className="toolbar-search toolbar-search--wide">
           <Search size={14} strokeWidth={1.6} />
           <input
             type="text"
@@ -243,7 +245,7 @@ export default function MapaScreen() {
           <SlidersHorizontal size={13} strokeWidth={1.8} /> FILTROS
           {activeCount > 0 && <span className="btn-count">{activeCount}</span>}
         </button>
-        <span className="muted map-filter-summary" title={filterSummary}>
+        <span className="muted filter-summary" title={filterSummary}>
           {filterSummary}
         </span>
         <div style={{ marginLeft: "auto" }} />
@@ -405,7 +407,8 @@ export default function MapaScreen() {
       </div>
 
       {showFilters && (
-        <FiltrosModal
+        <IncidentFiltersModal
+          title="FILTROS DO MAPA"
           value={filters}
           defaults={DEFAULT_FILTERS}
           cities={cities}

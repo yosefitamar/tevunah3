@@ -94,6 +94,9 @@ func TestSmoke_MeansAndGeo(t *testing.T) {
 	if created.City != "FORTALEZA" || created.Neighborhood != "CENTRO" {
 		t.Errorf("local não normalizado: (%q, %q)", created.City, created.Neighborhood)
 	}
+	if created.Description != "SMOKE TEST" {
+		t.Errorf("descrição não normalizada pra MAIÚSCULAS: %q", created.Description)
+	}
 
 	// Meio inválido é rejeitado antes de chegar ao CHECK do banco.
 	if _, err := r.Create(ctx, NewIncident{
@@ -124,6 +127,24 @@ func TestSmoke_MeansAndGeo(t *testing.T) {
 	}
 	if upd.Means != MeansOutros || upd.MeansDetail != detail {
 		t.Errorf("means perdido em patch alheio: (%q, %q)", upd.Means, upd.MeansDetail)
+	}
+	if upd.Description != "SMOKE TEST — DESCRIÇÃO NOVA" {
+		t.Errorf("descrição do update não normalizada: %q", upd.Description)
+	}
+
+	// Busca insensível a acento: o termo sem acento acha a descrição com.
+	semAcento, err := r.List(ctx, ListOpts{Search: "descricao nova"})
+	if err != nil {
+		t.Fatalf("list busca sem acento: %v", err)
+	}
+	achou := false
+	for _, it := range semAcento.Items {
+		if it.ID == created.ID {
+			achou = true
+		}
+	}
+	if !achou {
+		t.Errorf("busca sem acento não achou a ocorrência de descrição acentuada")
 	}
 
 	empty := ""

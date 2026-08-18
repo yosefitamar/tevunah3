@@ -61,6 +61,7 @@ import {
   listEntities,
   listEntityLinks,
   listPersonAddresses,
+  markEntityDeath,
   photoURL,
   updateEntity,
   updatePersonAddress,
@@ -572,6 +573,13 @@ function EditMode({
   });
   const [cpf, setCpf] = useState(person?.cpf ?? "");
   const [orcrimId, setOrcrimId] = useState(person?.orcrim_id ?? "");
+  // Data do óbito: campo opcional, preenchido à mão quando não há ocorrência
+  // cadastrada. Vincular a pessoa como VÍTIMA de um homicídio preenche este
+  // mesmo campo automaticamente com a data do fato.
+  const [deceasedOn, setDeceasedOn] = useState(person?.deceased_on ?? "");
+  const deceasedOnOriginal = person?.deceased_on ?? "";
+  const wasDeceased = person?.deceased === true;
+  const deathFromIncident = Boolean(person?.death_incident_id);
   // Organization
   const [orgSigla, setOrgSigla] = useState(org?.aliases?.[0] ?? "");
   const [legalName, setLegalName] = useState(org?.legal_name ?? "");
@@ -702,6 +710,33 @@ function EditMode({
             : undefined,
       };
       const res = await updateEntity(data.id, payload);
+      let saved = res.entity;
+
+      // Pessoa: sincroniza o óbito a partir do campo "data do óbito". O
+      // endpoint dedicado (e não o payload do update) porque a marcação tem
+      // auditoria própria — matar alguém no acervo não é uma edição comum.
+      if (data.kind === "person" && deceasedOn !== deceasedOnOriginal) {
+        try {
+          if (deceasedOn) {
+            saved = (await markEntityDeath(data.id, deceasedOn)).entity;
+          } else if (wasDeceased && deathFromIncident) {
+            // A data veio do homicídio vinculado: apagá-la deixaria o óbito
+            // marcado e sem origem. Reverter a marcação é ação explícita.
+            setDeceasedOn(deceasedOnOriginal);
+            setErr(
+              "A data do óbito veio da ocorrência vinculada e foi mantida. Use DESFAZER ÓBITO para reverter a marcação.",
+            );
+          } else if (wasDeceased) {
+            saved = (await clearEntityDeath(data.id)).entity;
+          }
+        } catch (deathErr) {
+          setErr(
+            "Entidade salva, mas o óbito não foi sincronizado: " +
+              ((deathErr as ApiError).message ?? "erro desconhecido"),
+          );
+        }
+      }
+
       // Pessoa: aplica diff do pareamento de mãe. Se mudou em relação ao
       // estado original, remove o vínculo antigo e cria o novo. A cascata
       // de irmandade roda no backend ao inserir o mother_of.
@@ -731,7 +766,7 @@ function EditMode({
           }
         }
       }
-      onSaved(res.entity);
+      onSaved(saved);
     } catch (e) {
       const apiErr = e as ApiError;
       if (apiErr.status === 409) {
@@ -834,6 +869,17 @@ function EditMode({
                 maxLength={14}
               />
             </label>
+            <div className="form-field" style={{ gridColumn: "1 / -1" }}>
+              <span>DATA DO ÓBITO (OPCIONAL)</span>
+              <DateInput value={deceasedOn} onChange={setDeceasedOn} />
+              <small className="muted">
+                {deathFromIncident
+                  ? "// PREENCHIDA PELA OCORRÊNCIA DE HOMICÍDIO VINCULADA"
+                  : wasDeceased && !deceasedOnOriginal
+                    ? "// ÓBITO MARCADO SEM DATA — INFORME SE SOUBER"
+                    : "// PREENCHER MARCA A PESSOA COMO ÓBITO EM TODO O SISTEMA"}
+              </small>
+            </div>
           </div>
           <label className="form-field">
             <span>APELIDOS</span>

@@ -24,6 +24,7 @@ import {
   createPersonAddress,
   findPersonDuplicates,
   listEntities,
+  markEntityDeath,
   uploadEntityPhoto,
   uploadGalleryPhoto,
   type AddressPayload,
@@ -99,6 +100,7 @@ export default function CreateEntidadeModal({ onClose, onCreated, initialKind }:
   const [gender, setGender] = useState<Gender | "">("");
   const [dob, setDob] = useState("");
   const [cpf, setCpf] = useState("");
+  const [deceasedOn, setDeceasedOn] = useState("");
   const [orcrimId, setOrcrimId] = useState("");
 
   // Organization
@@ -365,6 +367,19 @@ export default function CreateEntidadeModal({ onClose, onCreated, initialKind }:
           );
         }
       }
+      // Pessoa: óbito informado à mão. Endpoint dedicado (auditoria própria),
+      // aplicado depois da criação porque depende do id gerado.
+      if (kind === "person" && deceasedOn) {
+        try {
+          await markEntityDeath(res.entity.id, deceasedOn);
+        } catch (e) {
+          setErr(
+            "Pessoa criada, mas o óbito não foi registrado: " +
+              ((e as ApiError).message ?? "erro desconhecido"),
+          );
+        }
+      }
+
       // Pessoa: persiste endereços pendentes (linhas vazias são ignoradas).
       if (kind === "person" && pendingAddresses.length > 0) {
         const failures: string[] = [];
@@ -587,6 +602,8 @@ export default function CreateEntidadeModal({ onClose, onCreated, initialKind }:
                       setDob={setDob}
                       cpf={cpf}
                       setCpf={setCpf}
+                      deceasedOn={deceasedOn}
+                      setDeceasedOn={setDeceasedOn}
                       orcrimId={orcrimId}
                       setOrcrimId={setOrcrimId}
                     />
@@ -826,6 +843,8 @@ function PersonFields(props: {
   setDob: (v: string) => void;
   cpf: string;
   setCpf: (v: string) => void;
+  deceasedOn: string;
+  setDeceasedOn: (v: string) => void;
   orcrimId: string;
   setOrcrimId: (v: string) => void;
 }) {
@@ -874,6 +893,15 @@ function PersonFields(props: {
         <span>APELIDOS</span>
         <TagInput value={props.aliases} onChange={props.setAliases} />
       </label>
+
+      {/* Óbito conhecido sem ocorrência cadastrada. Quando a pessoa é
+          vinculada como VÍTIMA de um homicídio, este campo é preenchido
+          automaticamente com a data do fato. */}
+      <div className="form-field">
+        <span>DATA DO ÓBITO (OPCIONAL)</span>
+        <DateInput value={props.deceasedOn} onChange={props.setDeceasedOn} />
+        <small className="muted">// PREENCHER MARCA A PESSOA COMO ÓBITO</small>
+      </div>
 
       <OrcrimSelect value={props.orcrimId} onChange={props.setOrcrimId} />
     </fieldset>

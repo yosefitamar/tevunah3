@@ -1,47 +1,54 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { MapPin, Plus, Search, ShieldAlert, Users } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { MapPin, Plus, Search, ShieldAlert, SlidersHorizontal, Users, X } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import {
-  INCIDENT_MEANS,
   INCIDENT_MEANS_LABEL,
   INCIDENT_MEANS_SHORT,
   INCIDENT_TYPE_LABEL,
   INCIDENT_TYPE_PILL,
-  INCIDENT_TYPES,
   listIncidents,
   type Incident,
-  type IncidentMeans,
-  type IncidentType,
   type IncidentsList,
 } from "@/lib/incidents-api";
 import { canCreateIncidents, canReadIncidents } from "@/lib/permissions";
 import { useIncidentLocations } from "@/lib/useIncidentLocations";
+import { RANGE_LABEL, resolveRange } from "@/lib/date-ranges";
 import { formatBR, formatBRDate } from "@/lib/format";
 import type { ApiError } from "@/lib/api";
 import SortHeader, { type SortState } from "../shared/SortHeader";
-import Select from "../shared/Select";
+import IncidentFiltersModal, {
+  type IncidentFilters,
+} from "../shared/IncidentFiltersModal";
 import CreateOcorrenciaModal from "./CreateOcorrenciaModal";
 import OcorrenciaDrawer from "./OcorrenciaDrawer";
 
 const PAGE_SIZE = 25;
 
-type Filters = {
-  type: "" | IncidentType;
-  means: IncidentMeans;
-  city: string;
-  search: string;
+// A listagem é o acervo inteiro: nasce sem recorte nenhum. (O mapa parte de
+// CVLI no mês atual porque é uma leitura territorial, não um índice.)
+const DEFAULT_FILTERS: IncidentFilters = {
+  range: "tudo",
+  from: "",
+  to: "",
+  type: "",
+  means: "",
+  city: "",
+  neighborhood: "",
 };
-
-const EMPTY_FILTERS: Filters = { type: "", means: "", city: "", search: "" };
 
 export default function OcorrenciasScreen() {
   const { user: me } = useAuth();
   const [data, setData] = useState<IncidentsList | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
+  const [filters, setFilters] = useState<IncidentFilters>(DEFAULT_FILTERS);
+  const [showFilters, setShowFilters] = useState(false);
+  // Busca livre fica fora do modal: é o gesto mais frequente ("cadê a
+  // ocorrência do fulano?"), não um recorte que se configura uma vez.
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [page, setPage] = useState(0);
   const [sort, setSort] = useState<SortState>({ field: "occurred_on", dir: "desc" });
   const [showCreate, setShowCreate] = useState(false);
@@ -49,7 +56,17 @@ export default function OcorrenciasScreen() {
 
   const canRead = canReadIncidents(me);
   const canCreate = canCreateIncidents(me);
-  const { cities } = useIncidentLocations();
+  const { cities, neighborhoodsOf } = useIncidentLocations();
+
+  useEffect(() => {
+    const h = window.setTimeout(() => setDebouncedSearch(search.trim()), 350);
+    return () => window.clearTimeout(h);
+  }, [search]);
+
+  const period = useMemo(() => {
+    if (filters.range === "custom") return { from: filters.from, to: filters.to };
+    return resolveRange(filters.range);
+  }, [filters.range, filters.from, filters.to]);
 
   const reload = useCallback(async () => {
     if (!canRead) return;
@@ -62,7 +79,10 @@ export default function OcorrenciasScreen() {
         type: filters.type || undefined,
         means: filters.means || undefined,
         city: filters.city || undefined,
-        search: filters.search.trim() || undefined,
+        neighborhood: filters.neighborhood || undefined,
+        date_from: period.from || undefined,
+        date_to: period.to || undefined,
+        search: debouncedSearch || undefined,
         sort_by: (sort?.field as "occurred_on" | "type" | "created_at" | "updated_at") || undefined,
         sort_dir: sort?.dir,
       });
@@ -72,11 +92,51 @@ export default function OcorrenciasScreen() {
     } finally {
       setLoading(false);
     }
-  }, [canRead, filters, page, sort]);
+  }, [
+    canRead,
+    filters.type,
+    filters.means,
+    filters.city,
+    filters.neighborhood,
+    period.from,
+    period.to,
+    debouncedSearch,
+    page,
+    sort,
+  ]);
 
   useEffect(() => {
     reload();
   }, [reload]);
+
+  // Badge do botão: quantos recortes fogem do padrão da tela — casa com o
+  // "LIMPAR" do modal, que restaura exatamente esse padrão.
+  const activeCount = useMemo(() => {
+    let n = 0;
+    if (filters.range !== DEFAULT_FILTERS.range) n++;
+    if (filters.type !== DEFAULT_FILTERS.type) n++;
+    if (filters.means) n++;
+    if (filters.city) n++;
+    if (filters.neighborhood) n++;
+    return n;
+  }, [filters]);
+
+  // Resumo ao lado do botão: com os campos dentro do modal, o recorte
+  // corrente precisa continuar visível sem abrir nada.
+  const filterSummary = useMemo(() => {
+    const parts = [
+      filters.range === "custom"
+        ? `${filters.from ? formatBRDate(filters.from) : "…"} → ${
+            filters.to ? formatBRDate(filters.to) : "…"
+          }`
+        : RANGE_LABEL[filters.range],
+      filters.type ? INCIDENT_TYPE_LABEL[filters.type] : "TODOS OS TIPOS",
+    ];
+    if (filters.means) parts.push(INCIDENT_MEANS_LABEL[filters.means]);
+    if (filters.city) parts.push(filters.city);
+    if (filters.neighborhood) parts.push(filters.neighborhood);
+    return parts.join(" · ");
+  }, [filters]);
 
   if (!canRead) {
     return (
@@ -96,60 +156,44 @@ export default function OcorrenciasScreen() {
   return (
     <div className="screen-fill">
       <div className="toolbar">
-        <div className="toolbar-search">
+        <div className="toolbar-search toolbar-search--wide">
           <Search size={14} strokeWidth={1.6} />
           <input
             type="text"
-            value={filters.search}
+            value={search}
             onChange={(e) => {
-              setFilters({ ...filters, search: e.target.value });
+              // A página 3 do recorte anterior não existe mais depois que o
+              // termo muda.
+              setSearch(e.target.value);
               setPage(0);
             }}
-            placeholder="buscar por descrição ou ficha CIOPS…"
+            placeholder="buscar por nome, CPF, descrição ou ficha CIOPS…"
           />
+          {search && (
+            <button
+              type="button"
+              className="action-btn"
+              onClick={() => {
+                setSearch("");
+                setPage(0);
+              }}
+              aria-label="Limpar busca"
+            >
+              <X size={12} />
+            </button>
+          )}
         </div>
-        <Select
-          value={filters.type}
-          onChange={(v) => {
-            setFilters({ ...filters, type: v as "" | IncidentType });
-            setPage(0);
-          }}
-          className="sel--toolbar"
-          placeholder="TIPO · TODOS"
-          options={[
-            { value: "", label: "TIPO · TODOS" },
-            ...INCIDENT_TYPES.map((t) => ({ value: t, label: `TIPO · ${INCIDENT_TYPE_LABEL[t]}` })),
-          ]}
-        />
-        <Select
-          value={filters.means}
-          onChange={(v) => {
-            setFilters({ ...filters, means: v as IncidentMeans });
-            setPage(0);
-          }}
-          className="sel--toolbar"
-          placeholder="MEIO · TODOS"
-          options={[
-            { value: "", label: "MEIO · TODOS" },
-            ...INCIDENT_MEANS.map((m) => ({ value: m, label: `MEIO · ${INCIDENT_MEANS_SHORT[m]}` })),
-          ]}
-        />
-        <Select
-          value={filters.city}
-          onChange={(v) => {
-            setFilters({ ...filters, city: v });
-            setPage(0);
-          }}
-          className="sel--toolbar"
-          placeholder="MUNICÍPIO · TODOS"
-          options={[
-            { value: "", label: "MUNICÍPIO · TODOS" },
-            ...cities.map((c) => ({
-              value: c.city,
-              label: `${c.city} (${c.count})`,
-            })),
-          ]}
-        />
+        <button
+          type="button"
+          className={"btn" + (activeCount > 0 ? " btn-primary" : "")}
+          onClick={() => setShowFilters(true)}
+        >
+          <SlidersHorizontal size={13} strokeWidth={1.8} /> FILTROS
+          {activeCount > 0 && <span className="btn-count">{activeCount}</span>}
+        </button>
+        <span className="muted filter-summary" title={filterSummary}>
+          {filterSummary}
+        </span>
         <div style={{ marginLeft: "auto" }} />
         {canCreate && (
           <button type="button" className="btn btn-primary" onClick={() => setShowCreate(true)}>
@@ -221,6 +265,22 @@ export default function OcorrenciasScreen() {
           </div>
         </div>
       </div>
+
+      {showFilters && (
+        <IncidentFiltersModal
+          title="FILTROS DAS OCORRÊNCIAS"
+          value={filters}
+          defaults={DEFAULT_FILTERS}
+          cities={cities}
+          neighborhoodsOf={neighborhoodsOf}
+          onApply={(f) => {
+            setFilters(f);
+            setPage(0);
+            setShowFilters(false);
+          }}
+          onClose={() => setShowFilters(false)}
+        />
+      )}
 
       {showCreate && (
         <CreateOcorrenciaModal

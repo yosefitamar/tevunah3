@@ -182,7 +182,7 @@ type ListOpts struct {
 	Kind           Kind   // vazio = todos
 	Classification int    // 0 = todos, 1..4 filtra exato
 	Tag            string // vazio = todos
-	Search         string // ILIKE em lower(name)
+	Search         string // LIKE em name/alcunha/CPF, insensível a caixa e acento
 	SortBy         string // "name"|"kind"|"classification"|"created_at"|"updated_at"
 	SortDir        string // "asc"|"desc"; default "asc"
 	MaxClearance   int    // 1..5; oculta registros com classification > MaxClearance
@@ -254,7 +254,7 @@ func (r *Repo) Create(ctx context.Context, in NewEntity, createdBy string) (*Ent
 		  (kind, name, description, classification, created_by, updated_by)
 		VALUES ($1, $2, $3, $4, $5, $5)
 		RETURNING id`,
-		string(in.Kind), upperTrim(in.Name), nullableString(upperTrim(in.Description)),
+		string(in.Kind), entityName(in.Kind, in.Name), nullableString(upperTrim(in.Description)),
 		in.Classification, createdBy,
 	).Scan(&id)
 	if err != nil {
@@ -341,11 +341,12 @@ func (r *Repo) List(ctx context.Context, opts ListOpts) (*ListResult, error) {
 		   AND ($3 = 0  OR e.classification = $3)
 		   AND ($4 = '' OR EXISTS (SELECT 1 FROM app.entity_tags t
 		                            WHERE t.entity_id = e.id AND t.tag = $4))
-		   AND ($5 = '' OR lower(e.name) LIKE $6
+		   AND ($5 = '' OR app.norm_txt(e.name) LIKE app.norm_txt($6)
 		        OR EXISTS (SELECT 1 FROM app.entity_persons p
 		                    WHERE p.entity_id = e.id
 		                      AND (lower(COALESCE(p.cpf, '')) LIKE $6
-		                           OR EXISTS (SELECT 1 FROM unnest(p.aliases) al WHERE lower(al) LIKE $6))))`,
+		                           OR EXISTS (SELECT 1 FROM unnest(p.aliases) al
+		                                       WHERE app.norm_txt(al) LIKE app.norm_txt($6)))))`,
 		opts.MaxClearance, string(opts.Kind), opts.Classification,
 		strings.ToLower(opts.Tag), strings.TrimSpace(opts.Search), search,
 	).Scan(&total)
@@ -377,7 +378,7 @@ func (r *Repo) List(ctx context.Context, opts ListOpts) (*ListResult, error) {
 		       v.plate, v.category, v.brand, v.model, v.color, v.photo_path,
 		       COALESCE(to_jsonb(p.aliases), 'null'::jsonb) AS person_aliases_json,
 		       p.gender, p.date_of_birth, p.mother_name, p.cpf, p.photo_path,
-		       COALESCE(p.deceased, false)
+		       COALESCE(p.deceased, false), p.deceased_on
 		  FROM app.entities e
 		  LEFT JOIN app.entity_persons p ON p.entity_id = e.id
 		  LEFT JOIN app.entity_organizations o ON o.entity_id = e.id
@@ -388,11 +389,12 @@ func (r *Repo) List(ctx context.Context, opts ListOpts) (*ListResult, error) {
 		   AND ($3 = 0  OR e.classification = $3)
 		   AND ($4 = '' OR EXISTS (SELECT 1 FROM app.entity_tags t
 		                            WHERE t.entity_id = e.id AND t.tag = $4))
-		   AND ($5 = '' OR lower(e.name) LIKE $6
+		   AND ($5 = '' OR app.norm_txt(e.name) LIKE app.norm_txt($6)
 		        OR EXISTS (SELECT 1 FROM app.entity_persons p2
 		                    WHERE p2.entity_id = e.id
 		                      AND (lower(COALESCE(p2.cpf, '')) LIKE $6
-		                           OR EXISTS (SELECT 1 FROM unnest(p2.aliases) al WHERE lower(al) LIKE $6))))
+		                           OR EXISTS (SELECT 1 FROM unnest(p2.aliases) al
+		                                       WHERE app.norm_txt(al) LIKE app.norm_txt($6)))))
 		 ORDER BY `+col+` `+dir+`, e.name ASC
 		 LIMIT $7 OFFSET $8`,
 		opts.MaxClearance, string(opts.Kind), opts.Classification,
@@ -415,7 +417,7 @@ func (r *Repo) List(ctx context.Context, opts ListOpts) (*ListResult, error) {
 		var vehiclePlate, vehicleCategory, vehicleBrand, vehicleModel, vehicleColor, vehiclePhotoPath sql.NullString
 		var personAliasesJSON []byte
 		var personGender, personMother, personCPF, personPhotoPath sql.NullString
-		var personDOB sql.NullTime
+		var personDOB, personDeceasedOn sql.NullTime
 		var personDeceased bool
 		if err := rows.Scan(
 			&e.ID, &kind, &e.Name, &description, &e.Classification, &e.Version,
@@ -423,7 +425,7 @@ func (r *Repo) List(ctx context.Context, opts ListOpts) (*ListResult, error) {
 			&deletedAt, &deletedBy, &tagsCSV, &orgAliasesJSON,
 			&vehiclePlate, &vehicleCategory, &vehicleBrand, &vehicleModel, &vehicleColor, &vehiclePhotoPath,
 			&personAliasesJSON, &personGender, &personDOB, &personMother, &personCPF, &personPhotoPath,
-			&personDeceased,
+			&personDeceased, &personDeceasedOn,
 		); err != nil {
 			return nil, err
 		}
@@ -491,8 +493,13 @@ func (r *Repo) List(ctx context.Context, opts ListOpts) (*ListResult, error) {
 				s := personPhotoPath.String
 				pa.PhotoPath = &s
 			}
-			// A listagem precisa do óbito para aplicar a tarja na miniatura.
+			// A listagem precisa do óbito (e da data) para sinalizar o falecido
+			// na linha, sem abrir o dossiê.
 			pa.Deceased = personDeceased
+			if personDeceasedOn.Valid {
+				t := personDeceasedOn.Time
+				pa.DeceasedOn = &t
+			}
 			e.Person = pa
 		}
 		items = append(items, e)
@@ -568,7 +575,7 @@ func (r *Repo) Update(ctx context.Context, id string, expectedVersion int, p Pat
 		       updated_at     = now(),
 		       updated_by     = $4
 		 WHERE id = $5 AND version = $6 AND deleted_at IS NULL`,
-		nullableTrimmedString(upperTrimPtr(p.Name)), nullableStringPtr(upperTrimPtr(p.Description)),
+		nullableTrimmedString(entityNamePtr(before.Kind, p.Name)), nullableStringPtr(upperTrimPtr(p.Description)),
 		nullableInt(p.Classification), updatedBy, id, expectedVersion,
 	)
 	if err != nil {
@@ -774,6 +781,10 @@ var ErrNotPerson = errors.New("entidade não é uma pessoa")
 // registrado sem ocorrência vinculada). Idempotente: marcar de novo só
 // atualiza a origem.
 //
+// incidentID nil PRESERVA a ocorrência já registrada: corrigir a data do
+// óbito à mão (campo "data do óbito" do cadastro) não pode apagar o vínculo
+// com o homicídio que a originou.
+//
 // Não bumpa `version` da entidade: óbito não é edição de conteúdo do
 // dossiê e não deve invalidar a edição aberta de outro agente.
 func (r *Repo) MarkDeceased(ctx context.Context, entityID string, incidentID *string, occurredOn *time.Time, actor string) (*Entity, error) {
@@ -791,7 +802,7 @@ func (r *Repo) MarkDeceased(ctx context.Context, entityID string, incidentID *st
 		UPDATE app.entity_persons
 		   SET deceased = true,
 		       deceased_on = $2,
-		       death_incident_id = $3
+		       death_incident_id = COALESCE($3, death_incident_id)
 		 WHERE entity_id = $1`,
 		entityID, nilTime(occurredOn), nilUUID(incidentID),
 	); err != nil {
@@ -914,22 +925,23 @@ func (r *Repo) FindPersonDuplicates(ctx context.Context, q DuplicatesQuery) (*Du
 		}
 	}
 
-	// 2) Homônimos por nome (case-insensitive). Sem nome, não busca.
+	// 2) Homônimos por nome (insensível a caixa e a acento — "JOSÉ" e "JOSE"
+	// são o mesmo indivíduo para efeito de homônimo). Sem nome, não busca.
 	name := strings.TrimSpace(q.Name)
 	if name == "" {
 		return out, nil
 	}
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT e.id, e.name, p.mother_name, p.date_of_birth,
-		       (CASE WHEN lower(e.name) = lower($1) THEN 1 ELSE 0 END)
-		     + (CASE WHEN $2 <> '' AND lower(coalesce(p.mother_name,'')) = lower($2) THEN 1 ELSE 0 END)
+		       (CASE WHEN app.norm_txt(e.name) = app.norm_txt($1) THEN 1 ELSE 0 END)
+		     + (CASE WHEN $2 <> '' AND app.norm_txt(coalesce(p.mother_name,'')) = app.norm_txt($2) THEN 1 ELSE 0 END)
 		     + (CASE WHEN $3::date IS NOT NULL AND p.date_of_birth = $3::date THEN 1 ELSE 0 END) AS score
 		  FROM app.entity_persons p
 		  JOIN app.entities e ON e.id = p.entity_id
 		 WHERE e.kind = 'person'
 		   AND e.deleted_at IS NULL
 		   AND e.classification <= $4
-		   AND lower(e.name) = lower($1)
+		   AND app.norm_txt(e.name) = app.norm_txt($1)
 		   AND ($5::uuid IS NULL OR e.id <> $5::uuid)
 		 ORDER BY score DESC, e.name
 		 LIMIT 20`,
@@ -953,7 +965,7 @@ func (r *Repo) FindPersonDuplicates(ctx context.Context, q DuplicatesQuery) (*Du
 		// Reconstroi quais campos casaram (para a UI explicar o score).
 		d.MatchedFields = []string{"name"}
 		if q.MotherName != "" && d.MotherName != nil &&
-			strings.EqualFold(strings.TrimSpace(*d.MotherName), strings.TrimSpace(q.MotherName)) {
+			sameNormalized(*d.MotherName, q.MotherName) {
 			d.MatchedFields = append(d.MatchedFields, "mother_name")
 		}
 		if q.DateOfBirth != "" && d.DateOfBirth != nil &&
@@ -1216,8 +1228,8 @@ func insertChild(ctx context.Context, tx *sql.Tx, id string, k Kind, p *PersonAt
 			  (entity_id, aliases, gender, date_of_birth,
 			   mother_name, cpf, photo_path, orcrim_id)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-			id, upperTrimSlice(p.Aliases), nilStr(p.Gender), nilTime(p.DateOfBirth),
-			nilStr(upperTrimPtr(p.MotherName)), nilStr(p.CPF), nilStr(p.PhotoPath), nilUUID(p.OrcrimID),
+			id, personTextSlice(p.Aliases), nilStr(p.Gender), nilTime(p.DateOfBirth),
+			nilStr(personTextPtr(p.MotherName)), nilStr(p.CPF), nilStr(p.PhotoPath), nilUUID(p.OrcrimID),
 		)
 		return err
 	case KindOrganization:
@@ -1381,8 +1393,8 @@ func updateChild(ctx context.Context, tx *sql.Tx, id string, k Kind, p Patch) er
 			  cpf           = COALESCE($5, cpf),
 			  orcrim_id     = COALESCE($6, orcrim_id)
 			WHERE entity_id = $7`,
-			nilAliases(upperTrimSlice(a.Aliases)), nilStr(a.Gender), nilTime(a.DateOfBirth),
-			nilStr(upperTrimPtr(a.MotherName)), nilStr(a.CPF), nilUUID(a.OrcrimID),
+			nilAliases(personTextSlice(a.Aliases)), nilStr(a.Gender), nilTime(a.DateOfBirth),
+			nilStr(personTextPtr(a.MotherName)), nilStr(a.CPF), nilUUID(a.OrcrimID),
 			id,
 		)
 		return err

@@ -222,6 +222,72 @@ export type NewIncidentInput = {
   involved?: NewInvolvedInput[];
 };
 
+// ─── Importação de relatório (grupo operacional) ──────────────────────
+//
+// O relatório de CVLI que circula nos grupos é rotulado (NATUREZA:, DATA:,
+// ENDEREÇO:) e o backend o lê deterministicamente. O retorno é SUGESTÃO para
+// o formulário — nada é gravado no parse.
+
+/** Homônimo já cadastrado que pode ser a pessoa citada no relatório. */
+export type ParsedPersonMatch = {
+  id: string;
+  name: string;
+  mother_name?: string;
+  date_of_birth?: string;
+  /** 1..3 — quantos critérios casaram (nome, mãe, nascimento). */
+  score: number;
+  matched_fields: string[];
+};
+
+export type ParsedPerson = {
+  name: string;
+  mother_name?: string;
+  date_of_birth?: string;
+  cpf?: string;
+  alias?: string;
+  /**
+   * VÍTIMA | ACUSADO, conforme a seção em que a pessoa foi citada. Vem VAZIO
+   * quando o papel não pôde ser deduzido com segurança — sobrevivente de
+   * CVLI ou tentativa de homicídio — porque VÍTIMA registra óbito no acervo.
+   */
+  role: string;
+  /** "obito" | "vivo" | "" — o que o relatório declarou sobre a pessoa. */
+  status?: string;
+  /** Endereço, antecedentes e afins: viram descrição do dossiê no cadastro. */
+  notes?: string;
+  matches: ParsedPersonMatch[];
+};
+
+export type ParsedReport = {
+  type: IncidentType | "";
+  means: IncidentMeans;
+  means_detail: string;
+  occurred_on: string;
+  occurred_time: string;
+  ciops_record: string;
+  city: string;
+  neighborhood: string;
+  description: string;
+  maps_url?: string;
+  latitude?: number;
+  longitude?: number;
+  people: ParsedPerson[];
+  /** Dado presente no texto que o cadastro não comporta, ou leitura parcial. */
+  warnings: string[];
+};
+
+/**
+ * Extrai os campos da ocorrência a partir do relatório colado.
+ * `resolveLink: false` impede o servidor de seguir o link do Google Maps
+ * (nenhuma requisição externa parte da agência).
+ */
+export function parseIncidentReport(text: string, resolveLink = true) {
+  return api<{ parsed: ParsedReport }>(`/api/incidents/parse`, {
+    method: "POST",
+    body: JSON.stringify({ text, resolve_link: resolveLink }),
+  });
+}
+
 export function createIncident(input: NewIncidentInput) {
   return api<{ incident: Incident }>(`/api/incidents`, {
     method: "POST",

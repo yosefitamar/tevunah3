@@ -60,6 +60,19 @@ func (a *app) requirePerm(w http.ResponseWriter, r *http.Request, action string)
 	return true
 }
 
+// hasPerm responde se a ação é permitida sem escrever nada na resposta. Serve
+// a enriquecimentos opcionais — onde a falta de permissão degrada o resultado
+// em vez de recusar a requisição inteira.
+func (a *app) hasPerm(r *http.Request, action string) bool {
+	me := middleware.UserFrom(r.Context())
+	d, err := a.policy.Can(r.Context(), me.Roles, action)
+	if err != nil {
+		log.Printf("policy: %v", err)
+		return false
+	}
+	return d.Allowed && !d.RequiresDualApproval
+}
+
 // ─────────────────────────── GET /api/users ────────────────────────────
 
 func (a *app) handleUsersList(w http.ResponseWriter, r *http.Request) {

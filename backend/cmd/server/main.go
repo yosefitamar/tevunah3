@@ -201,6 +201,7 @@ func main() {
 	mux.Handle("POST /api/entities/{id}/death", auth(http.HandlerFunc(a.handleEntityDeathMark)))
 	mux.Handle("DELETE /api/entities/{id}/death", auth(http.HandlerFunc(a.handleEntityDeathClear)))
 	mux.Handle("POST /api/incidents", auth(http.HandlerFunc(a.handleIncidentCreate)))
+	mux.Handle("POST /api/incidents/parse", auth(http.HandlerFunc(a.handleIncidentParseReport)))
 	mux.Handle("GET /api/incidents/{id}", auth(http.HandlerFunc(a.handleIncidentDetail)))
 	mux.Handle("PATCH /api/incidents/{id}", auth(http.HandlerFunc(a.handleIncidentUpdate)))
 	mux.Handle("DELETE /api/incidents/{id}", auth(http.HandlerFunc(a.handleIncidentDelete)))

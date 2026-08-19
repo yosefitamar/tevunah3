@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Plus, Search } from "lucide-react";
-import { listEntities, photoURL } from "@/lib/entities-api";
+import { createPortal } from "react-dom";
+import { Plus, Search, UserPlus } from "lucide-react";
+import { getEntity, listEntities, photoURL } from "@/lib/entities-api";
+import CreateEntidadeModal from "../entidades/CreateEntidadeModal";
 import type { Entity, PersonAttrs } from "@/lib/entities-types";
 import { INVOLVED_ROLES } from "@/lib/incidents-api";
 import type { ApiError } from "@/lib/api";
@@ -27,6 +29,15 @@ type Props = {
   disabled?: boolean;
 };
 
+/** Dados que o relatório já trouxe, para abrir o cadastro preenchido. */
+export type NewPersonSeed = {
+  name?: string;
+  motherName?: string;
+  dateOfBirth?: string;
+  alias?: string;
+  description?: string;
+};
+
 /**
  * Busca no banco de entidades e adiciona um envolvido à ocorrência.
  * O papel (AUTOR/VÍTIMA/etc.) é texto livre com sugestões. Reusado no modal
@@ -38,6 +49,9 @@ export default function InvolvedPicker({ exclude, onPick, disabled }: Props) {
   const [results, setResults] = useState<Entity[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Cadastro inline: a vítima de um CVLI quase nunca tem dossiê prévio, e
+  // mandar o analista para outra tela perderia o formulário preenchido.
+  const [newOpen, setNewOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -65,6 +79,28 @@ export default function InvolvedPicker({ exclude, onPick, disabled }: Props) {
 
   const excludeSet = new Set(exclude);
   const visible = results.filter((e) => !excludeSet.has(e.id));
+
+  /** Vincula a pessoa recém-cadastrada, já com o papel escolhido. */
+  async function pickCreated(id: string) {
+    setNewOpen(false);
+    try {
+      const r = await getEntity(id);
+      onPick(
+        {
+          id: r.entity.id,
+          name: r.entity.name,
+          kind: r.entity.kind,
+          version: r.entity.version,
+          attrs: (r.entity.attrs ?? undefined) as PersonAttrs | undefined,
+        },
+        role.trim(),
+      );
+      setQ("");
+      setResults([]);
+    } catch (e) {
+      setError((e as ApiError).message || "Cadastro feito, mas o vínculo falhou");
+    }
+  }
 
   function pick(e: Entity) {
     if (!role) return;
@@ -138,6 +174,19 @@ export default function InvolvedPicker({ exclude, onPick, disabled }: Props) {
             // NENHUM RESULTADO
           </div>
         )}
+        {!loading && q.trim() && visible.length === 0 && (
+          <button
+            type="button"
+            className="btn btn-ghost"
+            style={{ alignSelf: "flex-start", marginTop: 4 }}
+            disabled={!role}
+            title={role ? undefined : "Escolha o papel antes de cadastrar"}
+            onClick={() => setNewOpen(true)}
+          >
+            <UserPlus size={12} />
+            CADASTRAR “{q.trim().toUpperCase()}” E VINCULAR
+          </button>
+        )}
         {visible.map((e) => {
           const a = (e.attrs ?? {}) as PersonAttrs;
           const apelido = a.aliases && a.aliases.length > 0 ? a.aliases[0] : "";
@@ -165,6 +214,20 @@ export default function InvolvedPicker({ exclude, onPick, disabled }: Props) {
           );
         })}
       </div>
+
+      {/* Portal: o wizard de entidade tem <form> próprio e o picker vive
+          dentro do <form> da ocorrência. */}
+      {newOpen &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <CreateEntidadeModal
+            initialKind="person"
+            initialPerson={{ name: q.trim() }}
+            onClose={() => setNewOpen(false)}
+            onCreated={pickCreated}
+          />,
+          document.body,
+        )}
     </div>
   );
 }

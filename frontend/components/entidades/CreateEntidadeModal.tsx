@@ -60,9 +60,24 @@ type Props = {
   /** Pula a etapa 1 (seletor de tipo) e abre direto o wizard pra esse kind.
    *  Usado por fluxos como "novo veículo inline" no wizard de pessoa. */
   initialKind?: EntityKind;
+  /** Campos de pessoa já conhecidos — usado pela importação de relatório de
+   *  ocorrência, que chega com nome, mãe e nascimento já lidos do texto. */
+  initialPerson?: {
+    name?: string;
+    motherName?: string;
+    dateOfBirth?: string;
+    alias?: string;
+    /** Texto de contexto (antecedentes, endereço) lido do relatório. */
+    description?: string;
+  };
 };
 
-export default function CreateEntidadeModal({ onClose, onCreated, initialKind }: Props) {
+export default function CreateEntidadeModal({
+  onClose,
+  onCreated,
+  initialKind,
+  initialPerson,
+}: Props) {
   // Fluxo em duas etapas: na etapa 1 (kind === null) o modal mostra apenas o
   // seletor de tipo; ao escolher, kind passa a ter valor e o formulário
   // específico do tipo é renderizado. O botão "trocar tipo" devolve para a
@@ -81,8 +96,8 @@ export default function CreateEntidadeModal({ onClose, onCreated, initialKind }:
     media: "MÍDIA",
     observations: "DESCRIÇÃO",
   };
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
+  const [name, setName] = useState(initialPerson?.name ?? "");
+  const [description, setDescription] = useState(initialPerson?.description ?? "");
   const [tags, setTags] = useState<string[]>([]);
 
   // Foto primária — aplicável a Pessoa e Lugar.
@@ -91,14 +106,16 @@ export default function CreateEntidadeModal({ onClose, onCreated, initialKind }:
   const [galleryPending, setGalleryPending] = useState<PendingPhoto[]>([]);
 
   // Person
-  const [aliases, setAliases] = useState<string[]>([]);
-  const [motherName, setMotherName] = useState("");
+  const [aliases, setAliases] = useState<string[]>(
+    initialPerson?.alias ? [initialPerson.alias] : [],
+  );
+  const [motherName, setMotherName] = useState(initialPerson?.motherName ?? "");
   // Quando o usuário escolhe uma pessoa já cadastrada como mãe, guardamos o
   // ID aqui. No submit, depois de criar a pessoa, abrimos um vínculo
   // mother_of automático (mãe → filho).
   const [motherEntityId, setMotherEntityId] = useState<string>("");
   const [gender, setGender] = useState<Gender | "">("");
-  const [dob, setDob] = useState("");
+  const [dob, setDob] = useState(initialPerson?.dateOfBirth ?? "");
   const [cpf, setCpf] = useState("");
   const [deceasedOn, setDeceasedOn] = useState("");
   const [orcrimId, setOrcrimId] = useState("");

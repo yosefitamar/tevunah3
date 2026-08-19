@@ -2509,6 +2509,34 @@ body.session-locked > *:not(.session-overlay-root) {
   grid-template-columns: 1fr 1fr;
   gap: 8px;
 }
+/* ───────── Citados no relatório importado ─────────
+   Cada bloco é uma pessoa que o relatório menciona e que ainda não virou
+   vínculo: mostra a qualificação lida do texto, os dossiês parecidos que o
+   acervo já tem e a saída de cadastrar do zero. */
+.cited-person {
+  border: 1px solid var(--line);
+  background: var(--bg-1);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.cited-person + .cited-person { margin-top: 8px; }
+.cited-person-hd {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cited-person-name {
+  flex: 1;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--fg-0);
+  letter-spacing: 0.04em;
+}
+.cited-person .qual-picker-results { margin-top: 4px; }
+.cited-person .btn { align-self: flex-start; margin-top: 4px; }
+
 .qual-picker-panel {
   border: 1px solid var(--line-2);
   background: var(--bg-2);
@@ -2772,9 +2800,20 @@ body.session-locked > *:not(.session-overlay-root) {
 .modal-bd {
   padding: 18px;
   overflow-y: auto;
+  /* Sem min-height:0 o corpo não encolhe abaixo do conteúdo e o rodapé com
+     os botões escorrega para fora da viewport em formulários longos. */
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+/* Formulário que envolve corpo + rodapé: precisa repassar o flex do .modal,
+   senão vira um item rígido do tamanho do conteúdo e quebra o scroll interno. */
+.modal-form {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
 }
 .modal-ft {
   display: flex;

@@ -124,6 +124,9 @@ services:
       # Timeout idle de sessão em minutos. Default 15 (alinhado a NIST AAL2 /
       # OWASP para apps com dados sensíveis). Clamp [1, 60] no servidor.
       SESSION_IDLE_MINUTES:    "${SESSION_IDLE_MINUTES:-15}"
+      # Resolução do link curto do Google Maps na importação de relatório de
+      # ocorrência. "off" impede qualquer requisição do servidor ao Google.
+      INCIDENT_MAPS_RESOLVER:  "${INCIDENT_MAPS_RESOLVER:-on}"
       # Seed dev — só usado pelo `admin seed-dev` quando APP_ENV=development
       DEV_ADMIN_EMAIL:    ${DEV_ADMIN_EMAIL:-admin@tevunah.local}
       DEV_ADMIN_NAME:     ${DEV_ADMIN_NAME:-Administrador Dev}

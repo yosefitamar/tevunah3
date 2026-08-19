@@ -8,10 +8,13 @@ package session
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -29,6 +32,17 @@ type Session struct {
 	CreatedAt  time.Time `json:"created_at"`
 	LastSeenAt time.Time `json:"last_seen_at"`
 	IP         string    `json:"ip"`
+}
+
+// ShortID devolve um identificador curto e estável da sessão, derivado do
+// token por SHA-256. Serve pra exibir/correlacionar a sessão na UI e nos logs
+// sem expor o token — que é a credencial em si e vale tanto quanto a senha.
+func (s *Session) ShortID() string {
+	if s == nil || s.Token == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(s.Token))
+	return strings.ToUpper(hex.EncodeToString(sum[:4]))
 }
 
 // Store abstrai operações de sessão sobre Redis.

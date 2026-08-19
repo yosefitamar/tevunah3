@@ -40,6 +40,15 @@ export type User = {
   must_setup_totp?: boolean;
 };
 
+// Dados da sessão corrente devolvidos por /api/auth/login e /api/auth/me.
+// O token nunca vem aqui: `id` é um resumo curto derivado dele, só para
+// exibição e correlação com a auditoria.
+export type SessionInfo = {
+  id: string;
+  ip: string;
+  started_at: string;
+};
+
 export const STATUS_LABEL: Record<UserStatus, string> = {
   active: "ATIVO",
   suspended: "SUSPENSO",

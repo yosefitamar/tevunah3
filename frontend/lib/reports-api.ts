@@ -1,4 +1,5 @@
 import { api } from "./api";
+import { terminalHeaders } from "./device-id";
 
 export type ReportKind = "interno";
 export type ReportStatus = "criado" | "difundido" | "arquivado";
@@ -215,6 +216,7 @@ export async function downloadReportPDF(
   const res = await fetch(path, {
     method: "GET",
     credentials: "include",
+    headers: terminalHeaders(),
   });
   if (!res.ok) {
     let msg = `HTTP ${res.status}`;
@@ -295,7 +297,7 @@ export async function uploadQualificationPhoto(
   fd.append("photo", file);
   const res = await fetch(
     `/api/reports/${encodeURIComponent(reportId)}/qualifications/${encodeURIComponent(qualifId)}/photo`,
-    { method: "POST", credentials: "include", body: fd },
+    { method: "POST", credentials: "include", headers: terminalHeaders(), body: fd },
   );
   let body: {
     success: boolean;

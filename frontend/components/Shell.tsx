@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { IS_DEV, MODULE_TITLES, type ModuleId } from "@/lib/nav";
 import { type PaletteId } from "@/lib/palettes";
 import { DEFAULT_UI_SCALE, applyUiScale, readUiScale, type UiScale } from "@/lib/ui-scale";
+import { deviceLabel, readDeviceId } from "@/lib/device-id";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { SystemSettingsProvider, useSystemSettings } from "@/contexts/SystemSettingsContext";
 import { ModalProvider } from "@/contexts/ModalContext";
@@ -44,7 +45,7 @@ const VIEWS: Record<ModuleId, React.ComponentType> = {
 };
 
 function AuthenticatedShell() {
-  const { sessionExpired } = useAuth();
+  const { sessionExpired, sessionInfo } = useAuth();
   const { settings } = useSystemSettings();
   const [active, setActive] = useState<ModuleId>("dashboard");
   const [collapsed, setCollapsed] = useState(false);
@@ -55,7 +56,25 @@ function AuthenticatedShell() {
   // servidor não tem localStorage).
   const [scale, setScale] = useState<UiScale>(DEFAULT_UI_SCALE);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // O ID do terminal vive no localStorage: ler no primeiro render quebraria a
+  // hidratação (o servidor não tem storage), então entra depois do mount.
+  const [deviceId, setDeviceId] = useState("");
   const agencyLabel = settings?.agency_name || "—";
+
+  useEffect(() => {
+    setDeviceId(readDeviceId());
+  }, []);
+
+  // Rodapé de rastreabilidade: só entra o que já é conhecido. Enquanto o /me
+  // não respondeu (ou o storage está bloqueado), o campo some em vez de
+  // exibir placeholder — barra de classificação não mente.
+  const traceLabel = [
+    sessionInfo?.id ? `SESSÃO ${sessionInfo.id}` : null,
+    deviceLabel(deviceId) || null,
+    sessionInfo?.ip || null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
   useEffect(() => {
     document.documentElement.setAttribute("data-palette", palette);
@@ -99,11 +118,15 @@ function AuthenticatedShell() {
         </div>
       </div>
 
+      {/* A barra de cima já identifica agência e sistema; aqui só entra o que
+          muda de sessão para sessão. */}
       <div className="classification bottom">
-        <span>◆ {agencyLabel} // TEVUNAH</span>
-        <span className="sep">//</span>
-        <span>SESSÃO 0x4F-A91C · TERM-04 · 192.168.42.18</span>
-        <span className="sep">//</span>
+        {traceLabel && (
+          <>
+            <span title={sessionStartedTitle(sessionInfo?.started_at)}>{traceLabel}</span>
+            <span className="sep">//</span>
+          </>
+        )}
         <span>USO MONITORADO</span>
       </div>
 
@@ -119,6 +142,15 @@ function AuthenticatedShell() {
     </div>
     </NavigationProvider>
   );
+}
+
+// Tooltip do rodapé: hora local de abertura da sessão. Data ausente ou
+// inválida devolve undefined, e o title simplesmente não aparece.
+function sessionStartedTitle(startedAt?: string): string | undefined {
+  if (!startedAt) return undefined;
+  const d = new Date(startedAt);
+  if (Number.isNaN(d.getTime())) return undefined;
+  return `Sessão aberta em ${d.toLocaleString("pt-BR")}`;
 }
 
 function AuthGate() {

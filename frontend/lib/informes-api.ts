@@ -1,4 +1,5 @@
 import { api } from "./api";
+import { terminalHeaders } from "./device-id";
 
 export type Informe = {
   id: string;
@@ -99,6 +100,7 @@ export async function uploadInformePhoto(id: string, file: File): Promise<Inform
   const res = await fetch(`/api/informes/${encodeURIComponent(id)}/photo`, {
     method: "POST",
     credentials: "include",
+    headers: terminalHeaders(),
     body: fd,
   });
   let body: { success: boolean; data?: { informe: Informe }; message?: string } = {

@@ -218,7 +218,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           withRequestLog(mux),
+		Handler:           withRequestLog(withTerminal(mux)),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,
@@ -272,6 +272,27 @@ func withRequestLog(next http.Handler) http.Handler {
 		t0 := time.Now()
 		next.ServeHTTP(w, r)
 		log.Printf("%s %s (%s)", r.Method, r.URL.Path, time.Since(t0))
+	})
+}
+
+// TerminalHeader carrega a identificação da estação de trabalho, gerada e
+// persistida pelo navegador do agente (ver frontend/lib/device-id.ts).
+const TerminalHeader = "X-Terminal-Id"
+
+// withTerminal põe o terminal declarado no contexto, de onde o audit.Logger o
+// puxa para toda entrada. Envolve o mux inteiro, e não só as rotas
+// autenticadas, porque o login — inclusive o negado — é justamente o evento
+// em que saber de qual estação partiu a tentativa importa mais.
+//
+// É identificação declarada pelo cliente: serve para correlacionar (mesma
+// sessão pulando de estação, mesmo agente em duas ao mesmo tempo), não para
+// provar de onde partiu uma ação contra quem queira falsificar o rastro.
+func withTerminal(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if t := r.Header.Get(TerminalHeader); t != "" {
+			r = r.WithContext(audit.WithTerminal(r.Context(), t))
+		}
+		next.ServeHTTP(w, r)
 	})
 }
 
@@ -437,6 +458,7 @@ func (a *app) handleLogin(w http.ResponseWriter, r *http.Request) {
 		"token":      sess.Token,
 		"expires_in": int(a.sessions.TTL().Seconds()),
 		"user":       a.publicWithPerms(ctx, u),
+		"session":    sessionInfo(sess, ip),
 	}
 	if pendingTOTPSecret != "" {
 		// Agente usa esse secret pra montar QR/inserir no authenticator.
@@ -463,9 +485,29 @@ func (a *app) publicWithPerms(ctx context.Context, u *users.User) publicUser {
 	return pu
 }
 
+// sessionInfo monta o bloco de sessão exposto ao cliente: identificação curta
+// (nunca o token), IP de origem e início da sessão. É o que alimenta a barra
+// de classificação do rodapé — informação de rastreabilidade, não credencial.
+func sessionInfo(sess *session.Session, ip string) map[string]any {
+	if sess == nil {
+		return nil
+	}
+	if ip == "" {
+		ip = sess.IP
+	}
+	return map[string]any{
+		"id":         sess.ShortID(),
+		"ip":         ip,
+		"started_at": sess.CreatedAt.UTC().Format(time.RFC3339),
+	}
+}
+
 func (a *app) handleMe(w http.ResponseWriter, r *http.Request) {
 	u := middleware.UserFrom(r.Context())
 	resp := map[string]any{"user": a.publicWithPerms(r.Context(), u)}
+	// IP atual da requisição (e não o do login) — se o agente trocou de rede,
+	// o rodapé passa a mostrar de onde ele está falando agora.
+	resp["session"] = sessionInfo(middleware.SessionFrom(r.Context()), httpx.ClientIP(r))
 	// Reexpõe o secret pendente do TOTP (mesmo payload do login) pra que a
 	// tela de enrollment sobreviva a reload e à troca de senha intermediária.
 	if u.MustSetupTOTP && u.TOTPSecret != "" {

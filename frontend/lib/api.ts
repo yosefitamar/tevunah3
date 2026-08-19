@@ -1,6 +1,8 @@
 // Cliente HTTP para a API Tevunah. Sempre passa por /api/* (rewrite do Next),
 // então é same-origin e o cookie HttpOnly de sessão é enviado automaticamente.
 
+import { terminalHeaders } from "./device-id";
+
 export type ApiError = Error & { status: number };
 
 function makeError(message: string, status: number): ApiError {
@@ -37,6 +39,7 @@ export async function api<T = unknown>(path: string, init: RequestInit = {}): Pr
     headers: {
       "Content-Type": "application/json",
       Accept: "application/json",
+      ...terminalHeaders(),
       ...(init.headers ?? {}),
     },
   });

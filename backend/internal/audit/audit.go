@@ -9,7 +9,35 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"regexp"
 )
+
+type ctxKey int
+
+const terminalCtxKey ctxKey = iota
+
+// terminalPattern limita o que aceitamos como identificação de terminal.
+// O valor é declarado pelo cliente (header), então nunca chega cru ao banco:
+// o formato de hoje é "TERM-A3F1", mas a regra é folgada de propósito para
+// acomodar hostname de domínio quando a identificação vier da rede.
+var terminalPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$`)
+
+// WithTerminal injeta a identificação do terminal no contexto da requisição.
+// Fica aqui, e não no middleware HTTP, para que Log() consiga preencher o
+// campo sozinho — são 50+ pontos montando Entry, e nenhum deveria precisar
+// lembrar de repassar o terminal.
+func WithTerminal(ctx context.Context, terminal string) context.Context {
+	if !terminalPattern.MatchString(terminal) {
+		return ctx
+	}
+	return context.WithValue(ctx, terminalCtxKey, terminal)
+}
+
+// TerminalFrom devolve o terminal injetado (string vazia se não houver).
+func TerminalFrom(ctx context.Context) string {
+	v, _ := ctx.Value(terminalCtxKey).(string)
+	return v
+}
 
 // Entry é o conjunto de campos exposto à camada de negócio.
 // Campos NULL devem ser passados como nil em strings opcionais via *string.
@@ -38,7 +66,15 @@ func New(db *sql.DB) *Logger {
 }
 
 // Log persiste a entrada. before/after são serializados como JSONB (NULL se nil).
+//
+// ActorTerminal, quando não preenchido pelo chamador, vem do contexto — o
+// terminal é propriedade da requisição, não de cada evento.
 func (l *Logger) Log(ctx context.Context, e Entry) error {
+	if e.ActorTerminal == nil {
+		if t := TerminalFrom(ctx); t != "" {
+			e.ActorTerminal = &t
+		}
+	}
 	beforeJSON, err := toJSON(e.Before)
 	if err != nil {
 		return err

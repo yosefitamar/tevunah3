@@ -1,4 +1,5 @@
 import { api } from "./api";
+import { terminalHeaders } from "./device-id";
 
 export type IncidentType = "homicidio" | "apreensao" | "prisao";
 
@@ -281,6 +282,7 @@ export async function uploadIncidentPhoto(id: string, file: File): Promise<Incid
   const res = await fetch(`/api/incidents/${encodeURIComponent(id)}/photo`, {
     method: "POST",
     credentials: "include",
+    headers: terminalHeaders(),
     body: fd,
   });
   let body: { success: boolean; data?: { incident: Incident }; message?: string } = {

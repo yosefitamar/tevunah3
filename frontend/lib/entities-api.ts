@@ -1,4 +1,5 @@
 import { api } from "./api";
+import { terminalHeaders } from "./device-id";
 import type {
   Entity,
   EntityClassification,
@@ -229,6 +230,7 @@ export async function uploadEntityPhoto(id: string, file: File): Promise<Entity>
   const res = await fetch(`/api/entities/${encodeURIComponent(id)}/photo`, {
     method: "POST",
     credentials: "include",
+    headers: terminalHeaders(),
     body: fd,
   });
   let body: { success: boolean; data?: { entity: Entity }; message?: string } = {
@@ -278,6 +280,7 @@ export async function uploadGalleryPhoto(
   const res = await fetch(`/api/entities/${encodeURIComponent(entityID)}/photos`, {
     method: "POST",
     credentials: "include",
+    headers: terminalHeaders(),
     body: fd,
   });
   let body: { success: boolean; data?: { photo: GalleryPhoto }; message?: string } = {

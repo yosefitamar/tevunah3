@@ -1,4 +1,5 @@
 import { api } from "./api";
+import { terminalHeaders } from "./device-id";
 
 export type SystemSettings = {
   agency_name: string;
@@ -32,6 +33,7 @@ export async function uploadBrasao(file: File): Promise<{ brasao_path: string; m
   const res = await fetch(`/api/admin/system-settings/brasao`, {
     method: "PUT",
     credentials: "include",
+    headers: terminalHeaders(),
     body: fd,
   });
   let body: { success: boolean; data?: { brasao_path: string; mime: string }; message?: string } = {
@@ -65,6 +67,7 @@ export async function uploadInstitutionalLogo(file: File): Promise<{ logo_path: 
   const res = await fetch(`/api/admin/system-settings/logo`, {
     method: "PUT",
     credentials: "include",
+    headers: terminalHeaders(),
     body: fd,
   });
   let body: { success: boolean; data?: { logo_path: string; mime: string }; message?: string } = {

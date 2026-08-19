@@ -63,6 +63,21 @@
   --font-hebrew: "Noto Sans Hebrew", "Arial Hebrew", "David", sans-serif;
 }
 
+/* ───────── Escala da interface ─────────
+   O agente escolhe a escala no menu de engrenagem; ela é aplicada como
+   `zoom` no elemento raiz (ver lib/ui-scale.ts) e publicada aqui para o CSS.
+   O valor abaixo é só o fallback — o script do <head> sobrescreve inline
+   antes da primeira pintura.
+
+   --vh/--vw existem porque `zoom` NÃO reescala unidades de viewport: 90vh
+   resolve contra o viewport não-zoomado e só então é escalado, estourando a
+   tela em 125%. Toda medida em vh/vw da folha usa estas variáveis. */
+:root {
+  --ui-scale: 1.25;
+  --vh: calc(1vh / var(--ui-scale));
+  --vw: calc(1vw / var(--ui-scale));
+}
+
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; height: 100%; }
 
@@ -1113,7 +1128,7 @@ body.session-locked > *:not(.session-overlay-root) {
 .rte-content {
   padding: 14px 16px;
   min-height: 280px;
-  max-height: 60vh;
+  max-height: calc(60 * var(--vh));
   overflow-y: auto;
   font-size: 12.5px;
   line-height: 1.6;
@@ -2735,7 +2750,7 @@ body.session-locked > *:not(.session-overlay-root) {
   border: 1px solid var(--line-2);
   width: 100%;
   max-width: 540px;
-  max-height: 90vh;
+  max-height: calc(90 * var(--vh));
   display: flex;
   flex-direction: column;
   box-shadow: 0 0 0 1px var(--bg-0), 0 12px 60px rgba(0,0,0,0.75);
@@ -2782,8 +2797,8 @@ body.session-locked > *:not(.session-overlay-root) {
    viewer nativo do navegador renderizar com espaço útil. */
 .modal--pdf-preview {
   max-width: 1100px;
-  width: 92vw;
-  max-height: 92vh;
+  width: calc(92 * var(--vw));
+  max-height: calc(92 * var(--vh));
 }
 .modal-bd--flush {
   padding: 0;
@@ -2796,7 +2811,7 @@ body.session-locked > *:not(.session-overlay-root) {
 .pdf-preview-frame {
   flex: 1 1 auto;
   width: 100%;
-  min-height: 60vh;
+  min-height: calc(60 * var(--vh));
   border: 0;
   background: #525659;
 }
@@ -3385,19 +3400,28 @@ body.session-locked > *:not(.session-overlay-root) {
 }
 
 /* Palette switcher (floating bottom-right) */
-.palette-switcher {
+/* Popover da engrenagem: escala da interface + paleta. */
+.appearance-menu {
   position: fixed;
   right: 14px;
   bottom: 34px;
   z-index: 1100;
   background: var(--bg-1);
   border: 1px solid var(--line-2);
-  padding: 8px;
+  padding: 10px;
   display: flex;
-  gap: 6px;
+  flex-direction: column;
+  gap: 10px;
   box-shadow: 0 0 0 1px var(--bg-0), 0 8px 32px rgba(0,0,0,0.6);
 }
-.palette-switcher button {
+.appearance-group { display: flex; flex-direction: column; gap: 6px; }
+.appearance-lbl {
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  color: var(--fg-3);
+}
+.appearance-row { display: flex; gap: 6px; }
+.appearance-opt {
   appearance: none;
   background: var(--bg-2);
   border: 1px solid var(--line-2);
@@ -3409,12 +3433,17 @@ body.session-locked > *:not(.session-overlay-root) {
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   cursor: pointer;
   width: 52px;
+  /* A escala tem só o rótulo; a paleta tem amostra + rótulo. A altura fixa
+     mantém as duas linhas do popover com o mesmo ritmo. */
+  min-height: 30px;
 }
-.palette-switcher button .sw { width: 18px; height: 18px; display: block; }
-.palette-switcher button.on { border-color: var(--accent); color: var(--accent); }
+.appearance-opt--swatch { min-height: 0; }
+.appearance-opt .sw { width: 18px; height: 18px; display: block; }
+.appearance-opt.on { border-color: var(--accent); color: var(--accent); }
 
 /* Auditoria — drawer largo + before/after lado a lado */
 .drawer--wide { max-width: 880px; }
@@ -5016,15 +5045,15 @@ body.session-locked > *:not(.session-overlay-root) {
 .deceased-original {
   background: var(--bg-1);
   border: 1px solid var(--line-2);
-  max-width: min(90vw, 720px);
-  max-height: 90vh;
+  max-width: min(calc(90 * var(--vw)), 720px);
+  max-height: calc(90 * var(--vh));
   display: flex;
   flex-direction: column;
   box-shadow: 0 0 0 1px var(--bg-0), 0 12px 60px rgba(0, 0, 0, 0.75);
 }
 .deceased-original img {
   max-width: 100%;
-  max-height: calc(90vh - 40px);
+  max-height: calc(90 * var(--vh) - 40px);
   object-fit: contain;
 }
 

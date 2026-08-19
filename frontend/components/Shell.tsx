@@ -3,13 +3,14 @@
 import { useEffect, useState } from "react";
 import { IS_DEV, MODULE_TITLES, type ModuleId } from "@/lib/nav";
 import { type PaletteId } from "@/lib/palettes";
+import { DEFAULT_UI_SCALE, applyUiScale, readUiScale, type UiScale } from "@/lib/ui-scale";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { SystemSettingsProvider, useSystemSettings } from "@/contexts/SystemSettingsContext";
 import { ModalProvider } from "@/contexts/ModalContext";
 import { NavigationProvider } from "@/contexts/NavigationContext";
 import Sidebar from "./Sidebar";
 import Topbar from "./Topbar";
-import PaletteSwitcher from "./PaletteSwitcher";
+import AppearanceMenu from "./AppearanceMenu";
 import LoginScreen from "./LoginScreen";
 import TOTPSetupScreen from "./TOTPSetupScreen";
 import ChangePasswordScreen from "./ChangePasswordScreen";
@@ -48,12 +49,25 @@ function AuthenticatedShell() {
   const [active, setActive] = useState<ModuleId>("dashboard");
   const [collapsed, setCollapsed] = useState(false);
   const [palette, setPalette] = useState<PaletteId>("phosphor");
+  // O script do <head> já aplicou a escala salva antes da primeira pintura;
+  // aqui o estado só se alinha com o que está no documento, para o popover
+  // marcar a opção certa. Ler no useState inicial quebraria a hidratação (o
+  // servidor não tem localStorage).
+  const [scale, setScale] = useState<UiScale>(DEFAULT_UI_SCALE);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const agencyLabel = settings?.agency_name || "—";
 
   useEffect(() => {
     document.documentElement.setAttribute("data-palette", palette);
   }, [palette]);
+
+  useEffect(() => {
+    const saved = readUiScale();
+    setScale(saved);
+    // Reaplica: cobre o caso do script do <head> ter falhado (CSP, storage
+    // bloqueado) e garante que --ui-scale esteja publicada para o CSS.
+    applyUiScale(saved);
+  }, []);
 
   // Sandbox é só de desenvolvimento — em prod, qualquer tentativa de ativá-lo
   // cai no Dashboard (o item nem aparece no menu, isto é defesa em profundidade).
@@ -93,7 +107,14 @@ function AuthenticatedShell() {
         <span>USO MONITORADO</span>
       </div>
 
-      {settingsOpen && <PaletteSwitcher palette={palette} setPalette={setPalette} />}
+      {settingsOpen && (
+        <AppearanceMenu
+          palette={palette}
+          setPalette={setPalette}
+          scale={scale}
+          setScale={setScale}
+        />
+      )}
       {sessionExpired && <SessionExpiredOverlay />}
     </div>
     </NavigationProvider>

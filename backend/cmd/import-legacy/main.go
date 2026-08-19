@@ -511,17 +511,15 @@ func (i *Importer) importSuspects() error {
 			return fmt.Errorf("entity_persons %d: %w", r.id, err)
 		}
 
-		// Flags is_dead/is_arrested → tags livres. is_dead alimenta também a
-		// coluna deceased, que é o que a UI usa para sinalizar óbito.
+		// is_dead vira a coluna deceased — óbito é atributo de primeira classe
+		// (selo na listagem, data no dossiê), não tag livre. is_arrested segue
+		// como tag: prisão não tem modelagem própria.
 		if r.isDead.Bool {
 			if _, err := i.tx.ExecContext(i.ctx,
 				`UPDATE app.entity_persons SET deceased = true WHERE entity_id = $1`,
 				entityID,
 			); err != nil {
 				return fmt.Errorf("entity_persons deceased %d: %w", r.id, err)
-			}
-			if err := i.addTag(entityID, "falecido"); err != nil {
-				return err
 			}
 		}
 		if r.isArrested.Bool {

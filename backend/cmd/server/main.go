@@ -23,6 +23,7 @@ import (
 	"github.com/belia/tevunah/backend/internal/audit"
 	"github.com/belia/tevunah/backend/internal/authz"
 	"github.com/belia/tevunah/backend/internal/crypt"
+	"github.com/belia/tevunah/backend/internal/dashboard"
 	idb "github.com/belia/tevunah/backend/internal/db"
 	"github.com/belia/tevunah/backend/internal/entities"
 	"github.com/belia/tevunah/backend/internal/incidents"
@@ -54,12 +55,17 @@ type app struct {
 	reports     *reports.Repo
 	incidents   *incidents.Repo
 	settings    *settings.Repo
+	dashboard   *dashboard.Repo
 	pdf         *pdf.Client
+	// tz é o fuso da agência, usado onde carimbo de tempo vira dia civil
+	// (métricas de produção do painel).
+	tz string
 }
 
 func main() {
 	env := idb.Env("APP_ENV", "development")
 	addr := idb.Env("ADDR", ":8080")
+	tz := idb.Env("APP_TIMEZONE", "America/Fortaleza")
 
 	appDB := mustOpen("APP_DATABASE_URL")
 	defer appDB.Close()
@@ -88,7 +94,9 @@ func main() {
 		reports:     reports.New(appDB),
 		incidents:   incidents.New(appDB),
 		settings:    settings.New(appDB),
+		dashboard:   dashboard.New(appDB, tz),
 		pdf:         pdf.New("", photoDir()),
+		tz:          tz,
 	}
 
 	mux := http.NewServeMux()
@@ -112,6 +120,8 @@ func main() {
 	mux.Handle("POST /api/users/{id}/totp/reset", auth(http.HandlerFunc(a.handleUserTOTPReset)))
 	mux.Handle("POST /api/users/{id}/roles", auth(http.HandlerFunc(a.handleUserSetRoles)))
 	mux.Handle("POST /api/users/{id}/clearance", auth(http.HandlerFunc(a.handleUserSetClearance)))
+
+	mux.Handle("GET /api/dashboard", auth(http.HandlerFunc(a.handleDashboard)))
 
 	mux.Handle("GET /api/audit", auth(http.HandlerFunc(a.handleAuditList)))
 	mux.Handle("GET /api/audit/{id}", auth(http.HandlerFunc(a.handleAuditDetail)))

@@ -5130,3 +5130,159 @@ body.session-locked > *:not(.session-overlay-root) {
   flex: 0 1 300px;
   min-width: 180px;
 }
+
+/* ═══════════════════ Dashboard ═══════════════════
+   O vocabulário base (.panel, .kpi, .bars, .grid-*) já existia do protótipo;
+   o que segue é o que o painel real exigiu além dele. */
+
+/* As faixas se adaptam ao número de blocos liberados: sem leitura de
+   ocorrências restam menos cards e menos painéis, e colunas fixas deixariam
+   buracos no lugar do que o perfil não pode ver. */
+.grid-kpi { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+.grid-bottom { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+
+@media (max-width: 1100px) {
+  .grid-main { grid-template-columns: 1fr; }
+}
+
+/* Área rolável do painel: o .content do shell é overflow:hidden e cada tela
+   cuida do próprio scroll. Sem isto os painéis da faixa inferior ficam fora
+   de alcance — e quanto maior a escala da interface, mais cedo somem. */
+.dash-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+.dash-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+.dash-scroll::-webkit-scrollbar-track { background: var(--bg-1); }
+.dash-scroll::-webkit-scrollbar-thumb { background: var(--line-2); }
+
+.dash-loading { padding: 40px 0; text-align: center; font-size: 11px; letter-spacing: 0.16em; }
+.dash-range { min-width: 190px; }
+.kpi-hint { margin-top: 8px; font-size: 9.5px; line-height: 1.5; }
+.dash-note { margin-top: 12px; font-size: 10px; line-height: 1.6; }
+
+/* Barra de ranking: rótulo mais largo que o .bars padrão (nome de bairro não
+   cabe em 90px) e cor por item via custom property, para o risco luminoso da
+   ponta acompanhar a barra. */
+.bars .bar--facet { grid-template-columns: 132px 1fr 78px; align-items: center; }
+.bars .bar--facet .lbl {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10.5px;
+}
+.bars .bar--facet .lbl .sub {
+  display: block;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  color: var(--fg-3);
+}
+.bars .bar--facet .fill { background: var(--bar-color, var(--accent)); }
+.bars .bar--facet .fill::after {
+  background: var(--bar-color, var(--accent));
+  box-shadow: 0 0 6px var(--bar-color, var(--accent));
+}
+.bars .bar--facet .val { font-size: 10.5px; white-space: nowrap; }
+
+/* Série mensal de ocorrências (colunas empilhadas). */
+.mchart { display: flex; flex-direction: column; gap: 10px; }
+.mchart-body { display: flex; gap: 10px; }
+.mchart-scale {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding-bottom: 30px;
+  font-size: 9px;
+  color: var(--fg-3);
+  font-feature-settings: "tnum";
+  height: 210px;
+}
+.mchart-plot {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 4px;
+  height: 210px;
+  border-bottom: 1px solid var(--line);
+  border-top: 1px dashed var(--line);
+}
+.mchart-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+}
+.mchart-col {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  min-width: 0;
+}
+/* A pilha ocupa a altura útil da coluna; os segmentos são percentuais dela,
+   então o mês de pico encosta no topo e os demais se leem contra ele. */
+.mchart-stack {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column-reverse;
+  justify-content: flex-start;
+  padding: 0 12%;
+  /* O mês de pico ocupa 100% da pilha; com os fios de 1px entre segmentos a
+     soma passa disso por 1–2px, que não podem vazar sobre o mês vizinho. */
+  overflow: hidden;
+}
+.mchart-seg { display: block; width: 100%; min-height: 2px; }
+.mchart-seg + .mchart-seg { margin-bottom: 1px; }
+.mchart-total {
+  text-align: center;
+  font-size: 9px;
+  color: var(--fg-2);
+  font-feature-settings: "tnum";
+  padding: 3px 0 1px;
+  min-height: 14px;
+}
+.mchart-lbl {
+  text-align: center;
+  font-size: 8.5px;
+  letter-spacing: 0.08em;
+  color: var(--fg-3);
+  padding-bottom: 2px;
+  white-space: nowrap;
+}
+/* Legenda no rodapé, e não numa coluna lateral: ao lado do gráfico ela come
+   largura do plot, que é onde os doze meses precisam caber. */
+.mchart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  justify-content: flex-end;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  color: var(--fg-2);
+  white-space: nowrap;
+}
+.mchart-legend-item { display: flex; align-items: center; gap: 6px; }
+.mchart-legend-item .dot { width: 8px; height: 8px; flex: none; }
+
+/* No painel estreito da faixa inferior, o valor da linha (ex.: a composição do
+   acervo) chega a ser mais longo que a metade disponível: sem folga entre os
+   dois lados o número encosta no rótulo, e sem wrap ele não teria para onde ir. */
+.prod-list > div { gap: 14px; flex-wrap: wrap; }
+.prod-list dd { text-align: right; }
+
+/* Subtítulo dentro do painel de produção. */
+.prod-sub {
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  color: var(--fg-3);
+  text-transform: uppercase;
+  margin-bottom: 10px;
+}

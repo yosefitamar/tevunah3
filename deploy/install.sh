@@ -47,6 +47,9 @@ done
 
 SESSION_IDLE_MINUTES="${SESSION_IDLE_MINUTES:-15}"
 FRONTEND_PORT="${FRONTEND_PORT:-3000}"
+# Resolução do link curto do Google Maps na importação de relatório de
+# ocorrência. "off" impede qualquer requisição do servidor ao Google.
+INCIDENT_MAPS_RESOLVER="${INCIDENT_MAPS_RESOLVER:-on}"
 
 # ─── 2. Pacotes de sistema ───────────────────────────────────────────────
 log "Instalando pacotes apt"
@@ -195,6 +198,7 @@ APP_DATABASE_URL=postgres://${APP_DB_USER}:${APP_DB_PASSWORD}@127.0.0.1:5432/${P
 AUDIT_DATABASE_URL=postgres://${AUDIT_DB_USER}:${AUDIT_DB_PASSWORD}@127.0.0.1:5432/${POSTGRES_DB}?sslmode=disable
 REDIS_URL=redis://127.0.0.1:6379/0
 SESSION_IDLE_MINUTES=${SESSION_IDLE_MINUTES}
+INCIDENT_MAPS_RESOLVER=${INCIDENT_MAPS_RESOLVER}
 EOF
 
 cat > "$REPO_DIR/frontend.env" <<EOF

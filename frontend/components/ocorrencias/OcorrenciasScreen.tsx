@@ -331,7 +331,7 @@ function Row({ incident, onOpen }: { incident: Incident; onOpen: () => void }) {
         {incident.city || incident.neighborhood ? (
           <>
             <div style={{ color: "var(--fg-0)" }}>{incident.neighborhood || "—"}</div>
-            <div className="muted" style={{ fontSize: 10 }}>
+            <div className="muted" style={{ fontSize: 11.5 }}>
               {incident.city}
             </div>
           </>

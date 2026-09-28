@@ -91,7 +91,7 @@ export default function UndiffuseModal({ reportNumber, onCancel, onConfirm }: Pr
               />
               <span
                 style={{
-                  fontSize: 10,
+                  fontSize: 11.5,
                   letterSpacing: "0.06em",
                   color:
                     trimmed.length < MIN_LEN

@@ -212,7 +212,7 @@ export default function RefMultiSelect({ value, onChange, disabled }: Props) {
               {o.hint && (
                 <div
                   style={{
-                    fontSize: 10,
+                    fontSize: 11.5,
                     color: "var(--fg-3)",
                     letterSpacing: "0.06em",
                     textTransform: "uppercase",

@@ -74,7 +74,7 @@ export default function CreateRelatorioModal({ onClose, onCreated }: Props) {
         </div>
         <form onSubmit={onSubmit}>
           <div className="modal-bd">
-            <div className="muted" style={{ fontSize: 11, marginBottom: 12 }}>
+            <div className="muted" style={{ fontSize: 13, marginBottom: 12 }}>
               // O NÚMERO É ALOCADO NA DIFUSÃO. ENQUANTO RASCUNHO, O RELATÓRIO
               FICA EM <b>CRIADO</b> E PODE SER EDITADO LIVREMENTE.
             </div>

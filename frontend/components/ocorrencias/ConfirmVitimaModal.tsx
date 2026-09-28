@@ -125,7 +125,7 @@ export default function ConfirmVitimaModal({
             </div>
           )}
           {!a.cpf && !a.mother_name && !a.date_of_birth && (
-            <div className="muted" style={{ fontSize: 10.5 }}>
+            <div className="muted" style={{ fontSize: 12 }}>
               // ESTE CADASTRO NÃO TEM CPF, NOME DA MÃE NEM DATA DE NASCIMENTO — A
               CONFERÊNCIA DEPENDE DA FOTO OU DE OUTRA FONTE
             </div>

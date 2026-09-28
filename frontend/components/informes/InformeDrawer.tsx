@@ -165,7 +165,7 @@ export default function InformeDrawer({ informeId, onClose, onChanged }: Props) 
 
           {!loading && data && (
             <>
-              <div className="muted" style={{ fontSize: 11, marginBottom: 10 }}>
+              <div className="muted" style={{ fontSize: 13, marginBottom: 10 }}>
                 Por {data.created_by_code} · {data.created_by_name?.toUpperCase()} ·{" "}
                 criado {formatBR(data.created_at)}
               </div>

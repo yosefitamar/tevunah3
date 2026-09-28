@@ -1,31 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Bell, LogOut, Maximize2, Minimize2, Settings2 } from "lucide-react";
+import { LogOut, Maximize2, Minimize2, Settings2 } from "lucide-react";
 import { MODULE_TITLES, type ModuleId } from "@/lib/nav";
 import { useAuth } from "@/contexts/AuthContext";
 import { clearanceLabel, primaryRole } from "@/lib/types";
 import SessionTimer from "./SessionTimer";
-
-// Relógio em horário de Fortaleza (BRT, UTC-3, sem DST).
-const FORTALEZA_FMT = new Intl.DateTimeFormat("pt-BR", {
-  timeZone: "America/Fortaleza",
-  hour: "2-digit",
-  minute: "2-digit",
-  second: "2-digit",
-  hour12: false,
-});
-
-function useClock(): string {
-  const [t, setT] = useState<string>("--:--:--");
-  useEffect(() => {
-    const tick = () => setT(FORTALEZA_FMT.format(new Date()));
-    tick();
-    const id = setInterval(tick, 1000);
-    return () => clearInterval(id);
-  }, []);
-  return t;
-}
 
 function useFullscreen() {
   const [isFull, setIsFull] = useState(false);
@@ -47,11 +27,15 @@ function useFullscreen() {
 type Props = {
   active: ModuleId;
   onToggleSettings: () => void;
-  notifications?: number;
 };
 
-export default function Topbar({ active, onToggleSettings, notifications = 0 }: Props) {
-  const clock = useClock();
+/**
+ * Barra superior: só o que o agente usa ou precisa monitorar. Relógio,
+ * indicador de uplink, busca e sino saíram — eram ilustrativos (a busca não
+ * tinha handler, o sino nunca recebia contagem) e disputavam largura com o
+ * título do módulo. O timer de sessão fica: é ele que avisa do logout.
+ */
+export default function Topbar({ active, onToggleSettings }: Props) {
   const { user, logout } = useAuth();
   const { isFull, toggle: toggleFull } = useFullscreen();
 
@@ -60,32 +44,9 @@ export default function Topbar({ active, onToggleSettings, notifications = 0 }: 
       <div className="crumb">
         <span className="module-name">{MODULE_TITLES[active]}</span>
       </div>
-      <div className="search">
-        <span style={{ color: "var(--accent)" }}>⌕</span>
-        <input placeholder="buscar entidades, operações, relatórios…" />
-        <span className="kbd">⌘ K</span>
-      </div>
-      <div className="stat">
-        <span className="lbl">FORTALEZA</span>
-        <span className="val" style={{ fontFeatureSettings: '"tnum"' }}>
-          {clock}
-        </span>
-      </div>
       <SessionTimer />
-      <div className="stat">
-        <span className="lbl">UPLINK</span>
-        <span className="val">
-          <span className="dot"></span>NOMINAL
-        </span>
-      </div>
 
       <div className="actions">
-        <button type="button" className="action-btn" title="Notificações" aria-label="Notificações">
-          <Bell size={16} strokeWidth={1.6} />
-          {notifications > 0 && (
-            <span className="action-badge">{notifications > 99 ? "99+" : notifications}</span>
-          )}
-        </button>
         <button
           type="button"
           className="action-btn"

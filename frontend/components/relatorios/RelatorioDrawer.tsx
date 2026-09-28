@@ -436,13 +436,13 @@ export default function RelatorioDrawer({ reportId, onClose, onChanged }: Props)
                   <legend>
                     CORPO
                     {saveStatus === "saving" && (
-                      <span className="muted" style={{ marginLeft: 8, fontSize: 9 }}>
+                      <span className="muted" style={{ marginLeft: 8, fontSize: 11.5 }}>
                         // SALVANDO…
                       </span>
                     )}
                     {saveStatus === "saved" && (
                       <span
-                        style={{ marginLeft: 8, fontSize: 9, color: "var(--accent)" }}
+                        style={{ marginLeft: 8, fontSize: 11.5, color: "var(--accent)" }}
                       >
                         ✓ SALVO
                       </span>
@@ -459,7 +459,7 @@ export default function RelatorioDrawer({ reportId, onClose, onChanged }: Props)
                 <fieldset className="form-fieldset">
                   <legend>QUALIFICAÇÕES ({quals.length})</legend>
                   {quals.length === 0 && (
-                    <div className="muted" style={{ fontSize: 11 }}>
+                    <div className="muted" style={{ fontSize: 13 }}>
                       // NENHUMA QUALIFICAÇÃO ADICIONADA
                     </div>
                   )}
@@ -515,7 +515,7 @@ export default function RelatorioDrawer({ reportId, onClose, onChanged }: Props)
                           className={
                             "pill " + (q.kind === "militar" ? "active" : "hold")
                           }
-                          style={{ fontSize: 9 }}
+                          style={{ fontSize: 11.5 }}
                         >
                           {q.kind.toUpperCase()}
                         </span>
@@ -741,7 +741,7 @@ export default function RelatorioDrawer({ reportId, onClose, onChanged }: Props)
                     </button>
                   )}
                   {!canDiffuse && !canArchive && !canUndiffuse && !canDownload && !canDestroy && (
-                    <div className="muted" style={{ fontSize: 11, padding: 8 }}>
+                    <div className="muted" style={{ fontSize: 13, padding: 8 }}>
                       // SEM AÇÕES DISPONÍVEIS NESTE STATUS
                     </div>
                   )}

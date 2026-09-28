@@ -448,7 +448,7 @@ export default function OcorrenciaDrawer({ incidentId, onClose, onChanged }: Pro
                             }}
                           />
                         ) : (
-                          <span className="muted" style={{ fontSize: 10 }}>// SEM FOTO</span>
+                          <span className="muted" style={{ fontSize: 11.5 }}>// SEM FOTO</span>
                         )}
                       </div>
                       {canEdit && (
@@ -461,7 +461,7 @@ export default function OcorrenciaDrawer({ incidentId, onClose, onChanged }: Pro
                               REMOVER
                             </button>
                           )}
-                          <div className="muted" style={{ fontSize: 9.5, marginTop: 4 }}>
+                          <div className="muted" style={{ fontSize: 11.5, marginTop: 4 }}>
                             JPEG/PNG · MÁX 5 MIB
                           </div>
                         </div>
@@ -473,7 +473,7 @@ export default function OcorrenciaDrawer({ incidentId, onClose, onChanged }: Pro
                   <fieldset className="form-fieldset">
                     <legend>ENVOLVIDOS ({data.involved.length})</legend>
                     {data.involved.length === 0 && (
-                      <div className="muted" style={{ fontSize: 11 }}>
+                      <div className="muted" style={{ fontSize: 13 }}>
                         // NENHUMA ENTIDADE VINCULADA
                       </div>
                     )}

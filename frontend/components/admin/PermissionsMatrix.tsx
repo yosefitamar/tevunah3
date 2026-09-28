@@ -245,7 +245,7 @@ export default function PermissionsMatrix() {
                       </td>
                       <td title={descOf(p.action)}>
                         <span style={{ color: "var(--fg-0)" }}>{labelOf(p.action)}</span>
-                        <span className="mono muted" style={{ fontSize: 10, display: "block" }}>
+                        <span className="mono muted" style={{ fontSize: 11.5, display: "block" }}>
                           {p.action}
                         </span>
                       </td>

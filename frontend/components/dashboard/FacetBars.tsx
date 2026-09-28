@@ -31,7 +31,7 @@ type Props = {
 export default function FacetBars({ items, empty, showPercent = false }: Props) {
   if (items.length === 0) {
     return (
-      <div className="muted" style={{ fontSize: 11 }}>
+      <div className="muted" style={{ fontSize: 13 }}>
         // {empty}
       </div>
     );

@@ -87,7 +87,7 @@ export default function LoginScreen() {
               onChange={(e) => setTotp(e.target.value.replace(/\D/g, ""))}
               autoComplete="one-time-code"
             />
-            <small className="muted" style={{ fontSize: 9, letterSpacing: "0.14em" }}>
+            <small className="muted" style={{ fontSize: 11.5, letterSpacing: "0.06em" }}>
               // DEIXE VAZIO SE ADMIN SOLICITOU RESET DE TOTP
             </small>
           </label>

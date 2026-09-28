@@ -217,7 +217,7 @@ export default function CreateEntidadeModal({
             {cpfTaken.mother_name ? ` (mãe: ${cpfTaken.mother_name})` : ""}
             {cpfTaken.date_of_birth ? ` · nasc.: ${cpfTaken.date_of_birth}` : ""}.
           </div>
-          <div style={{ marginTop: 8, fontSize: 11, color: "var(--fg-2)" }}>
+          <div style={{ marginTop: 8, fontSize: 13, color: "var(--fg-2)" }}>
             Não é possível duplicar. Edite o registro existente ou corrija o
             CPF informado.
           </div>
@@ -306,7 +306,7 @@ export default function CreateEntidadeModal({
             </div>
             <ul style={{ margin: 0, paddingLeft: 18 }}>
               {homonyms.slice(0, 5).map((h) => (
-                <li key={h.id} style={{ fontSize: 11 }}>
+                <li key={h.id} style={{ fontSize: 13 }}>
                   {h.name.toUpperCase()}
                   {h.mother_name ? ` · mãe: ${h.mother_name}` : ""}
                   {h.date_of_birth ? ` · nasc.: ${h.date_of_birth}` : ""}
@@ -728,7 +728,7 @@ export default function CreateEntidadeModal({
               </div>
             )}
             {dupesLoading && kind === "person" && (
-              <div className="muted" style={{ fontSize: 10 }}>
+              <div className="muted" style={{ fontSize: 11.5 }}>
                 // verificando duplicates…
               </div>
             )}
@@ -982,12 +982,12 @@ function OrcrimSelect({
         ]}
       />
       {err && (
-        <div className="muted" style={{ fontSize: 10 }}>
+        <div className="muted" style={{ fontSize: 11.5 }}>
           ⚠ não foi possível carregar orcrim: {err}
         </div>
       )}
       {!loading && sorted.length === 0 && !err && (
-        <div className="muted" style={{ fontSize: 10 }}>
+        <div className="muted" style={{ fontSize: 11.5 }}>
           Nenhuma organização com a tag #orcrim. Cadastre uma organização e marque-a com a tag.
         </div>
       )}
@@ -1155,7 +1155,7 @@ function VehicleFields(props: {
             placeholder="ABC1D23"
           />
           {props.plate.length > 0 && !isValidPlate(props.plate) && (
-            <span style={{ fontSize: 9.5, color: "var(--crit)" }}>
+            <span style={{ fontSize: 11.5, color: "var(--crit)" }}>
               ⚠ formato inválido — use o padrão antigo (ABC1234) ou Mercosul (ABC1D23)
             </span>
           )}
@@ -1290,7 +1290,7 @@ function AddressFields({
     <fieldset className="form-fieldset">
       <legend>ENDEREÇOS · OPCIONAL</legend>
       {items.length === 0 && (
-        <div className="muted" style={{ fontSize: 11 }}>
+        <div className="muted" style={{ fontSize: 13 }}>
           // nenhum endereço cadastrado
         </div>
       )}
@@ -1385,12 +1385,12 @@ function AddressRow({
             placeholder="00000-000"
           />
           {cepLoading && (
-            <span className="muted" style={{ fontSize: 9.5 }}>
+            <span className="muted" style={{ fontSize: 11.5 }}>
               // consultando…
             </span>
           )}
           {cepError && (
-            <span style={{ fontSize: 9.5, color: "var(--warn)" }}>
+            <span style={{ fontSize: 11.5, color: "var(--warn)" }}>
               ⚠ CEP não encontrado
             </span>
           )}
@@ -1519,7 +1519,7 @@ function FamilyLinkPicker({
     <fieldset className="form-fieldset">
       <legend>VÍNCULOS FAMILIARES / SOCIAIS · OPCIONAL</legend>
       {items.length === 0 && (
-        <div className="muted" style={{ fontSize: 11 }}>
+        <div className="muted" style={{ fontSize: 13 }}>
           // nenhum vínculo
         </div>
       )}
@@ -1654,12 +1654,12 @@ function FamilyAddPopover({
           </label>
           <div className="link-search-results">
             {loading && (
-              <div className="muted" style={{ fontSize: 11, padding: 8 }}>
+              <div className="muted" style={{ fontSize: 13, padding: 8 }}>
                 // buscando…
               </div>
             )}
             {!loading && visible.length === 0 && (
-              <div className="muted" style={{ fontSize: 11, padding: 8 }}>
+              <div className="muted" style={{ fontSize: 13, padding: 8 }}>
                 // nenhuma pessoa encontrada
               </div>
             )}
@@ -1678,7 +1678,7 @@ function FamilyAddPopover({
                   >
                     <span>{p.name.toUpperCase()}</span>
                     {alias && (
-                      <span className="muted" style={{ fontSize: 10 }}>
+                      <span className="muted" style={{ fontSize: 11.5 }}>
                         VULGO {alias.toUpperCase()}
                       </span>
                     )}
@@ -1719,7 +1719,7 @@ function VehicleLinkPicker({
     <fieldset className="form-fieldset">
       <legend>VÍNCULOS COM VEÍCULOS · OPCIONAL</legend>
       {items.length === 0 && (
-        <div className="muted" style={{ fontSize: 11 }}>
+        <div className="muted" style={{ fontSize: 13 }}>
           // nenhum veículo vinculado
         </div>
       )}
@@ -1865,12 +1865,12 @@ function VehicleSearchPopover({
           </label>
           <div className="link-search-results">
             {loading && (
-              <div className="muted" style={{ fontSize: 11, padding: 8 }}>
+              <div className="muted" style={{ fontSize: 13, padding: 8 }}>
                 // buscando…
               </div>
             )}
             {!loading && results.length === 0 && (
-              <div className="muted" style={{ fontSize: 11, padding: 8 }}>
+              <div className="muted" style={{ fontSize: 13, padding: 8 }}>
                 // nenhum veículo encontrado
               </div>
             )}

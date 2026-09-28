@@ -297,7 +297,7 @@ function Row({ report, onOpen }: { report: Report; onOpen: () => void }) {
           {CONFIDENTIALITY_LABEL[report.confidentiality]}
         </span>
       </td>
-      <td className="mono" style={{ fontSize: 11 }}>
+      <td className="mono" style={{ fontSize: 13 }}>
         {clearanceLabel(report.required_clearance)}
       </td>
       <td className="muted">

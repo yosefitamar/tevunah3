@@ -77,12 +77,12 @@ export default function MotherField({
       {focused && !linkedId && name.trim().length >= 2 && (
         <div className="link-search-results mother-search-results">
           {searching && (
-            <div className="muted" style={{ fontSize: 11 }}>
+            <div className="muted" style={{ fontSize: 13 }}>
               // buscando…
             </div>
           )}
           {!searching && results.length === 0 && (
-            <div className="muted" style={{ fontSize: 11 }}>
+            <div className="muted" style={{ fontSize: 13 }}>
               // sem correspondência — será salvo como texto livre
             </div>
           )}

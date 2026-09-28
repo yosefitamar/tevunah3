@@ -147,7 +147,7 @@ export default function PrimaryPhotoPicker(props: PrimaryPhotoPickerProps) {
         </div>
       )}
       {err && (
-        <div className="muted" style={{ fontSize: 10, color: "var(--crit)" }}>
+        <div className="muted" style={{ fontSize: 11.5, color: "var(--crit)" }}>
           ⚠ {err}
         </div>
       )}

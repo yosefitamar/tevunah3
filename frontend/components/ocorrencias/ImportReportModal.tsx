@@ -62,7 +62,7 @@ export default function ImportReportModal({ onClose, onApply }: Props) {
               rows={14}
               autoFocus
               placeholder={"RELATÓRIO DE CVLI\nNATUREZA: …\nDATA: …\nHORÁRIO: …\nENDEREÇO: …"}
-              style={{ fontFamily: "var(--font-mono, monospace)", fontSize: 11.5 }}
+              style={{ fontFamily: "var(--font-mono, monospace)", fontSize: 13.5 }}
             />
           </label>
 
@@ -78,7 +78,7 @@ export default function ImportReportModal({ onClose, onApply }: Props) {
             </span>
           </label>
 
-          <div className="muted" style={{ fontSize: 10.5, marginTop: 8 }}>
+          <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>
             // O RESULTADO É SUGESTÃO: NADA É GRAVADO ATÉ VOCÊ CONFERIR E REGISTRAR
           </div>
 

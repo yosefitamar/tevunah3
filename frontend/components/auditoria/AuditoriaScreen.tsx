@@ -236,7 +236,7 @@ export default function AuditoriaScreen() {
                       <span style={{ color: "var(--fg-0)", fontWeight: 600 }}>
                         {e.action}
                       </span>
-                      <span className="muted" style={{ marginLeft: 6, fontSize: 9 }}>
+                      <span className="muted" style={{ marginLeft: 6, fontSize: 11.5 }}>
                         / {actionGroup(e.action)}
                       </span>
                     </td>

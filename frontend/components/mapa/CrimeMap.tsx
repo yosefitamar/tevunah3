@@ -298,7 +298,7 @@ function InvolvedLine({
       )}
       <span className="map-popup-inv-name">{entity.name.toUpperCase()}</span>
       {entity.role && (
-        <span className={"pill " + tone} style={{ fontSize: 8.5 }}>
+        <span className={"pill " + tone} style={{ fontSize: 11.5 }}>
           {entity.role.toUpperCase()}
         </span>
       )}

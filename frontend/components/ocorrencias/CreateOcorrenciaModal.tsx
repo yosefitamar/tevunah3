@@ -345,7 +345,7 @@ export default function CreateOcorrenciaModal({ onClose, onCreated }: Props) {
                             <Trash2 size={11} />
                           </button>
                         </div>
-                        <div className="muted" style={{ fontSize: 10.5 }}>
+                        <div className="muted" style={{ fontSize: 12 }}>
                           {qualif || "// SEM QUALIFICAÇÃO NO TEXTO"}
                         </div>
 
@@ -389,7 +389,7 @@ export default function CreateOcorrenciaModal({ onClose, onCreated }: Props) {
                             ))}
                           </div>
                         ) : (
-                          <div className="muted" style={{ fontSize: 10.5 }}>
+                          <div className="muted" style={{ fontSize: 12 }}>
                             // NENHUM DOSSIÊ PARECIDO NO ACERVO
                           </div>
                         )}

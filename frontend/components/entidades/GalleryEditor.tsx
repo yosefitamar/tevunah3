@@ -126,7 +126,7 @@ export function PendingGalleryEditor({
               maxLength={500}
             />
             <div className="gallery-card-actions">
-              <span className="muted" style={{ fontSize: 9.5 }}>
+              <span className="muted" style={{ fontSize: 11.5 }}>
                 {fmtBytes(p.file.size)}
               </span>
               <button
@@ -164,7 +164,7 @@ export function PendingGalleryEditor({
         onChange={(e: ChangeEvent<HTMLInputElement>) => add(e.target.files)}
       />
       {err && (
-        <div className="muted" style={{ fontSize: 10, color: "var(--crit)" }}>
+        <div className="muted" style={{ fontSize: 11.5, color: "var(--crit)" }}>
           ⚠ {err}
         </div>
       )}
@@ -331,7 +331,7 @@ export function PersistedGalleryEditor({
               disabled={busy}
             />
             <div className="gallery-card-actions">
-              <span className="muted" style={{ fontSize: 9.5 }}>
+              <span className="muted" style={{ fontSize: 11.5 }}>
                 {drafts[p.id] !== undefined && drafts[p.id] !== p.caption
                   ? "ALTERADA · TAB OU CLIQUE FORA P/ SALVAR"
                   : ""}

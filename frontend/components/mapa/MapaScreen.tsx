@@ -331,7 +331,7 @@ export default function MapaScreen() {
             </div>
             <div className="panel-bd">
               {items.length === 0 && (
-                <div className="muted" style={{ fontSize: 11 }}>
+                <div className="muted" style={{ fontSize: 13 }}>
                   // NENHUM PONTO NO RECORTE
                 </div>
               )}
@@ -365,7 +365,7 @@ export default function MapaScreen() {
             </div>
             <div className="panel-bd">
               {topNeighborhoods.length === 0 && (
-                <div className="muted" style={{ fontSize: 11 }}>
+                <div className="muted" style={{ fontSize: 13 }}>
                   // NENHUM PONTO NO RECORTE
                 </div>
               )}
@@ -396,7 +396,7 @@ export default function MapaScreen() {
               <span className="ttl">COMO LER</span>
             </div>
             <div className="panel-bd">
-              <div className="muted" style={{ fontSize: 10.5, lineHeight: 1.7 }}>
+              <div className="muted" style={{ fontSize: 12, lineHeight: 1.7 }}>
                 <MapPinned size={12} strokeWidth={1.6} /> Cada ponto é uma ocorrência
                 georreferenciada. Clique para ver os dados, os envolvidos e abrir o
                 dossiê completo.

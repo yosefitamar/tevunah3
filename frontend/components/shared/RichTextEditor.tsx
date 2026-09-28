@@ -129,7 +129,7 @@ export default function RichTextEditor({
   if (!editor) {
     return (
       <div className="rte-wrap">
-        <div className="muted" style={{ padding: 12, fontSize: 11 }}>
+        <div className="muted" style={{ padding: 12, fontSize: 13 }}>
           // CARREGANDO EDITOR…
         </div>
       </div>
@@ -372,42 +372,42 @@ function Toolbar({
             onClick={() => editor.chain().focus().addRowBefore().run()}
             disabled={disabled}
           >
-            <span style={{ fontSize: 9, letterSpacing: 0 }}>+R↑</span>
+            <span style={{ fontSize: 11.5, letterSpacing: 0 }}>+R↑</span>
           </Btn>
           <Btn
             title="Adicionar linha abaixo"
             onClick={() => editor.chain().focus().addRowAfter().run()}
             disabled={disabled}
           >
-            <span style={{ fontSize: 9, letterSpacing: 0 }}>+R↓</span>
+            <span style={{ fontSize: 11.5, letterSpacing: 0 }}>+R↓</span>
           </Btn>
           <Btn
             title="Adicionar coluna à esquerda"
             onClick={() => editor.chain().focus().addColumnBefore().run()}
             disabled={disabled}
           >
-            <span style={{ fontSize: 9, letterSpacing: 0 }}>+C←</span>
+            <span style={{ fontSize: 11.5, letterSpacing: 0 }}>+C←</span>
           </Btn>
           <Btn
             title="Adicionar coluna à direita"
             onClick={() => editor.chain().focus().addColumnAfter().run()}
             disabled={disabled}
           >
-            <span style={{ fontSize: 9, letterSpacing: 0 }}>+C→</span>
+            <span style={{ fontSize: 11.5, letterSpacing: 0 }}>+C→</span>
           </Btn>
           <Btn
             title="Remover linha"
             onClick={() => editor.chain().focus().deleteRow().run()}
             disabled={disabled}
           >
-            <span style={{ fontSize: 9, letterSpacing: 0 }}>−R</span>
+            <span style={{ fontSize: 11.5, letterSpacing: 0 }}>−R</span>
           </Btn>
           <Btn
             title="Remover coluna"
             onClick={() => editor.chain().focus().deleteColumn().run()}
             disabled={disabled}
           >
-            <span style={{ fontSize: 9, letterSpacing: 0 }}>−C</span>
+            <span style={{ fontSize: 11.5, letterSpacing: 0 }}>−C</span>
           </Btn>
         </>
       )}
@@ -512,7 +512,7 @@ function ColorPicker({ editor, disabled }: { editor: Editor; disabled?: boolean 
         disabled={disabled}
         onClick={() => editor.chain().focus().unsetColor().run()}
       >
-        <span style={{ fontSize: 9, letterSpacing: 0 }}>×</span>
+        <span style={{ fontSize: 11.5, letterSpacing: 0 }}>×</span>
       </button>
     </span>
   );

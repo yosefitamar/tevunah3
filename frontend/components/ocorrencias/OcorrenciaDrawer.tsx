@@ -31,6 +31,7 @@ import { useIncidentLocations } from "@/lib/useIncidentLocations";
 import GeoField from "./GeoField";
 import InvolvedPicker from "./InvolvedPicker";
 import MeansField from "./MeansField";
+import IntelField from "./IntelField";
 import PlaceField from "./PlaceField";
 import ConfirmVitimaModal, { type VictimCandidate } from "./ConfirmVitimaModal";
 import DeceasedPhoto from "../shared/DeceasedPhoto";
@@ -391,6 +392,12 @@ export default function OcorrenciaDrawer({ incidentId, onClose, onChanged }: Pro
                         }
                       />
                     )}
+
+                    <IntelField
+                      value={data.intel_participation}
+                      disabled={!canEdit}
+                      onChange={(v) => patch({ intel_participation: v })}
+                    />
 
                     <PlaceField
                       city={data.city}

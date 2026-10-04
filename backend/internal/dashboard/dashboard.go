@@ -84,12 +84,10 @@ type MonthPoint struct {
 
 // IncidentStats é o bloco de ocorrências do painel.
 type IncidentStats struct {
-	ByType        map[string]int
-	PrevByType    map[string]int
-	Series        []MonthPoint
-	Means         []Facet
-	Cities        []Facet
-	Neighborhoods []Facet
+	ByType     map[string]int
+	PrevByType map[string]int
+	Series     []MonthPoint
+	Means      []Facet
 	// Geocoded conta quantas ocorrências do período têm coordenadas — mede a
 	// cobertura do mapa do crime, que depende de preenchimento manual.
 	Geocoded int
@@ -148,12 +146,6 @@ func (r *Repo) Incidents(ctx context.Context, w Window) (*IncidentStats, error) 
 		return nil, err
 	}
 	if st.Means, err = r.meansFacets(ctx, w.Current); err != nil {
-		return nil, err
-	}
-	if st.Cities, err = r.cityFacets(ctx, w.Current); err != nil {
-		return nil, err
-	}
-	if st.Neighborhoods, err = r.neighborhoodFacets(ctx, w.Current); err != nil {
 		return nil, err
 	}
 	if err = r.db.QueryRowContext(ctx, `
@@ -266,35 +258,6 @@ func (r *Repo) meansFacets(ctx context.Context, p Period) ([]Facet, error) {
 		   AND ($2::date IS NULL OR occurred_on <= $2::date)
 		 GROUP BY means
 		 ORDER BY COUNT(*) DESC, means`, nilDate(p.From), nilDate(p.To))
-}
-
-func (r *Repo) cityFacets(ctx context.Context, p Period) ([]Facet, error) {
-	return r.facets(ctx, `
-		SELECT city, '', COUNT(*)
-		  FROM app.incidents
-		 WHERE deleted_at IS NULL
-		   AND city <> ''
-		   AND ($1::date IS NULL OR occurred_on >= $1::date)
-		   AND ($2::date IS NULL OR occurred_on <= $2::date)
-		 GROUP BY city
-		 ORDER BY COUNT(*) DESC, city
-		 LIMIT 8`, nilDate(p.From), nilDate(p.To))
-}
-
-// neighborhoodFacets agrega por (município, bairro): bairro homônimo em
-// municípios diferentes é outro território, e somá-los inventaria uma
-// concentração que não existe.
-func (r *Repo) neighborhoodFacets(ctx context.Context, p Period) ([]Facet, error) {
-	return r.facets(ctx, `
-		SELECT neighborhood, city, COUNT(*)
-		  FROM app.incidents
-		 WHERE deleted_at IS NULL
-		   AND neighborhood <> ''
-		   AND ($1::date IS NULL OR occurred_on >= $1::date)
-		   AND ($2::date IS NULL OR occurred_on <= $2::date)
-		 GROUP BY neighborhood, city
-		 ORDER BY COUNT(*) DESC, neighborhood
-		 LIMIT 8`, nilDate(p.From), nilDate(p.To))
 }
 
 func (r *Repo) facets(ctx context.Context, query string, args ...any) ([]Facet, error) {

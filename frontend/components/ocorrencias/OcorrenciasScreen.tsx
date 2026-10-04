@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { MapPin, Plus, Search, ShieldAlert, SlidersHorizontal, Users, X } from "lucide-react";
+import { MapPin, Plus, Search, ShieldAlert, Users, X } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   INCIDENT_MEANS_LABEL,
@@ -14,13 +14,17 @@ import {
 } from "@/lib/incidents-api";
 import { canCreateIncidents, canReadIncidents } from "@/lib/permissions";
 import { useIncidentLocations } from "@/lib/useIncidentLocations";
-import { RANGE_LABEL, resolveRange } from "@/lib/date-ranges";
+import { ALL_PERIOD, periodBounds, type PeriodSelection } from "@/lib/period";
 import { formatBR, formatBRDate } from "@/lib/format";
 import type { ApiError } from "@/lib/api";
 import SortHeader, { type SortState } from "../shared/SortHeader";
 import IncidentFiltersModal, {
+  incidentFilterCount,
+  incidentFilterSummary,
   type IncidentFilters,
 } from "../shared/IncidentFiltersModal";
+import PeriodButton from "../shared/PeriodButton";
+import { FiltersButton } from "../shared/FiltersModal";
 import CreateOcorrenciaModal from "./CreateOcorrenciaModal";
 import OcorrenciaDrawer from "./OcorrenciaDrawer";
 
@@ -29,9 +33,6 @@ const PAGE_SIZE = 25;
 // A listagem é o acervo inteiro: nasce sem recorte nenhum. (O mapa parte de
 // CVLI no mês atual porque é uma leitura territorial, não um índice.)
 const DEFAULT_FILTERS: IncidentFilters = {
-  range: "tudo",
-  from: "",
-  to: "",
   type: "",
   means: "",
   city: "",
@@ -43,6 +44,7 @@ export default function OcorrenciasScreen() {
   const [data, setData] = useState<IncidentsList | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [period, setPeriod] = useState<PeriodSelection>(ALL_PERIOD);
   const [filters, setFilters] = useState<IncidentFilters>(DEFAULT_FILTERS);
   const [showFilters, setShowFilters] = useState(false);
   // Busca livre fica fora do modal: é o gesto mais frequente ("cadê a
@@ -63,10 +65,7 @@ export default function OcorrenciasScreen() {
     return () => window.clearTimeout(h);
   }, [search]);
 
-  const period = useMemo(() => {
-    if (filters.range === "custom") return { from: filters.from, to: filters.to };
-    return resolveRange(filters.range);
-  }, [filters.range, filters.from, filters.to]);
+  const bounds = useMemo(() => periodBounds(period), [period]);
 
   const reload = useCallback(async () => {
     if (!canRead) return;
@@ -80,8 +79,8 @@ export default function OcorrenciasScreen() {
         means: filters.means || undefined,
         city: filters.city || undefined,
         neighborhood: filters.neighborhood || undefined,
-        date_from: period.from || undefined,
-        date_to: period.to || undefined,
+        date_from: bounds.from || undefined,
+        date_to: bounds.to || undefined,
         search: debouncedSearch || undefined,
         sort_by: (sort?.field as "occurred_on" | "type" | "created_at" | "updated_at") || undefined,
         sort_dir: sort?.dir,
@@ -98,8 +97,8 @@ export default function OcorrenciasScreen() {
     filters.means,
     filters.city,
     filters.neighborhood,
-    period.from,
-    period.to,
+    bounds.from,
+    bounds.to,
     debouncedSearch,
     page,
     sort,
@@ -109,34 +108,8 @@ export default function OcorrenciasScreen() {
     reload();
   }, [reload]);
 
-  // Badge do botão: quantos recortes fogem do padrão da tela — casa com o
-  // "LIMPAR" do modal, que restaura exatamente esse padrão.
-  const activeCount = useMemo(() => {
-    let n = 0;
-    if (filters.range !== DEFAULT_FILTERS.range) n++;
-    if (filters.type !== DEFAULT_FILTERS.type) n++;
-    if (filters.means) n++;
-    if (filters.city) n++;
-    if (filters.neighborhood) n++;
-    return n;
-  }, [filters]);
-
-  // Resumo ao lado do botão: com os campos dentro do modal, o recorte
-  // corrente precisa continuar visível sem abrir nada.
-  const filterSummary = useMemo(() => {
-    const parts = [
-      filters.range === "custom"
-        ? `${filters.from ? formatBRDate(filters.from) : "…"} → ${
-            filters.to ? formatBRDate(filters.to) : "…"
-          }`
-        : RANGE_LABEL[filters.range],
-      filters.type ? INCIDENT_TYPE_LABEL[filters.type] : "TODOS OS TIPOS",
-    ];
-    if (filters.means) parts.push(INCIDENT_MEANS_LABEL[filters.means]);
-    if (filters.city) parts.push(filters.city);
-    if (filters.neighborhood) parts.push(filters.neighborhood);
-    return parts.join(" · ");
-  }, [filters]);
+  const activeCount = incidentFilterCount(filters, DEFAULT_FILTERS);
+  const filterSummary = incidentFilterSummary(filters);
 
   if (!canRead) {
     return (
@@ -156,7 +129,7 @@ export default function OcorrenciasScreen() {
   return (
     <div className="screen-fill">
       <div className="toolbar">
-        <div className="toolbar-search toolbar-search--wide">
+        <div className="toolbar-search">
           <Search size={14} strokeWidth={1.6} />
           <input
             type="text"
@@ -183,14 +156,14 @@ export default function OcorrenciasScreen() {
             </button>
           )}
         </div>
-        <button
-          type="button"
-          className={"btn" + (activeCount > 0 ? " btn-primary" : "")}
-          onClick={() => setShowFilters(true)}
-        >
-          <SlidersHorizontal size={13} strokeWidth={1.8} /> FILTROS
-          {activeCount > 0 && <span className="btn-count">{activeCount}</span>}
-        </button>
+        <PeriodButton
+          value={period}
+          onChange={(p) => {
+            setPeriod(p);
+            setPage(0);
+          }}
+        />
+        <FiltersButton count={activeCount} onClick={() => setShowFilters(true)} />
         <span className="muted filter-summary" title={filterSummary}>
           {filterSummary}
         </span>

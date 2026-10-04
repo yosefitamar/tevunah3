@@ -507,6 +507,10 @@ type ListOpts struct {
 	Status string // "", "criado", "difundido", "arquivado"
 	Search string // substring em subject (ILIKE)
 	Year   int    // 0 = todos os anos; >0 = filtra year exato (inclui rascunhos com year)
+	// DateFrom/DateTo recortam pela data do documento (YYYY-MM-DD, inclusivo);
+	// "" = sem limite. É o filtro de período da tela.
+	DateFrom string
+	DateTo   string
 
 	// Filtro de visibilidade (obrigatório nos endpoints HTTP — vem do middleware
 	// de auth). Se IsAdmin=true, ignora o filtro e devolve todos os relatórios.
@@ -558,10 +562,11 @@ func (r *Repo) List(ctx context.Context, opts ListOpts) (*ListResult, error) {
 	search := "%" + opts.Search + "%"
 
 	// Predicado de visibilidade — true pra admin (vê tudo), senão filtra
-	// pelo autor + report_viewers. Placeholders diferentes pra count ($5) e
-	// list ($7, depois do limit/offset), por isso duas strings.
-	countArgs := []any{opts.Status, opts.Search, search, opts.Year}
-	listArgs := []any{opts.Status, opts.Search, search, opts.Year, opts.Limit, opts.Offset}
+	// pelo autor + report_viewers. Placeholders diferentes pra count ($7) e
+	// list ($9, depois do limit/offset), por isso duas strings.
+	dateFrom, dateTo := nilDateArg(opts.DateFrom), nilDateArg(opts.DateTo)
+	countArgs := []any{opts.Status, opts.Search, search, opts.Year, dateFrom, dateTo}
+	listArgs := []any{opts.Status, opts.Search, search, opts.Year, dateFrom, dateTo, opts.Limit, opts.Offset}
 	countVis := "TRUE"
 	listVis := "TRUE"
 	if !opts.IsAdmin {
@@ -569,19 +574,19 @@ func (r *Repo) List(ctx context.Context, opts ListOpts) (*ListResult, error) {
 		countArgs = append(countArgs, opts.UserID, opts.Clearance)
 		listArgs = append(listArgs, opts.UserID, opts.Clearance)
 		countVis = `(
-			r.created_by = $5
-			OR (
-			     (r.visibility = 'aberto'
-			      OR EXISTS (SELECT 1 FROM app.report_viewers v WHERE v.report_id = r.id AND v.user_id = $5))
-			     AND r.required_clearance <= $6
-			)
-		)`
-		listVis = `(
 			r.created_by = $7
 			OR (
 			     (r.visibility = 'aberto'
 			      OR EXISTS (SELECT 1 FROM app.report_viewers v WHERE v.report_id = r.id AND v.user_id = $7))
 			     AND r.required_clearance <= $8
+			)
+		)`
+		listVis = `(
+			r.created_by = $9
+			OR (
+			     (r.visibility = 'aberto'
+			      OR EXISTS (SELECT 1 FROM app.report_viewers v WHERE v.report_id = r.id AND v.user_id = $9))
+			     AND r.required_clearance <= $10
 			)
 		)`
 	}
@@ -594,6 +599,8 @@ func (r *Repo) List(ctx context.Context, opts ListOpts) (*ListResult, error) {
 		   AND ($1 = '' OR r.status = $1)
 		   AND ($2 = '' OR r.subject ILIKE $3)
 		   AND ($4 = 0  OR r.year = $4)
+		   AND ($5::date IS NULL OR r.doc_date >= $5::date)
+		   AND ($6::date IS NULL OR r.doc_date <= $6::date)
 		   AND `+countVis,
 		countArgs...,
 	).Scan(&total); err != nil {
@@ -607,9 +614,11 @@ func (r *Repo) List(ctx context.Context, opts ListOpts) (*ListResult, error) {
 		   AND ($1 = '' OR r.status = $1)
 		   AND ($2 = '' OR r.subject ILIKE $3)
 		   AND ($4 = 0  OR r.year = $4)
+		   AND ($5::date IS NULL OR r.doc_date >= $5::date)
+		   AND ($6::date IS NULL OR r.doc_date <= $6::date)
 		   AND `+listVis+`
 		 ORDER BY `+reportsOrderBy(opts.SortBy, opts.SortDir)+`
-		 LIMIT $5 OFFSET $6`, listArgs...)
+		 LIMIT $7 OFFSET $8`, listArgs...)
 	if err != nil {
 		return nil, err
 	}
@@ -1139,4 +1148,12 @@ func (r *Repo) RecordDownload(ctx context.Context, in NewDownload) (string, erro
 		in.Declassified,
 	).Scan(&id)
 	return id, err
+}
+
+// nilDateArg passa "" como NULL (sem limite de data).
+func nilDateArg(s string) any {
+	if s = strings.TrimSpace(s); s == "" {
+		return nil
+	}
+	return s
 }

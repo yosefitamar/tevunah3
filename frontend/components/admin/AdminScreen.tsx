@@ -1,15 +1,17 @@
 "use client";
 
 import { useState } from "react";
-import { Building2, ShieldAlert, SlidersHorizontal, Monitor, Users } from "lucide-react";
+import { ArrowLeftRight, Building2, ShieldAlert, SlidersHorizontal, Monitor, Radar, Users } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
-import { canAccessAdmin } from "@/lib/permissions";
+import { canAccessAdmin, canManageIntelKeywords, canManageSipomMapping } from "@/lib/permissions";
 import AgencySettings from "./AgencySettings";
 import PermissionsMatrix from "./PermissionsMatrix";
 import RolesManagement from "./RolesManagement";
 import DevicesPlaceholder from "./DevicesPlaceholder";
+import IntelKeywords from "./IntelKeywords";
+import SipomNatureMap from "./SipomNatureMap";
 
-type Tab = "agencia" | "papeis" | "matriz" | "dispositivos";
+type Tab = "agencia" | "inteligencia" | "sipom" | "papeis" | "matriz" | "dispositivos";
 
 export default function AdminScreen() {
   const { user: me } = useAuth();
@@ -46,6 +48,26 @@ export default function AdminScreen() {
           <Building2 size={13} strokeWidth={1.6} />
           <span>AGÊNCIA</span>
         </button>
+        {canManageIntelKeywords(me) && (
+          <button
+            type="button"
+            className={"admin-tab" + (tab === "inteligencia" ? " admin-tab--on" : "")}
+            onClick={() => setTab("inteligencia")}
+          >
+            <Radar size={13} strokeWidth={1.6} />
+            <span>INTELIGÊNCIA</span>
+          </button>
+        )}
+        {canManageSipomMapping(me) && (
+          <button
+            type="button"
+            className={"admin-tab" + (tab === "sipom" ? " admin-tab--on" : "")}
+            onClick={() => setTab("sipom")}
+          >
+            <ArrowLeftRight size={13} strokeWidth={1.6} />
+            <span>SIPOM</span>
+          </button>
+        )}
         <button
           type="button"
           className={"admin-tab" + (tab === "papeis" ? " admin-tab--on" : "")}
@@ -74,6 +96,8 @@ export default function AdminScreen() {
       </div>
 
       {tab === "agencia" && <AgencySettings />}
+      {tab === "inteligencia" && canManageIntelKeywords(me) && <IntelKeywords />}
+      {tab === "sipom" && canManageSipomMapping(me) && <SipomNatureMap />}
       {tab === "papeis" && <RolesManagement />}
       {tab === "matriz" && <PermissionsMatrix />}
       {tab === "dispositivos" && <DevicesPlaceholder />}

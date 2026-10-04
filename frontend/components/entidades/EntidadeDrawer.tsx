@@ -70,6 +70,7 @@ import {
 import DeceasedPhoto from "../shared/DeceasedPhoto";
 import { useNavigation } from "@/contexts/NavigationContext";
 import PrimaryPhotoPicker from "./PrimaryPhotoPicker";
+import OccurrencesSection from "./OccurrencesSection";
 import CreateEntidadeModal from "./CreateEntidadeModal";
 import { PersistedGalleryEditor } from "./GalleryEditor";
 import { canDeleteEntities, canEditEntities } from "@/lib/permissions";
@@ -358,6 +359,8 @@ function ViewMode({
       {/* No dossiê (modo consulta) os vínculos e endereços são read-only.
           Adição/remoção fica disponível apenas no modo EDITAR. */}
       <LinksSection entityID={data.id} entityKind={data.kind} canManage={false} />
+
+      <OccurrencesSection entityID={data.id} />
 
       {isPerson(data) && (
         <AddressesSection

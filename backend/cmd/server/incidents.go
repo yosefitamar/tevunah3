@@ -34,6 +34,7 @@ type publicIncident struct {
 	Description  string           `json:"description"`
 	Means        string           `json:"means"`
 	MeansDetail  string           `json:"means_detail"`
+	Intel        bool             `json:"intel_participation"`
 	Involved     []publicInvolved `json:"involved"`
 	CreatedAt    time.Time        `json:"created_at"`
 	CreatedBy    string           `json:"created_by"`
@@ -72,6 +73,7 @@ func toPublicIncident(i *incidents.Incident) publicIncident {
 		Description:  i.Description,
 		Means:        i.Means,
 		MeansDetail:  i.MeansDetail,
+		Intel:        i.IntelParticipation,
 		Involved:     involved,
 		CreatedAt:    i.CreatedAt, CreatedBy: i.CreatedBy,
 		UpdatedAt: i.UpdatedAt, UpdatedBy: i.UpdatedBy,
@@ -209,6 +211,7 @@ type createIncidentRequest struct {
 	Description  string          `json:"description"`
 	Means        string          `json:"means"`
 	MeansDetail  string          `json:"means_detail"`
+	Intel        bool            `json:"intel_participation"`
 	Involved     []involvedInput `json:"involved"`
 }
 
@@ -243,18 +246,19 @@ func (a *app) handleIncidentCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	inc, err := a.incidents.Create(r.Context(), incidents.NewIncident{
-		Type:         req.Type,
-		OccurredOn:   occurredOn,
-		OccurredTime: timePtr,
-		CIOPSRecord:  req.CIOPSRecord,
-		Latitude:     req.Latitude,
-		Longitude:    req.Longitude,
-		City:         req.City,
-		Neighborhood: req.Neighborhood,
-		Description:  req.Description,
-		Means:        strings.TrimSpace(req.Means),
-		MeansDetail:  req.MeansDetail,
-		CreatedBy:    me.ID,
+		Type:               req.Type,
+		OccurredOn:         occurredOn,
+		OccurredTime:       timePtr,
+		CIOPSRecord:        req.CIOPSRecord,
+		Latitude:           req.Latitude,
+		Longitude:          req.Longitude,
+		City:               req.City,
+		Neighborhood:       req.Neighborhood,
+		Description:        req.Description,
+		Means:              strings.TrimSpace(req.Means),
+		MeansDetail:        req.MeansDetail,
+		IntelParticipation: req.Intel,
+		CreatedBy:          me.ID,
 	})
 	if err != nil {
 		log.Printf("incidents create: %v", err)
@@ -286,7 +290,8 @@ func (a *app) handleIncidentCreate(w http.ResponseWriter, r *http.Request) {
 		Action:       "incident.create",
 		ResourceType: audit.Ptr("incident"),
 		ResourceID:   audit.Ptr(inc.ID),
-		After:        map[string]any{"type": inc.Type, "occurred_on": inc.OccurredOn.Format("2006-01-02")},
+		After: map[string]any{"type": inc.Type, "occurred_on": inc.OccurredOn.Format("2006-01-02"),
+			"intel_participation": inc.IntelParticipation},
 	})
 	httpx.Created(w, map[string]any{"incident": toPublicIncident(inc)})
 }
@@ -458,6 +463,14 @@ func (a *app) handleIncidentUpdate(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		opts.MeansDetail = &s
+	}
+	if v, ok := raw["intel_participation"]; ok {
+		var b bool
+		if err := json.Unmarshal(v, &b); err != nil {
+			httpx.Error(w, http.StatusBadRequest, "intel_participation inválido (true|false)")
+			return
+		}
+		opts.IntelParticipation = &b
 	}
 
 	// Snapshot anterior para o audit: com o dossiê editável, o trilho precisa

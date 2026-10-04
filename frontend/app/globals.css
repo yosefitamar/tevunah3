@@ -1461,56 +1461,6 @@ body.session-locked > *:not(.session-overlay-root) {
   cursor: not-allowed;
 }
 
-/* ───────── Filter panel (collapsible) ───────── */
-.filter-panel {
-  background: var(--bg-1);
-  border: 1px solid var(--line-2);
-  padding: 12px;
-  margin-bottom: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  flex-shrink: 0;
-}
-.filter-row {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 12px;
-}
-.filter-field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.filter-field > span {
-  font-size: 11.5px;
-  letter-spacing: 0.08em;
-  color: var(--fg-2);
-  text-transform: uppercase;
-}
-.filter-field select,
-.filter-field input {
-  background: var(--bg-2);
-  border: 1px solid var(--line-2);
-  color: var(--fg-0);
-  font: inherit;
-  font-size: 14px;
-  padding: 6px 8px;
-  outline: none;
-  letter-spacing: 0.02em;
-  height: 32px;
-}
-.filter-field select:focus,
-.filter-field input:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 1px var(--accent-glow);
-}
-.filter-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
 /* Botão estado ativo (filtros aplicados / popover aberto) */
 .btn-active {
   color: var(--accent);
@@ -2945,6 +2895,32 @@ body.session-locked > *:not(.session-overlay-root) {
   box-shadow: 0 0 0 1px var(--accent-glow);
 }
 .sel[data-open] .sel-chevron-icon { color: var(--accent); }
+/* Busca do Select (searchable): fica onde a lista começaria; a lista desce
+   para logo abaixo dela. */
+.sel-search,
+.sel-empty {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: -1px;
+  right: -1px;
+  z-index: 1301;
+  background: var(--bg-1);
+  border: 1px solid var(--line-2);
+  padding: 4px;
+}
+.sel-search input {
+  width: 100%;
+  height: 28px;
+  background: var(--bg-0);
+  border: 1px solid var(--line);
+  color: var(--fg-0);
+  font: inherit;
+  font-size: 13px;
+  padding: 0 8px;
+}
+.sel-search input:focus { outline: none; border-color: var(--accent); }
+.sel-empty { top: calc(100% + 40px); padding: 8px 10px; font-size: 12px; }
+.sel-list.sel-list--searchable { top: calc(100% + 39px); }
 .sel-list {
   list-style: none;
   margin: 0;
@@ -2988,25 +2964,13 @@ body.session-locked > *:not(.session-overlay-root) {
 }
 .sel-item--disabled:hover { background: transparent; color: var(--fg-3); }
 
-/* Variantes compactas, coerentes com .filter-field / .row-select / .toolbar-select */
-.filter-field .sel-trigger {
-  font-size: 14px;
-  padding: 6px 8px;
-  height: 32px;
-}
+/* Variantes compactas, coerentes com .row-select / .toolbar-select */
 .sel.sel--row .sel-trigger {
   font-size: 12px;
   padding: 4px 8px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   min-width: 140px;
-}
-.sel.sel--toolbar .sel-trigger {
-  font-size: 12px;
-  padding: 7px 12px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  min-width: 200px;
 }
 .vehicle-link-row .sel-trigger {
   background: var(--bg-1);
@@ -3211,8 +3175,6 @@ body.session-locked > *:not(.session-overlay-root) {
 }
 .dpk-ft-btn:hover { color: var(--accent); }
 
-.filter-field .dpk-input { font-size: 14px; padding: 6px 8px; }
-.filter-field .dpk-trigger { height: 32px; align-items: center; }
 
 /* ───────── Combobox ─────────
    Híbrido de input + dropdown filtrável. O wrapper carrega a borda; o input
@@ -4953,187 +4915,8 @@ body.session-locked > *:not(.session-overlay-root) {
   max-width: 42ch;
 }
 
-/* Contador de filtros ativos dentro do botão FILTROS. */
-.btn-count {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 15px;
-  height: 15px;
-  padding: 0 4px;
-  margin-left: 2px;
-  border-radius: 999px;
-  background: var(--bg-0);
-  color: var(--accent);
-  font-size: 11.5px;
-  font-weight: 600;
-  font-feature-settings: "tnum";
-}
-
-/* Resumo do recorte ao lado do botão FILTROS: com os campos dentro do modal,
-   é o que mantém o recorte corrente visível sem abrir nada. */
-.filter-summary {
-  font-size: 11.5px;
-  letter-spacing: 0.1em;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 60ch;
-}
-
-/* ═══════════════════════════════════════════════════════════════════
-   ÓBITO — tratamento visual da foto
-   Dessatura + tarja. É só apresentação: o arquivo no acervo continua
-   intacto e um clique abre o original.
-   ═══════════════════════════════════════════════════════════════════ */
-
-/* Moldura da foto: recebe a classe do contexto (dimensão/posicionamento) e
-   a imagem preenche. É o que permite reaproveitar o mesmo componente na foto
-   do dossiê, na miniatura e no preview flutuante da lista de envolvidos. */
-/* :where() zera a especificidade — a classe do contexto (.qual-thumb, que é
-   absoluta, .dossier-photo etc.) continua mandando no posicionamento; aqui
-   ficam só os padrões de moldura. */
-:where(.photo-frame) {
-  position: relative;
-  display: inline-flex;
-  line-height: 0;
-  padding: 0;
-  margin: 0;
-  border: none;
-  background: none;
-  appearance: none;
-  overflow: hidden;
-}
-:where(.photo-frame) > img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-.deceased-photo { cursor: zoom-in; }
-.deceased-photo > img {
-  filter: grayscale(1) contrast(1.05) brightness(0.9);
-}
-
-.deceased-band {
-  position: absolute;
-  left: 0;
-  right: 0;
-  /* Rodapé da foto: no meio, a tarja cobria justamente o rosto — que é o
-     que o agente precisa reconhecer. */
-  bottom: 0;
-  background: var(--crit);
-  color: #fff;
-  /* A tarja cobre fotos de tamanhos bem diferentes (dossiê ~90px, lista
-     ~28px): sem letter-spacing largo o rótulo continua legível na menor. */
-  font-size: 11.5px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-align: center;
-  padding: 3px 2px;
-  line-height: 1.1;
-  text-transform: uppercase;
-  pointer-events: none;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
-}
-/* Miniaturas (~28px) não comportam a palavra: vira uma barra sólida. O
-   significado vem do conjunto — foto em P&B + papel VÍTIMA na mesma linha —
-   e o rótulo continua no aria-label para leitores de tela. */
-.deceased-band--compact {
-  font-size: 0;
-  line-height: 0;
-  height: 5px;
-  padding: 0;
-}
-
-/* Lightbox da foto original (sem filtro, sem tarja). */
-.deceased-original {
-  background: var(--bg-1);
-  border: 1px solid var(--line-2);
-  max-width: min(calc(90 * var(--vw)), 720px);
-  max-height: calc(90 * var(--vh));
-  display: flex;
-  flex-direction: column;
-  box-shadow: 0 0 0 1px var(--bg-0), 0 12px 60px rgba(0, 0, 0, 0.75);
-}
-.deceased-original img {
-  max-width: 100%;
-  max-height: calc(90 * var(--vh) - 40px);
-  object-fit: contain;
-}
-
-/* Selo textual de óbito para cabeçalhos de dossiê e linhas de lista. */
-.pill.deceased {
-  background: var(--crit);
-  color: #fff;
-  font-weight: 700;
-}
-.pill.deceased::before { background: #fff; }
-
-/* Nome na listagem de entidades: o selo de óbito acompanha o nome na mesma
-   célula e desce para a linha de baixo quando a coluna aperta. */
-.entity-row-name {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.entity-row-name .pill.deceased {
-  flex: none;
-  font-size: 11.5px;
-  letter-spacing: 0.08em;
-}
-
-/* Cabeçalho do dossiê com ação à direita (alternar visualizar/editar). */
-.dossier-head--actions {
-  flex-direction: row;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-.dossier-head--actions .dossier-meta { flex: 1; min-width: 0; }
-
-/* Confirmação de vítima: foto ao lado dos dados de identificação. */
-.victim-confirm {
-  display: flex;
-  gap: 12px;
-  align-items: flex-start;
-}
-.victim-confirm-photo {
-  width: 96px;
-  height: 120px;
-  object-fit: cover;
-  border: 1px solid var(--line-2);
-  flex: 0 0 auto;
-}
-.victim-confirm-data { flex: 1; min-width: 0; }
-
-/* Faixa de óbito no cabeçalho do dossiê: selo + data + atalho pro mapa. */
-.dossier-death {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 8px;
-  flex-wrap: wrap;
-  font-size: 11.5px;
-  letter-spacing: 0.06em;
-  color: var(--fg-2);
-}
-
-/* Papel do envolvido na linha da lista (substitui o antigo "PERSON"). */
-.qual-row-meta.role-tone {
-  font-weight: 600;
-  letter-spacing: 0.06em;
-}
 .role-tone--victim { color: var(--crit); }
 .role-tone--accused { color: var(--warn); }
-
-/* Busca das telas com botão FILTROS (mapa e ocorrências): não cresce como a
-   das demais listagens — divide a toolbar com o botão, o resumo do recorte e
-   as ações. */
-.toolbar-search--wide {
-  flex: 0 1 300px;
-  min-width: 180px;
-}
 
 /* ═══════════════════ Dashboard ═══════════════════
    O vocabulário base (.panel, .kpi, .bars, .grid-*) já existia do protótipo;
@@ -5141,8 +4924,9 @@ body.session-locked > *:not(.session-overlay-root) {
 
 /* Os KPIs se adaptam ao número de blocos liberados: sem leitura de
    ocorrências restam menos cards, e colunas fixas deixariam buracos no lugar
-   do que o perfil não pode ver. */
-.grid-kpi { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); flex: none; }
+   do que o perfil não pode ver. Com tudo liberado são seis (CVLI, quatro de
+   produção operacional e RIs), numa linha só a partir de ~1080px de conteúdo. */
+.grid-kpi { grid-template-columns: repeat(auto-fit, minmax(175px, 1fr)); flex: none; }
 
 /* Corpo do painel: ocupa a altura que sobra abaixo da barra de período e
    cabe inteiro em 1920×1080 na escala padrão. A faixa principal estica para
@@ -5169,7 +4953,190 @@ body.session-locked > *:not(.session-overlay-root) {
 .dash-series { display: flex; flex-direction: column; }
 
 .dash-loading { padding: 40px 0; text-align: center; font-size: 15px; letter-spacing: 0.08em; }
-.dash-range { min-width: 200px; }
+
+/* ───────── Padrão de filtros das telas ─────────
+   Barra: busca · PERÍODO (botão → seletor de período) · FILTROS (botão →
+   modal com os demais recortes) · ações. Nada de selects soltos na barra:
+   em FHD a 125% eles disputavam a largura com a busca e quebravam a linha. */
+.period-btn { min-width: 190px; justify-content: flex-start; flex: none; }
+.period-btn-lbl { flex: 1; text-align: left; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.toolbar > .btn { flex: none; }
+.filters-modal-ft {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--line);
+  background: var(--bg-2);
+}
+
+/* ───────── Seletor de período ─────────
+   Atalhos numa coluna à esquerda; à direita, abas MÊS ESPECÍFICO e
+   INTERVALO (dois calendários lado a lado); rodapé com o resumo do recorte. */
+.modal.prd { max-width: 760px; outline: none; }
+.prd-body {
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr);
+  min-height: 0;
+  overflow: visible;
+}
+.prd-presets {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 10px;
+  border-right: 1px solid var(--line);
+  background: var(--bg-0);
+}
+.prd-section-lbl {
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  color: var(--fg-3);
+  padding: 2px 8px 8px;
+}
+.prd-preset {
+  appearance: none;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--fg-1);
+  font: inherit;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-align: left;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+.prd-preset:hover { color: var(--accent); border-color: var(--line-2); }
+.prd-preset--on,
+.prd-preset--on:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg-0);
+  font-weight: 700;
+}
+.prd-main { display: flex; flex-direction: column; min-width: 0; }
+.prd-tabs { padding: 0 10px; }
+.prd-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px 18px;
+}
+.prd-hint { margin: 0; font-size: 11.5px; color: var(--fg-3); }
+
+.prd-cal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.prd-cal-title {
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  color: var(--fg-0);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.prd-nav,
+.prd-nav-spacer { width: 26px; height: 26px; flex-shrink: 0; }
+.prd-nav {
+  appearance: none;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--fg-2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.prd-nav:hover:not(:disabled) { color: var(--accent); border-color: var(--line); }
+.prd-nav:disabled { opacity: 0.3; cursor: not-allowed; }
+
+.prd-months {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+.prd-month {
+  appearance: none;
+  background: var(--bg-0);
+  border: 1px solid var(--line-2);
+  color: var(--fg-1);
+  font: inherit;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  padding: 16px 0;
+  cursor: pointer;
+}
+.prd-month:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); }
+.prd-month:disabled { opacity: 0.3; cursor: not-allowed; }
+.prd-month--now { border-color: var(--fg-3); color: var(--fg-0); }
+.prd-month--on,
+.prd-month--on:hover:not(:disabled) {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg-0);
+  font-weight: 700;
+}
+
+.prd-cals {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+.prd-cal { display: flex; flex-direction: column; gap: 6px; }
+.prd-dow,
+.prd-days {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+}
+.prd-days { row-gap: 2px; }
+.prd-dow span {
+  text-align: center;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--fg-3);
+  padding: 4px 0;
+}
+.prd-day {
+  appearance: none;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--fg-1);
+  font: inherit;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  padding: 6px 0;
+  cursor: pointer;
+}
+.prd-day:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.prd-day:disabled { opacity: 0.25; cursor: not-allowed; }
+.prd-day--today { border-color: var(--line-2); color: var(--fg-0); }
+.prd-day--in { background: var(--accent-glow); color: var(--fg-0); }
+.prd-day--edge,
+.prd-day--edge:hover:not(:disabled) {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg-0);
+  font-weight: 700;
+}
+
+.prd-ft {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--line);
+  background: var(--bg-2);
+}
+.prd-summary {
+  flex: 1;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  color: var(--fg-1);
+  font-variant-numeric: tabular-nums;
+}
+.prd-summary--warn { color: var(--warn); }
 .kpi-hint { margin-top: 8px; font-size: 12px; line-height: 1.4; color: var(--fg-2); }
 
 /* Abas dentro do cabeçalho do painel: alternam o recorte sem trocar de
@@ -5299,3 +5266,325 @@ body.session-locked > *:not(.session-overlay-root) {
 .mchart-legend-item { display: flex; align-items: center; gap: 6px; }
 .mchart-legend-item .dot { width: 8px; height: 8px; flex: none; }
 
+
+/* ───────── Relatório Operacional (PDF diário do CPRAIO) ───────── */
+
+.ops-drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 220px;
+  padding: 24px;
+  border: 1px dashed var(--line-2);
+  background: var(--bg-1);
+  color: var(--fg-2);
+  font-size: 12.5px;
+  letter-spacing: 0.06em;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+.ops-drop:hover,
+.ops-drop--over {
+  border-color: var(--accent);
+  color: var(--fg-0);
+}
+.ops-drop--over { background: color-mix(in srgb, var(--accent) 12%, var(--bg-1)); }
+.ops-spinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid var(--accent);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: ops-spin 0.8s linear infinite;
+}
+@keyframes ops-spin { to { transform: rotate(360deg); } }
+
+.ops-summary {
+  display: flex;
+  border: 1px solid var(--line);
+  background: var(--bg-1);
+}
+.ops-summary .stat { flex: 1; padding: 8px 12px; }
+.ops-file-line {
+  font-size: 11.5px;
+  letter-spacing: 0.04em;
+  margin: 6px 0 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ops-preview-list {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  max-height: 52vh;
+  overflow-y: auto;
+}
+.ops-preview-item + .ops-preview-item { border-top: 1px solid var(--line); }
+.ops-preview-item--dup { opacity: 0.6; }
+.ops-preview-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  background: transparent;
+  border: 0;
+  color: var(--fg-1);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.ops-preview-row:hover { background: color-mix(in srgb, var(--fg-0) 4%, transparent); }
+.ops-preview-when { white-space: nowrap; color: var(--fg-0); }
+.ops-preview-nature {
+  flex: 1;
+  min-width: 0;
+  color: var(--fg-0);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ops-preview-unit { white-space: nowrap; font-size: 11.5px; }
+.ops-preview-body {
+  padding: 4px 14px 14px 34px;
+  background: var(--bg-1);
+  border-top: 1px dashed var(--line);
+}
+
+.ops-body { font-size: 13px; }
+.ops-kv {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px 16px;
+  margin: 12px 0 0;
+}
+.ops-kv > div { min-width: 0; }
+.ops-kv-wide { grid-column: span 2; }
+.ops-kv dt {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--fg-3);
+  text-transform: uppercase;
+  margin-bottom: 2px;
+}
+.ops-kv dd { margin: 0; color: var(--fg-0); overflow-wrap: anywhere; }
+
+.ops-section { margin-top: 16px; }
+.ops-section-title {
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  color: var(--fg-2);
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 4px;
+  margin-bottom: 8px;
+}
+.ops-text { margin: 0; color: var(--fg-1); line-height: 1.55; }
+.ops-text--narrative { white-space: pre-line; }
+
+.ops-person {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 0;
+  border-bottom: 1px dashed var(--line);
+}
+.ops-person:last-child { border-bottom: 0; }
+.ops-person-info { min-width: 0; }
+.ops-person-name { color: var(--fg-0); font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.ops-person-note { font-size: 10px; }
+.ops-person-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: 11.5px;
+  color: var(--fg-2);
+  letter-spacing: 0.03em;
+  margin-top: 2px;
+}
+.ops-person-link {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  max-width: 55%;
+}
+.ops-person-link--col { flex-direction: column; align-items: flex-end; }
+.ops-link { font-size: 11.5px; letter-spacing: 0.04em; display: inline-flex; align-items: center; gap: 5px; }
+.ops-link--auto { color: var(--info); }
+.ops-link--warn { color: var(--warn); text-align: right; }
+.ops-link--btn { background: none; border: 0; padding: 0; cursor: pointer; font: inherit; font-size: 11.5px; }
+.ops-link--btn:hover { text-decoration: underline; }
+.ops-person-search { display: flex; flex-direction: column; gap: 4px; width: 320px; max-width: 100%; }
+.ops-person-search .toolbar-search { height: 30px; }
+.ops-search-hit {
+  text-align: left;
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+  color: var(--fg-0);
+  font: inherit;
+  font-size: 12px;
+  padding: 5px 8px;
+  cursor: pointer;
+}
+.ops-search-hit:hover { border-color: var(--accent); }
+
+.ops-subtbl { margin-bottom: 8px; }
+.ops-subtbl th, .ops-subtbl td { padding: 5px 8px; font-size: 12px; }
+
+.ops-officers { display: flex; flex-wrap: wrap; gap: 6px; }
+.ops-officer {
+  border: 1px solid var(--line);
+  padding: 3px 8px;
+  font-size: 12px;
+  color: var(--fg-0);
+}
+
+.ops-natures { display: flex; flex-wrap: wrap; gap: 6px; }
+.ops-natures-cell { font-size: 12.5px; line-height: 1.35; }
+.ops-accused-cell { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px; }
+.ops-seizures { display: inline-flex; gap: 10px; }
+.ops-seizures > span { display: inline-flex; align-items: center; gap: 4px; }
+.ops-nowrap { white-space: nowrap; flex: none; }
+.ops-report-chip { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; flex: none; }
+.ops-report-chip .action-btn { padding: 0; }
+.ops-filter-row { display: flex; align-items: center; gap: 8px; font-size: 11.5px; letter-spacing: 0.06em; }
+
+/* ───────── Participação da inteligência ─────────
+   Selo preenchido (não só a cor do texto) para se destacar das naturezas e
+   dos demais pills da linha. */
+.pill.intel {
+  color: var(--accent);
+  background: var(--accent-glow);
+  border-color: var(--accent-dim);
+  gap: 4px;
+}
+.pill.intel::before { display: none; }
+.intel-summary { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.intel-yes { color: var(--accent); font-weight: 700; }
+.intel-terms { display: inline-flex; flex-wrap: wrap; gap: 4px; margin-left: 6px; }
+.intel-term {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  padding: 1px 6px;
+  border: 1px solid var(--line-2);
+  color: var(--fg-1);
+  background: var(--bg-2);
+}
+.intel-control { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.intel-seg { margin-top: 0; flex: none; }
+.intel-seg .seg-btn { flex: none; min-width: 56px; padding: 4px 10px; font-size: 11.5px; }
+
+/* Admin › termos de inteligência */
+.intel-kw-help { margin: 0 0 14px; max-width: 860px; font-size: 13px; line-height: 1.5; color: var(--fg-2); }
+.intel-kw-add { display: flex; gap: 8px; align-items: center; margin-bottom: 14px; }
+.intel-kw-input {
+  width: 380px;
+  height: 36px;
+  background: var(--bg-0);
+  border: 1px solid var(--line-2);
+  color: var(--fg-0);
+  font: inherit;
+  font-size: 13px;
+  padding: 0 10px;
+}
+.intel-kw-input:focus { outline: none; border-color: var(--accent); }
+/* Rolagem fica na tabela (cabeçalho fixo); o resto da aba não rola. */
+.intel-kw { padding-top: 18px; }
+.intel-kw-panel { max-width: 1100px; }
+.intel-kw-off td { opacity: 0.55; }
+.intel-kw-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 40px 0;
+  color: var(--fg-3);
+  font-size: 13px;
+}
+
+/* ───────── Envio ao SIPOM (ficha do relatório operacional) ─────────
+   Campo que ainda impede o envio fica marcado em âmbar. */
+.sipom-title { display: flex; align-items: center; gap: 6px; }
+.sipom-title .pill { margin-left: auto; gap: 4px; }
+.sipom-title .pill::before { display: none; }
+.sipom-kv .sipom-missing dt,
+.sipom-kv .sipom-missing dd { color: var(--warn); }
+.sipom-note { margin-top: 6px; font-size: 12px; }
+.sipom-pending { margin: 8px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 3px; }
+.sipom-pending li { font-size: 12.5px; padding-left: 14px; position: relative; }
+.sipom-pending li::before { content: "▸"; position: absolute; left: 0; }
+.sipom-pending--block { color: var(--warn); }
+.sipom-pending--note { color: var(--fg-2); }
+.ops-officer-fn {
+  margin-left: 6px;
+  padding-left: 6px;
+  border-left: 1px solid var(--line-2);
+  color: var(--accent);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+}
+.sipom-natureza {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  margin-bottom: 10px;
+  border: 1px solid var(--line);
+  background: var(--bg-0);
+}
+.sipom-natureza.sipom-missing { border-color: var(--warn); }
+.sipom-natureza-lbl { font-size: 11px; letter-spacing: 0.1em; color: var(--fg-2); }
+.sipom-natureza.sipom-missing .sipom-natureza-lbl { color: var(--warn); }
+.sipom-natureza-val { color: var(--fg-0); }
+.sipom-natureza-edit { display: flex; gap: 8px; align-items: center; }
+.sipom-natureza-edit .sel { flex: 1; min-width: 0; }
+/* Admin › SIPOM (de-para de naturezas) */
+.sipom-map-panel { max-width: 1400px; }
+.sipom-prio { width: 70px; height: 30px; }
+.sipom-sub { margin: 12px 0 6px; font-size: 11px; letter-spacing: 0.1em; color: var(--fg-2); }
+.sipom-people td, .sipom-people th { white-space: nowrap; }
+.sipom-people .pill::before { display: none; }
+.sipom-tag {
+  margin-left: 6px;
+  padding: 0 5px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+  border: 1px solid var(--accent-dim);
+}
+.sipom-kv dt .action-btn { margin-left: 6px; padding: 0; vertical-align: middle; }
+.sipom-inline { display: flex; gap: 6px; align-items: center; margin-top: 2px; }
+.sipom-inline .sel { flex: 1; min-width: 0; }
+.sipom-addr-edit { display: grid; grid-template-columns: 1fr 160px; gap: 8px; align-items: end; }
+.sipom-addr-edit .sipom-inline { grid-column: 1 / -1; }
+.sipom-teams { margin-top: 10px; }
+/* Abas de visão no topo de uma tela (ex.: Relatório Operacional ›
+   Ocorrências | Envio ao SIPOM). Reaproveitam o .modal-tab. */
+.screen-tabs { display: flex; border-bottom: 1px solid var(--line); margin-bottom: 12px; flex: none; }
+.screen-tabs .modal-tab { display: inline-flex; align-items: center; gap: 6px; }
+.sipom-codes { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: -4px 0 10px; font-size: 11.5px; }
+.sipom-badges { display: flex; flex-wrap: wrap; gap: 4px; }
+.sipom-badges .pill { font-size: 10.5px; }
+.tbl .pill::before { flex: none; }
+.sipom-title .sipom-payload-btn { margin-left: auto; }
+.sipom-title .sipom-payload-btn + .pill { margin-left: 0; }
+.modal.sipom-payload { max-width: 820px; }
+.sipom-json {
+  margin: 0;
+  max-height: 60vh;
+  overflow: auto;
+  background: var(--bg-0);
+  border: 1px solid var(--line);
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--fg-1);
+  white-space: pre;
+}

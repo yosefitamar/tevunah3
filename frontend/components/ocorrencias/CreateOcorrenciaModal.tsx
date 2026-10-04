@@ -27,6 +27,7 @@ import GeoField from "./GeoField";
 import ImportReportModal from "./ImportReportModal";
 import InvolvedPicker from "./InvolvedPicker";
 import MeansField from "./MeansField";
+import IntelField from "./IntelField";
 import PlaceField from "./PlaceField";
 import ConfirmVitimaModal, { type VictimCandidate } from "./ConfirmVitimaModal";
 
@@ -57,6 +58,8 @@ export default function CreateOcorrenciaModal({ onClose, onCreated }: Props) {
   const [description, setDescription] = useState("");
   const [means, setMeans] = useState<IncidentMeans>("");
   const [meansDetail, setMeansDetail] = useState("");
+  const [intel, setIntel] = useState(false);
+  const [intelMatched, setIntelMatched] = useState<string[]>([]);
   const [involved, setInvolved] = useState<PendingInvolved[]>([]);
   const [pendingVictim, setPendingVictim] = useState<{
     candidate: VictimCandidate;
@@ -122,6 +125,10 @@ export default function CreateOcorrenciaModal({ onClose, onCreated }: Props) {
     if (p.city) setCity(p.city);
     if (p.neighborhood) setNeighborhood(p.neighborhood);
     if (p.description) setDescription(p.description);
+    // Os termos só ligam o campo — relatório sem termo não desfaz uma
+    // marcação que o analista já tenha feito.
+    setIntelMatched(p.intel_matched ?? []);
+    if (p.intel_participation) setIntel(true);
     if (p.latitude !== undefined && p.longitude !== undefined) {
       setLat(String(p.latitude));
       setLng(String(p.longitude));
@@ -197,6 +204,7 @@ export default function CreateOcorrenciaModal({ onClose, onCreated }: Props) {
         // Meio utilizado é campo de CVLI — não vai junto nos demais tipos.
         means: type === "homicidio" ? means : "",
         means_detail: type === "homicidio" && means === "outros" ? meansDetail.trim() : "",
+        intel_participation: intel,
         involved: involved.map((i) => ({ entity_id: i.entity_id, role: i.role })),
       });
       onCreated(r.incident.id);
@@ -312,6 +320,8 @@ export default function CreateOcorrenciaModal({ onClose, onCreated }: Props) {
                 placeholder="relato da ocorrência…"
               />
             </label>
+
+            <IntelField value={intel} onChange={setIntel} matched={intelMatched} />
 
             {cited.length > 0 && (
               <div className="form-field">

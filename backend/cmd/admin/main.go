@@ -5,6 +5,8 @@
 //	admin create     — cria um administrador interativamente (prompts no terminal)
 //	admin seed-dev   — em APP_ENV=development, cria o admin de desenvolvimento
 //	                  (idempotente: não faz nada se já existir admin ativo)
+//	admin sipom-recompute — refaz a tradução das ocorrências do relatório
+//	                  operacional para os códigos do SIPOM
 //
 // O comando conecta como o role tevunah_app (APP_DATABASE_URL).
 package main
@@ -22,6 +24,8 @@ import (
 	"github.com/belia/tevunah/backend/internal/audit"
 	"github.com/belia/tevunah/backend/internal/crypt"
 	idb "github.com/belia/tevunah/backend/internal/db"
+	"github.com/belia/tevunah/backend/internal/opsreport"
+	"github.com/belia/tevunah/backend/internal/sipom"
 	"github.com/belia/tevunah/backend/internal/users"
 	"golang.org/x/term"
 )
@@ -36,6 +40,8 @@ func main() {
 		runCreate(os.Args[2:])
 	case "seed-dev":
 		runSeedDev(os.Args[2:])
+	case "sipom-recompute":
+		runSipomRecompute()
 	default:
 		usage()
 		os.Exit(2)
@@ -43,7 +49,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "uso: admin <create|seed-dev>")
+	fmt.Fprintln(os.Stderr, "uso: admin <create|seed-dev|sipom-recompute>")
 }
 
 func openDB() *sql.DB {
@@ -231,4 +237,21 @@ func runSeedDev(_ []string) {
 
 Use em DEV apenas. Em produção, rode: ./tevunah admin:create
 `, u.ID, email, pass, secret)
+}
+
+// runSipomRecompute refaz a tradução para o SIPOM de todas as ocorrências do
+// relatório operacional (ex.: depois de uma migração do catálogo).
+func runSipomRecompute() {
+	ctx := context.Background()
+	db := openDB()
+	defer db.Close()
+	cat, err := sipom.Load(ctx, db)
+	if err != nil {
+		log.Fatalf("catálogo do SIPOM: %v", err)
+	}
+	ready, pending, err := opsreport.New(db).RecomputeSipom(ctx, cat, "")
+	if err != nil {
+		log.Fatalf("recálculo: %v", err)
+	}
+	fmt.Printf("SIPOM: %d ocorrência(s) prontas para envio, %d com pendência\n", ready, pending)
 }

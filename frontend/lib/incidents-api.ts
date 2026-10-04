@@ -107,6 +107,8 @@ export type Incident = {
   description: string;
   means: IncidentMeans;
   means_detail: string;
+  /** A SAI participou da ocorrência. */
+  intel_participation: boolean;
   involved: InvolvedEntity[];
   created_at: string;
   created_by: string;
@@ -219,6 +221,7 @@ export type NewIncidentInput = {
   description?: string;
   means?: IncidentMeans;
   means_detail?: string;
+  intel_participation?: boolean;
   involved?: NewInvolvedInput[];
 };
 
@@ -274,6 +277,9 @@ export type ParsedReport = {
   people: ParsedPerson[];
   /** Dado presente no texto que o cadastro não comporta, ou leitura parcial. */
   warnings: string[];
+  /** Sugestão pelos termos de inteligência configurados. */
+  intel_participation: boolean;
+  intel_matched: string[];
 };
 
 /**
@@ -307,6 +313,7 @@ export type UpdateIncidentInput = {
   description?: string;
   means?: IncidentMeans;
   means_detail?: string;
+  intel_participation?: boolean;
 };
 
 export function updateIncident(id: string, input: UpdateIncidentInput) {

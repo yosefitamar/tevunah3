@@ -2,13 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { MapPinned, RefreshCw, Search, ShieldAlert, SlidersHorizontal, X } from "lucide-react";
+import { MapPinned, RefreshCw, Search, ShieldAlert, X } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   INCIDENT_MEANS,
   INCIDENT_MEANS_COLOR,
   INCIDENT_MEANS_LABEL,
-  INCIDENT_TYPE_LABEL,
   getIncident,
   listIncidents,
   listIncidentsGeo,
@@ -16,15 +15,19 @@ import {
   type IncidentMeans,
 } from "@/lib/incidents-api";
 import { canReadIncidents } from "@/lib/permissions";
-import { RANGE_LABEL, resolveRange } from "@/lib/date-ranges";
+import { periodBounds, type PeriodSelection } from "@/lib/period";
 import { useIncidentLocations } from "@/lib/useIncidentLocations";
 import { useNavigation } from "@/contexts/NavigationContext";
 import { formatBRDate } from "@/lib/format";
 import type { ApiError } from "@/lib/api";
 import OcorrenciaDrawer from "../ocorrencias/OcorrenciaDrawer";
 import IncidentFiltersModal, {
+  incidentFilterCount,
+  incidentFilterSummary,
   type IncidentFilters,
 } from "../shared/IncidentFiltersModal";
+import PeriodButton from "../shared/PeriodButton";
+import { FiltersButton } from "../shared/FiltersModal";
 
 // O Leaflet acessa `window` já no import — carrega só no cliente.
 const CrimeMap = dynamic(() => import("./CrimeMap"), {
@@ -34,10 +37,10 @@ const CrimeMap = dynamic(() => import("./CrimeMap"), {
   ),
 });
 
+// O mapa é leitura territorial do momento: nasce no mês corrente.
+const DEFAULT_PERIOD: PeriodSelection = { kind: "preset", id: "mes_atual" };
+
 const DEFAULT_FILTERS: IncidentFilters = {
-  range: "mes_atual",
-  from: "",
-  to: "",
   // O mapa nasce focado em CVLI — é o caso de uso que originou a tela.
   type: "homicidio",
   means: "",
@@ -47,6 +50,7 @@ const DEFAULT_FILTERS: IncidentFilters = {
 
 export default function MapaScreen() {
   const { user: me } = useAuth();
+  const [period, setPeriod] = useState<PeriodSelection>(DEFAULT_PERIOD);
   const [filters, setFilters] = useState<IncidentFilters>(DEFAULT_FILTERS);
   const [showFilters, setShowFilters] = useState(false);
   // Busca livre: fica fora do modal porque é o gesto mais frequente do
@@ -85,11 +89,8 @@ export default function MapaScreen() {
     getIncident(target)
       .then(({ incident }) => {
         const [y, m] = incident.occurred_on.split("-").map(Number);
-        const last = new Date(y, m, 0).getDate();
+        setPeriod({ kind: "month", year: y, month: m - 1 });
         setFilters({
-          range: "custom",
-          from: `${incident.occurred_on.slice(0, 7)}-01`,
-          to: `${incident.occurred_on.slice(0, 7)}-${String(last).padStart(2, "0")}`,
           type: "",
           means: "",
           city: "",
@@ -108,10 +109,7 @@ export default function MapaScreen() {
     return () => window.clearTimeout(h);
   }, [search]);
 
-  const period = useMemo(() => {
-    if (filters.range === "custom") return { from: filters.from, to: filters.to };
-    return resolveRange(filters.range);
-  }, [filters.range, filters.from, filters.to]);
+  const bounds = useMemo(() => periodBounds(period), [period]);
 
   const reload = useCallback(async () => {
     if (!canRead) return;
@@ -123,8 +121,8 @@ export default function MapaScreen() {
       city: filters.city || undefined,
       neighborhood: filters.neighborhood || undefined,
       search: debouncedSearch || undefined,
-      date_from: period.from || undefined,
-      date_to: period.to || undefined,
+      date_from: bounds.from || undefined,
+      date_to: bounds.to || undefined,
     };
     try {
       const [geo, all] = await Promise.all([
@@ -147,8 +145,8 @@ export default function MapaScreen() {
     filters.city,
     filters.neighborhood,
     debouncedSearch,
-    period.from,
-    period.to,
+    bounds.from,
+    bounds.to,
   ]);
 
   useEffect(() => {
@@ -173,34 +171,8 @@ export default function MapaScreen() {
     return [...acc.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);
   }, [items]);
 
-  // Badge do botão: quantos recortes fogem do padrão da tela. Casa com o
-  // "LIMPAR" do modal, que restaura exatamente esse padrão.
-  const activeCount = useMemo(() => {
-    let n = 0;
-    if (filters.range !== DEFAULT_FILTERS.range) n++;
-    if (filters.type !== DEFAULT_FILTERS.type) n++;
-    if (filters.means) n++;
-    if (filters.city) n++;
-    if (filters.neighborhood) n++;
-    return n;
-  }, [filters]);
-
-  // Resumo ao lado do botão — com os campos dentro do modal, o recorte
-  // corrente precisa continuar visível sem abrir nada.
-  const filterSummary = useMemo(() => {
-    const parts = [
-      filters.range === "custom"
-        ? `${filters.from ? formatBRDate(filters.from) : "…"} → ${
-            filters.to ? formatBRDate(filters.to) : "…"
-          }`
-        : RANGE_LABEL[filters.range],
-      filters.type ? INCIDENT_TYPE_LABEL[filters.type] : "TODOS OS TIPOS",
-    ];
-    if (filters.means) parts.push(INCIDENT_MEANS_LABEL[filters.means]);
-    if (filters.city) parts.push(filters.city);
-    if (filters.neighborhood) parts.push(filters.neighborhood);
-    return parts.join(" · ");
-  }, [filters]);
+  const activeCount = incidentFilterCount(filters, DEFAULT_FILTERS);
+  const filterSummary = incidentFilterSummary(filters);
 
   if (!canRead) {
     return (
@@ -218,7 +190,7 @@ export default function MapaScreen() {
   return (
     <div className="screen-fill">
       <div className="toolbar">
-        <div className="toolbar-search toolbar-search--wide">
+        <div className="toolbar-search">
           <Search size={14} strokeWidth={1.6} />
           <input
             type="text"
@@ -237,14 +209,8 @@ export default function MapaScreen() {
             </button>
           )}
         </div>
-        <button
-          type="button"
-          className={"btn" + (activeCount > 0 ? " btn-primary" : "")}
-          onClick={() => setShowFilters(true)}
-        >
-          <SlidersHorizontal size={13} strokeWidth={1.8} /> FILTROS
-          {activeCount > 0 && <span className="btn-count">{activeCount}</span>}
-        </button>
+        <PeriodButton value={period} onChange={setPeriod} title="PERÍODO DO MAPA" />
+        <FiltersButton count={activeCount} onClick={() => setShowFilters(true)} />
         <span className="muted filter-summary" title={filterSummary}>
           {filterSummary}
         </span>
@@ -306,7 +272,7 @@ export default function MapaScreen() {
                 <div>
                   <dt>PERÍODO</dt>
                   <dd>
-                    {formatBRDate(period.from)} → {formatBRDate(period.to)}
+                    {formatBRDate(bounds.from)} → {formatBRDate(bounds.to)}
                   </dd>
                 </div>
                 <div>

@@ -2,12 +2,14 @@ FROM surnet/alpine-wkhtmltopdf:3.20.0-0.12.6-full AS wkhtmltopdf
 
 FROM golang:1.23-alpine
 
-# Dependências do wkhtmltopdf (libs Qt 5 e fontes). O binário é copiado da
+# Dependências do wkhtmltopdf (libs Qt 5 e fontes) e poppler-utils (pdftotext,
+# leitura do relatório operacional). O wkhtmltopdf é copiado da
 # stage acima — Alpine não tem mais pacote nativo de wkhtmltopdf.
 RUN apk add --no-cache \
         git curl ca-certificates \
         libstdc++ libx11 libxrender libxext libssl3 \
         fontconfig freetype ttf-dejavu ttf-liberation \
+        poppler-utils \
     && go install github.com/air-verse/air@v1.61.7
 
 COPY --from=wkhtmltopdf /bin/wkhtmltopdf /usr/local/bin/wkhtmltopdf

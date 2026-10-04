@@ -138,6 +138,8 @@ func (a *app) handleReportsList(w http.ResponseWriter, r *http.Request) {
 		Status:    strings.TrimSpace(q.Get("status")),
 		Search:    strings.TrimSpace(q.Get("search")),
 		Year:      year,
+		DateFrom:  q.Get("date_from"),
+		DateTo:    q.Get("date_to"),
 		UserID:    me.ID,
 		Clearance: me.ClearanceLevel,
 		IsAdmin:   hasRole(me.Roles, "administrador"),

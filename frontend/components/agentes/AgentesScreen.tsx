@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { Filter, Plus, Search, ShieldAlert } from "lucide-react";
+import { Plus, Search, ShieldAlert } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { listUsers, type UsersList } from "@/lib/users-api";
 import { canListUsers, canCreateUsers } from "@/lib/permissions";
@@ -17,6 +17,7 @@ import CreateAgentModal from "./CreateAgentModal";
 import AgentDrawer from "./AgentDrawer";
 import SortHeader, { type SortState } from "../shared/SortHeader";
 import Select from "../shared/Select";
+import FiltersModal, { FiltersButton } from "../shared/FiltersModal";
 
 const PAGE_SIZE = 25;
 
@@ -27,7 +28,7 @@ type Filters = {
 };
 
 // Filtro padrão da tabela de agentes: mostra apenas ATIVOS. Para ver
-// suspensos/desativados, o usuário troca o STATUS no painel de filtros (e
+// suspensos/desativados, o usuário troca o STATUS no modal de filtros (e
 // "LIMPAR" volta a este padrão).
 const EMPTY_FILTERS: Filters = { role: "", clearance: 0, status: "active" };
 
@@ -135,14 +136,7 @@ export default function AgentesScreen() {
           </button>
         </form>
 
-        <button
-          type="button"
-          className={"btn" + (activeCount > 0 || filtersOpen ? " btn-active" : "")}
-          onClick={() => setFiltersOpen((o) => !o)}
-        >
-          <Filter size={14} strokeWidth={1.8} /> FILTROS
-          {activeCount > 0 && <span className="btn-badge">{activeCount}</span>}
-        </button>
+        <FiltersButton count={activeCount} onClick={() => setFiltersOpen(true)} />
 
         {canCreateUsers(me) && (
           <button
@@ -156,15 +150,19 @@ export default function AgentesScreen() {
       </div>
 
       {filtersOpen && (
-        <FilterPanel
+        <FiltersModal
+          title="FILTROS · AGENTES"
           value={filters}
+          empty={EMPTY_FILTERS}
+          onClose={() => setFiltersOpen(false)}
           onApply={(f) => {
             setPage(0);
             setFilters(f);
             setFiltersOpen(false);
           }}
-          onClose={() => setFiltersOpen(false)}
-        />
+        >
+          {(d, set) => <AgentFilterFields value={d} onChange={set} />}
+        </FiltersModal>
       )}
 
       {error && <div className="banner banner-error">⚠ {error}</div>}
@@ -268,33 +266,32 @@ export default function AgentesScreen() {
         <AgentDrawer
           userId={selectedId}
           onClose={() => setSelectedId(null)}
-          onChanged={() => reload(search, filters, page)}
+          onChanged={() => reload(search, filters, page, sort)}
         />
       )}
     </div>
   );
 }
 
-// ─────────────────────────── FilterPanel ────────────────────────────
+// ─────────────────────────── Campos do filtro ────────────────────────────
 
-type FilterPanelProps = {
+function AgentFilterFields({
+  value: local,
+  onChange,
+}: {
   value: Filters;
-  onApply: (f: Filters) => void;
-  onClose: () => void;
-};
-
-function FilterPanel({ value, onApply }: FilterPanelProps) {
+  onChange: (f: Partial<Filters>) => void;
+}) {
   const { roles, roleLabel } = useAuth();
-  const [local, setLocal] = useState<Filters>(value);
 
   return (
-    <div className="filter-panel">
-      <div className="filter-row">
-        <div className="filter-field">
+    <>
+      <div className="form-grid-2">
+        <div className="form-field">
           <span>PAPEL</span>
           <Select
             value={local.role}
-            onChange={(v) => setLocal({ ...local, role: v as RoleCode | "" })}
+            onChange={(v) => onChange({ role: v as RoleCode | "" })}
             placeholder="TODOS"
             options={[
               { value: "", label: "TODOS" },
@@ -303,11 +300,11 @@ function FilterPanel({ value, onApply }: FilterPanelProps) {
           />
         </div>
 
-        <div className="filter-field">
+        <div className="form-field">
           <span>CLEARANCE</span>
           <Select
             value={String(local.clearance)}
-            onChange={(v) => setLocal({ ...local, clearance: Number(v) })}
+            onChange={(v) => onChange({ clearance: Number(v) })}
             placeholder="TODOS"
             options={[
               { value: "0", label: "TODOS" },
@@ -319,12 +316,12 @@ function FilterPanel({ value, onApply }: FilterPanelProps) {
           />
         </div>
 
-        <div className="filter-field">
+        <div className="form-field">
           <span>STATUS</span>
           <Select
             value={local.status}
             onChange={(v) =>
-              setLocal({ ...local, status: v as "" | UserStatus })
+              onChange({ status: v as "" | UserStatus })
             }
             placeholder="TODOS"
             options={[
@@ -336,14 +333,6 @@ function FilterPanel({ value, onApply }: FilterPanelProps) {
           />
         </div>
       </div>
-      <div className="filter-actions">
-        <button type="button" className="btn btn-ghost" onClick={() => onApply(EMPTY_FILTERS)}>
-          LIMPAR
-        </button>
-        <button type="button" className="btn btn-primary" onClick={() => onApply(local)}>
-          APLICAR
-        </button>
-      </div>
-    </div>
+    </>
   );
 }

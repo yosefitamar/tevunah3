@@ -88,6 +88,10 @@ type Occurrence struct {
 	// na equipe (preenchido por quem importa, com os termos configurados).
 	IntelMatched []string
 
+	// Geo é a coordenada do local do fato (preenchida por quem importa, com o
+	// geocodificador da agência, ou pelo analista na ficha).
+	Geo Geo
+
 	// Sipom é a ocorrência nos códigos do SIPOM (preenchido por quem importa,
 	// com o catálogo do schema sipom).
 	Sipom SipomFields
@@ -97,6 +101,24 @@ type Occurrence struct {
 
 	Warnings []string
 }
+
+// Geo é a coordenada da ocorrência. Lat/Lng nil = não localizada. Precision
+// vale para o ponto automático ("porta", "rua" ou "bairro" — este último
+// aproximado); Source diz quem o definiu ("auto" ou "manual").
+type Geo struct {
+	Lat, Lng  *float64
+	Precision string
+	Source    string
+}
+
+// Origem da coordenada.
+const (
+	GeoAuto   = "auto"
+	GeoManual = "manual"
+)
+
+// Located diz se a ocorrência tem coordenada.
+func (g Geo) Located() bool { return g.Lat != nil && g.Lng != nil }
 
 // SipomFields são os campos que o envio ao SIPOM exige, já como ids do
 // catálogo deles. A composição fica em Officer (Sipom*).

@@ -14,6 +14,7 @@ import {
 import { useFileDrop } from "@/lib/useFileDrop";
 import { formatBR, formatBRDate } from "@/lib/format";
 import type { ApiError } from "@/lib/api";
+import DuplicateCandidates from "../ocorrencias/DuplicateCandidates";
 import OpsOccurrenceBody from "./OpsOccurrenceBody";
 import { IntelPill } from "./IntelStatus";
 
@@ -89,6 +90,8 @@ export default function ImportOpsReportModal({ onClose, onImported }: Props) {
         .sort(([a], [b]) => a.localeCompare(b, "pt-BR", { numeric: true }))
     : [];
   const canImport = !!preview && !preview.already_imported && preview.new_total > 0 && busy === "";
+  // Novas ocorrências que parecem repetir um cadastro manual de outra ficha.
+  const suspects = preview ? preview.occurrences.filter((o) => (o.possible_duplicates?.length ?? 0) > 0).length : 0;
 
   return (
     <div className="modal-backdrop" onClick={busy ? undefined : onClose}>
@@ -188,12 +191,20 @@ export default function ImportOpsReportModal({ onClose, onImported }: Props) {
                   ⚠ {w}
                 </div>
               ))}
+              {suspects > 0 && (
+                <div className="banner banner-warn">
+                  ⚠ {suspects} OCORRÊNCIA{suspects > 1 ? "S" : ""} COM POSSÍVEL DUPLICIDADE: JÁ EXISTE CADASTRO MANUAL
+                  COM A MESMA DATA, HORA E LOCAL, MAS COM OUTRA FICHA CIOPS. A IMPORTAÇÃO NÃO É IMPEDIDA — CONFIRA A
+                  FICHA DO CADASTRO PARA AS DUAS NÃO FICAREM COMO OCORRÊNCIAS DISTINTAS.
+                </div>
+              )}
 
               <div className="ops-preview-list">
                 {preview.occurrences.map((o, i) => {
                   const isOpen = open.has(i);
                   const dup = o.status === "duplicate";
                   const autos = o.people.filter((p) => p.link_mode === "auto").length;
+                  const dups = o.possible_duplicates ?? [];
                   return (
                     <div key={i} className={"ops-preview-item" + (dup ? " ops-preview-item--dup" : "")}>
                       <button type="button" className="ops-preview-row" onClick={() => toggle(i)}>
@@ -216,10 +227,34 @@ export default function ImportOpsReportModal({ onClose, onImported }: Props) {
                             <Link2 size={10} /> {autos}
                           </span>
                         )}
+                        {o.linked_incident_id && (
+                          <span
+                            className="pill info"
+                            title="Já existe cadastro manual com esta ficha CIOPS — é a mesma ocorrência, e a listagem de Ocorrências as mostra numa linha só"
+                          >
+                            JÁ CADASTRADA
+                          </span>
+                        )}
+                        {dups.length > 0 && (
+                          <span
+                            className="pill crit"
+                            title="Cadastro manual com a mesma data, hora e local, mas outra ficha CIOPS"
+                          >
+                            POSSÍVEL DUPLICIDADE
+                          </span>
+                        )}
                         {o.warnings.length > 0 && <span className="pill hold">{o.warnings.length} AVISO(S)</span>}
                       </button>
                       {isOpen && (
                         <div className="ops-preview-body">
+                          {dups.length > 0 && (
+                            <div style={{ marginBottom: 10 }}>
+                              <div className="banner banner-warn" style={{ marginBottom: 6 }}>
+                                ⚠ CADASTRO MANUAL PARECIDO, COM OUTRA FICHA CIOPS:
+                              </div>
+                              <DuplicateCandidates candidates={dups} />
+                            </div>
+                          )}
                           <OpsOccurrenceBody occ={o} renderPerson={dup ? undefined : (p) => <PreviewLink p={p} />} />
                         </div>
                       )}

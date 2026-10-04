@@ -3,11 +3,14 @@
 
 import { terminalHeaders } from "./device-id";
 
-export type ApiError = Error & { status: number };
+// `details` é o campo `errors` do envelope: o que o servidor manda junto de
+// uma recusa para a tela agir (ex.: as ocorrências em conflito num 409).
+export type ApiError = Error & { status: number; details?: unknown };
 
-function makeError(message: string, status: number): ApiError {
+function makeError(message: string, status: number, details?: unknown): ApiError {
   const e = new Error(message) as ApiError;
   e.status = status;
+  e.details = details;
   return e;
 }
 
@@ -67,7 +70,7 @@ export async function api<T = unknown>(path: string, init: RequestInit = {}): Pr
   }
 
   if (!res.ok) {
-    throw makeError(body.message ?? `HTTP ${res.status}`, res.status);
+    throw makeError(body.message ?? `HTTP ${res.status}`, res.status, body.errors);
   }
   return (body.data ?? (undefined as unknown as T)) as T;
 }

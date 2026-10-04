@@ -1,21 +1,28 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { MapPin, Plus, Search, ShieldAlert, Users, X } from "lucide-react";
+import { Plus, Search, ShieldAlert, X } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   INCIDENT_MEANS_LABEL,
   INCIDENT_MEANS_SHORT,
   INCIDENT_TYPE_LABEL,
   INCIDENT_TYPE_PILL,
-  listIncidents,
-  type Incident,
-  type IncidentsList,
+  type IncidentType,
 } from "@/lib/incidents-api";
-import { canCreateIncidents, canReadIncidents } from "@/lib/permissions";
+import {
+  OCCURRENCE_CATEGORIES,
+  OCCURRENCE_CATEGORY_LABEL,
+  listOccurrenceLocations,
+  listOccurrences,
+  type OccurrenceCategory,
+  type OccurrenceRow,
+  type OccurrencesList,
+} from "@/lib/occurrences-api";
+import { canCreateIncidents, canReadIncidents, canReadOpsReports } from "@/lib/permissions";
 import { useIncidentLocations } from "@/lib/useIncidentLocations";
 import { ALL_PERIOD, periodBounds, type PeriodSelection } from "@/lib/period";
-import { formatBR, formatBRDate } from "@/lib/format";
+import { formatBRDate } from "@/lib/format";
 import type { ApiError } from "@/lib/api";
 import SortHeader, { type SortState } from "../shared/SortHeader";
 import IncidentFiltersModal, {
@@ -25,6 +32,7 @@ import IncidentFiltersModal, {
 } from "../shared/IncidentFiltersModal";
 import PeriodButton from "../shared/PeriodButton";
 import { FiltersButton } from "../shared/FiltersModal";
+import OpsOccurrenceDrawer from "../operacional/OpsOccurrenceDrawer";
 import CreateOcorrenciaModal from "./CreateOcorrenciaModal";
 import OcorrenciaDrawer from "./OcorrenciaDrawer";
 
@@ -37,11 +45,31 @@ const DEFAULT_FILTERS: IncidentFilters = {
   means: "",
   city: "",
   neighborhood: "",
+  source: "",
 };
 
+// Tipos do cadastro manual que caem na aba PRODUTIVIDADE (homicídio tem a
+// própria aba). O primeiro é o tipo com que NOVA OCORRÊNCIA abre nela.
+const PRODUCTIVITY_TYPES: IncidentType[] = ["apreensao", "prisao"];
+
+// O que está aberto: o cadastro manual ou a ocorrência do relatório
+// operacional. Linha com as duas fontes abre o cadastro, que leva ao relatório.
+type OpenTarget = { kind: "incident" | "ops"; id: string };
+
+/**
+ * Ocorrências: o cadastro manual (CVLI e o que o analista registra) e o que
+ * foi importado do relatório operacional. A ficha CIOPS é a identidade —
+ * cadastro e relatório com a mesma ficha são uma linha.
+ *
+ * Duas abas, porque são duas leituras: PRODUTIVIDADE (prisões, apreensões e
+ * tudo o que a tropa registrou no relatório operacional) e HOMICÍDIOS (o
+ * cadastro de CVLI). Busca, período e território valem para as duas; tipo,
+ * origem e meio utilizado são recortes da aba e zeram na troca.
+ */
 export default function OcorrenciasScreen() {
   const { user: me } = useAuth();
-  const [data, setData] = useState<IncidentsList | null>(null);
+  const [tab, setTab] = useState<OccurrenceCategory>("produtividade");
+  const [data, setData] = useState<OccurrencesList | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [period, setPeriod] = useState<PeriodSelection>(ALL_PERIOD);
@@ -54,11 +82,13 @@ export default function OcorrenciasScreen() {
   const [page, setPage] = useState(0);
   const [sort, setSort] = useState<SortState>({ field: "occurred_on", dir: "desc" });
   const [showCreate, setShowCreate] = useState(false);
-  const [openId, setOpenId] = useState<string | null>(null);
+  const [open, setOpen] = useState<OpenTarget | null>(null);
 
-  const canRead = canReadIncidents(me);
+  // Cada fonte tem a sua permissão; o servidor recorta a listagem pelo que o
+  // usuário lê.
+  const canRead = canReadIncidents(me) || canReadOpsReports(me);
   const canCreate = canCreateIncidents(me);
-  const { cities, neighborhoodsOf } = useIncidentLocations();
+  const { cities, neighborhoodsOf } = useIncidentLocations(listOccurrenceLocations);
 
   useEffect(() => {
     const h = window.setTimeout(() => setDebouncedSearch(search.trim()), 350);
@@ -72,9 +102,11 @@ export default function OcorrenciasScreen() {
     setLoading(true);
     setError(null);
     try {
-      const res = await listIncidents({
+      const res = await listOccurrences({
+        category: tab,
         limit: PAGE_SIZE,
         offset: page * PAGE_SIZE,
+        source: filters.source || undefined,
         type: filters.type || undefined,
         means: filters.means || undefined,
         city: filters.city || undefined,
@@ -82,7 +114,7 @@ export default function OcorrenciasScreen() {
         date_from: bounds.from || undefined,
         date_to: bounds.to || undefined,
         search: debouncedSearch || undefined,
-        sort_by: (sort?.field as "occurred_on" | "type" | "created_at" | "updated_at") || undefined,
+        sort_by: (sort?.field as "occurred_on" | "type") || undefined,
         sort_dir: sort?.dir,
       });
       setData(res);
@@ -93,6 +125,8 @@ export default function OcorrenciasScreen() {
     }
   }, [
     canRead,
+    tab,
+    filters.source,
     filters.type,
     filters.means,
     filters.city,
@@ -109,7 +143,21 @@ export default function OcorrenciasScreen() {
   }, [reload]);
 
   const activeCount = incidentFilterCount(filters, DEFAULT_FILTERS);
-  const filterSummary = incidentFilterSummary(filters);
+  const filterSummary = incidentFilterSummary(filters, false);
+  const homicides = tab === "homicidios";
+
+  function switchTab(next: OccurrenceCategory) {
+    if (next === tab) return;
+    setTab(next);
+    setPage(0);
+    // Tipo, origem e meio pertencem à aba; território fica.
+    setFilters((f) => ({ ...f, type: "", means: "", source: "" }));
+    // A aba de homicídios não tem a coluna de tipo para ordenar.
+    setSort((s) => (s?.field === "type" ? { field: "occurred_on", dir: "desc" } : s));
+    // Some com as linhas da outra aba já na troca — as colunas mudam.
+    setData((d) => (d ? { ...d, items: [], total: 0 } : d));
+    setLoading(true);
+  }
 
   if (!canRead) {
     return (
@@ -129,6 +177,19 @@ export default function OcorrenciasScreen() {
   return (
     <div className="screen-fill">
       <div className="toolbar">
+        <div className="tabs">
+          {OCCURRENCE_CATEGORIES.map((c) => (
+            <button
+              key={c}
+              type="button"
+              className={"tab" + (tab === c ? " tab-active" : "")}
+              onClick={() => switchTab(c)}
+            >
+              {OCCURRENCE_CATEGORY_LABEL[c]}
+              {data?.counts && <span className="muted"> {data.counts[c]}</span>}
+            </button>
+          ))}
+        </div>
         <div className="toolbar-search">
           <Search size={14} strokeWidth={1.6} />
           <input
@@ -140,7 +201,7 @@ export default function OcorrenciasScreen() {
               setSearch(e.target.value);
               setPage(0);
             }}
-            placeholder="buscar por nome, CPF, descrição ou ficha CIOPS…"
+            placeholder="buscar por nome, CPF, natureza, descrição ou ficha CIOPS…"
           />
           {search && (
             <button
@@ -182,34 +243,46 @@ export default function OcorrenciasScreen() {
           <table className="tbl">
             <thead>
               <tr>
-                <SortHeader field="type" label="TIPO" sort={sort} onChange={setSort} width={130} />
-                <SortHeader field="occurred_on" label="DATA / HORA" sort={sort} onChange={setSort} width={150} />
-                <th style={{ width: 110 }}>MEIO</th>
-                <th>FICHA CIOPS</th>
-                <th style={{ width: 190 }}>LOCAL</th>
-                <th>DESCRIÇÃO</th>
-                <th style={{ width: 110 }}>ENVOLVIDOS</th>
-                <SortHeader field="updated_at" label="ATUALIZADO" sort={sort} onChange={setSort} width={140} />
+                {/* Só o essencial para achar a ocorrência; o resto (descrição,
+                    envolvidos, origem) está na ficha, a um clique. Em cada
+                    aba uma coluna fica sem largura fixa e absorve a sobra. */}
+                {!homicides && <SortHeader field="type" label="TIPO / NATUREZA" sort={sort} onChange={setSort} />}
+                <SortHeader field="occurred_on" label="DATA / HORA" sort={sort} onChange={setSort} width={170} />
+                {homicides && <th style={{ width: 160 }}>MEIO</th>}
+                <th style={{ width: 170 }}>FICHA CIOPS</th>
+                <th style={homicides ? undefined : { width: 320 }}>LOCAL</th>
+                <th style={{ width: 170 }}>SITUAÇÃO</th>
               </tr>
             </thead>
             <tbody>
               {loading && (
                 <tr>
-                  <td colSpan={8} className="muted" style={{ textAlign: "center", padding: 32 }}>
+                  <td colSpan={5} className="muted" style={{ textAlign: "center", padding: 32 }}>
                     // CARREGANDO…
                   </td>
                 </tr>
               )}
               {!loading && items.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="muted" style={{ textAlign: "center", padding: 32 }}>
+                  <td colSpan={5} className="muted" style={{ textAlign: "center", padding: 32 }}>
                     // NENHUMA OCORRÊNCIA ENCONTRADA
                   </td>
                 </tr>
               )}
               {!loading &&
                 items.map((it) => (
-                  <Row key={it.id} incident={it} onOpen={() => setOpenId(it.id)} />
+                  <Row
+                    key={(it.incident_id ?? "") + ":" + (it.ops_id ?? "")}
+                    row={it}
+                    homicides={homicides}
+                    onOpen={() =>
+                      setOpen(
+                        it.incident_id
+                          ? { kind: "incident", id: it.incident_id }
+                          : { kind: "ops", id: it.ops_id as string },
+                      )
+                    }
+                  />
                 ))}
             </tbody>
           </table>
@@ -241,11 +314,16 @@ export default function OcorrenciasScreen() {
 
       {showFilters && (
         <IncidentFiltersModal
-          title="FILTROS DAS OCORRÊNCIAS"
+          title={"FILTROS · " + OCCURRENCE_CATEGORY_LABEL[tab]}
           value={filters}
           defaults={DEFAULT_FILTERS}
           cities={cities}
           neighborhoodsOf={neighborhoodsOf}
+          // Homicídios: todo registro é do cadastro e do mesmo tipo — sobra o
+          // meio utilizado. Produtividade: origem e tipo; meio é campo de CVLI.
+          withSource={!homicides}
+          types={homicides ? [] : PRODUCTIVITY_TYPES}
+          withMeans={homicides}
           onApply={(f) => {
             setFilters(f);
             setPage(0);
@@ -257,82 +335,95 @@ export default function OcorrenciasScreen() {
 
       {showCreate && (
         <CreateOcorrenciaModal
+          initialType={homicides ? "homicidio" : PRODUCTIVITY_TYPES[0]}
           onClose={() => setShowCreate(false)}
           onCreated={(id) => {
             setShowCreate(false);
-            setOpenId(id);
+            setOpen({ kind: "incident", id });
             reload();
           }}
         />
       )}
 
-      {openId && (
-        <OcorrenciaDrawer
-          incidentId={openId}
-          onClose={() => setOpenId(null)}
-          onChanged={reload}
-        />
+      {open?.kind === "incident" && (
+        <OcorrenciaDrawer incidentId={open.id} onClose={() => setOpen(null)} onChanged={reload} />
+      )}
+      {open?.kind === "ops" && (
+        <OpsOccurrenceDrawer occurrenceId={open.id} onClose={() => setOpen(null)} onChanged={reload} />
       )}
     </div>
   );
 }
 
-function Row({ incident, onOpen }: { incident: Incident; onOpen: () => void }) {
-  const desc = incident.description.trim();
-  const short = desc.length > 90 ? desc.slice(0, 90) + "…" : desc;
+function Row({ row, homicides, onOpen }: { row: OccurrenceRow; homicides: boolean; onOpen: () => void }) {
+  const natures = row.natures.join(" · ");
   return (
     <tr onClick={onOpen} className="row-clickable">
-      <td>
-        <span className={"pill " + INCIDENT_TYPE_PILL[incident.type]}>
-          {INCIDENT_TYPE_LABEL[incident.type]}
-        </span>
-      </td>
+      {!homicides && (
+        <td>
+          {row.type ? (
+            <>
+              <span className={"pill " + INCIDENT_TYPE_PILL[row.type]}>{INCIDENT_TYPE_LABEL[row.type]}</span>
+              {natures && (
+                <div className="muted tbl-nature" title={natures}>
+                  {natures}
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="tbl-nature" style={{ color: "var(--fg-0)" }} title={natures}>
+              {natures || "—"}
+            </div>
+          )}
+        </td>
+      )}
       <td style={{ whiteSpace: "nowrap" }}>
-        {formatBRDate(incident.occurred_on)}
-        {incident.occurred_time ? (
-          <span className="muted"> · {incident.occurred_time}</span>
-        ) : null}
+        {formatBRDate(row.occurred_on)}
+        {row.time ? <span className="muted"> · {row.time}</span> : null}
       </td>
-      <td
-        className={incident.means ? undefined : "muted"}
-        title={incident.means ? INCIDENT_MEANS_LABEL[incident.means] : undefined}
-      >
-        {incident.means ? INCIDENT_MEANS_SHORT[incident.means] : "—"}
-      </td>
-      <td className="muted">{incident.ciops_record || "—"}</td>
+      {homicides && (
+        <td
+          className={row.means ? undefined : "muted"}
+          title={row.means ? INCIDENT_MEANS_LABEL[row.means] : undefined}
+        >
+          {row.means ? INCIDENT_MEANS_SHORT[row.means] : "—"}
+        </td>
+      )}
+      <td className="mono">{row.ciops_record || "—"}</td>
       <td>
-        {incident.city || incident.neighborhood ? (
+        {row.city || row.neighborhood ? (
           <>
-            <div style={{ color: "var(--fg-0)" }}>{incident.neighborhood || "—"}</div>
+            <div style={{ color: "var(--fg-0)" }}>{row.neighborhood || "—"}</div>
             <div className="muted" style={{ fontSize: 11.5 }}>
-              {incident.city}
+              {row.city}
             </div>
           </>
         ) : (
           <span className="muted">—</span>
         )}
       </td>
-      <td style={{ color: "var(--fg-0)" }}>
-        <div className="tbl-desc-cell" title={desc || undefined}>
-          {(incident.latitude != null || incident.longitude != null) && (
-            <MapPin size={12} strokeWidth={1.6} className="muted" />
-          )}
-          <span className="tbl-desc-text">
-            {short ? short : <span className="muted">(sem descrição)</span>}
-          </span>
-        </div>
+      <td>
+        <StatusBadge row={row} />
       </td>
-      <td className="muted">
-        {incident.involved.length > 0 ? (
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-            <Users size={12} strokeWidth={1.6} />
-            {incident.involved.length}
-          </span>
-        ) : (
-          "—"
-        )}
-      </td>
-      <td className="muted">{formatBR(incident.updated_at)}</td>
     </tr>
+  );
+}
+
+// Situação da ocorrência: quantas pendências tem para o envio ao SIPOM, como
+// na fila de envio — âmbar quando alguma impede o envio; neutro quando são só
+// avisos — ou VERIFICADA quando não há nenhuma. O detalhe de cada pendência
+// fica no title e na ficha.
+function StatusBadge({ row }: { row: OccurrenceRow }) {
+  if (row.pendencias.length === 0) return <span className="pill active">VERIFICADA</span>;
+  const blocking = row.pendencias.filter((p) => p.blocking);
+  const shown = blocking.length > 0 ? blocking : row.pendencias;
+  const noun = blocking.length > 0 ? "PENDÊNCIA" : "AVISO";
+  // As que impedem o envio primeiro.
+  const title = [...blocking, ...row.pendencias.filter((p) => !p.blocking)].map((p) => "• " + p.label).join("\n");
+  return (
+    <span className={"pill " + (blocking.length > 0 ? "hold" : "cold")} title={title}>
+      {shown.length} {noun}
+      {shown.length > 1 ? "S" : ""}
+    </span>
   );
 }

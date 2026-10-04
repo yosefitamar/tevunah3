@@ -221,6 +221,17 @@ func (c *Catalog) CityAreas(cidadeID int) []int {
 	return out
 }
 
+// ActiveCompanies devolve todas as companhias ativas, em ordem de nome: a
+// lista de escolha da área quando o catálogo não tem nenhuma para a cidade.
+func (c *Catalog) ActiveCompanies() []Companhia {
+	out := make([]Companhia, 0, len(c.companhiaByKey))
+	for _, co := range c.companhiaByKey {
+		out = append(out, co)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Abreviado < out[j].Abreviado })
+	return out
+}
+
 // BattalionCompanies devolve as companhias ativas do batalhão da OPM
 // ("2º BPRAIO" → 1ªCIA/2ºBPRAIO, 2ªCIA/2ºBPRAIO): a escolha quando a
 // companhia que atendeu não foi encontrada.

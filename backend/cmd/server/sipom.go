@@ -84,6 +84,9 @@ type sipomOccurrenceJSON struct {
 	Ready       bool               `json:"ready"`
 	Manual      []string           `json:"manual"`
 	Pessoas     []sipomPersonJSON  `json:"pessoas"`
+	// AreaLearned: a área veio da referência aprendida (cidade + bairro),
+	// e não do catálogo nem de escolha feita nesta ficha.
+	AreaLearned bool `json:"area_learned"`
 	// Listas de escolha para as correções do analista.
 	AreaCandidates []sipomRefJSON `json:"area_candidates"`
 	OPMCandidates  []sipomRefJSON `json:"opm_candidates"`
@@ -109,6 +112,13 @@ func (a *app) sipomJSON(o *opsreport.Occurrence, people []sipom.Person) *sipomOc
 		for _, id := range a.sipom.CityAreas(*f.CidadeID) {
 			co, _ := a.sipom.Companhia(id)
 			out.AreaCandidates = append(out.AreaCandidates, sipomRefJSON{ID: id, Nome: co.Abreviado})
+		}
+	}
+	// Cidade fora do catálogo, ou sem área nele: o analista escolhe entre
+	// todas as companhias ativas — é assim que a referência nasce.
+	if len(out.AreaCandidates) == 0 {
+		for _, co := range a.sipom.ActiveCompanies() {
+			out.AreaCandidates = append(out.AreaCandidates, sipomRefJSON{ID: co.ID, Nome: co.Abreviado})
 		}
 	}
 	for _, co := range a.sipom.BattalionCompanies(o.Unit()) {
@@ -440,13 +450,18 @@ func (a *app) handleSipomSetField(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusNotFound, "ocorrência não encontrada")
 		return
 	}
+	// areaRule: a referência que a escolha da área criou (ou trocou), e
+	// quantas outras ocorrências ela resolveu.
+	var areaRule map[string]any
 	switch field {
 	case opsreport.SipomFieldArea:
 		if req.AreaID != nil && !a.sipom.IsActiveCompany(*req.AreaID) {
 			httpx.Error(w, http.StatusBadRequest, "área inexistente ou desativada no SIPOM")
 			return
 		}
-		err = a.opsReports.SetSipomArea(r.Context(), id, req.AreaID)
+		if err = a.opsReports.SetSipomArea(r.Context(), id, req.AreaID); err == nil && req.AreaID != nil {
+			areaRule = a.learnArea(r, &before.Occurrence, *req.AreaID)
+		}
 	case opsreport.SipomFieldOPM:
 		if req.OPMID != nil && !a.sipom.IsActiveCompany(*req.OPMID) {
 			httpx.Error(w, http.StatusBadRequest, "companhia inexistente ou desativada no SIPOM")
@@ -494,6 +509,10 @@ func (a *app) handleSipomSetField(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusInternalServerError, "erro ao ler a ocorrência")
 		return
 	}
+	afterSnap := sipomAuditSnapshot(after)
+	if areaRule != nil {
+		afterSnap["area_rule"] = areaRule
+	}
 	aid, sid, ip, ua := a.actorInfo(r)
 	_ = a.audit.Log(r.Context(), audit.Entry{
 		ActorUserID: aid, ActorSessionID: sid, ActorIP: ip, ActorUserAgent: ua,
@@ -501,11 +520,75 @@ func (a *app) handleSipomSetField(w http.ResponseWriter, r *http.Request) {
 		ResourceType: audit.Ptr("ops_occurrence"),
 		ResourceID:   &id,
 		Before:       sipomAuditSnapshot(before),
-		After:        sipomAuditSnapshot(after),
+		After:        afterSnap,
 	})
 	occ := a.toOpsOccurrenceJSON(&after.Occurrence)
 	occ.Sipom = a.sipomJSON(&after.Occurrence, opsreport.SipomPeople(after))
-	httpx.OK(w, map[string]any{"sipom": occ.Sipom, "officers": occ.Officers})
+	a.markAreaLearned(r.Context(), &after.Occurrence, occ.Sipom)
+	httpx.OK(w, map[string]any{"sipom": occ.Sipom, "officers": occ.Officers, "area_rule": areaRule})
+}
+
+// learnArea transforma a área escolhida pelo analista em referência para o
+// lugar da ocorrência (cidade + bairro) e recalcula o acervo, para as outras
+// ocorrências do mesmo lugar deixarem de ficar pendentes. Devolve o resumo
+// da referência, ou nil quando não houve o que aprender (ocorrência sem
+// cidade, ou a referência já era esta). Falha só registra: a área da ficha
+// já foi gravada.
+func (a *app) learnArea(r *http.Request, o *opsreport.Occurrence, areaID int) map[string]any {
+	ctx := r.Context()
+	me := middleware.UserFrom(ctx)
+	in := opsreport.SipomInput(o)
+	changed, err := a.sipomAreas.Learn(ctx, in.City, in.Neighborhood, areaID, me.ID)
+	if err != nil {
+		if !errors.Is(err, sipom.ErrAreaRuleNoCity) {
+			log.Printf("sipom area rule: %v", err)
+		}
+		return nil
+	}
+	if !changed {
+		return nil
+	}
+	areaCodes := []string{sipom.PendArea, sipom.PendAreaAmbig}
+	pendingBefore, _ := a.opsReports.CountPending(ctx, areaCodes...)
+	if _, _, err := a.opsReports.RecomputeSipom(ctx, a.sipom, ""); err != nil {
+		log.Printf("sipom recompute after area rule: %v", err)
+	}
+	pendingAfter, _ := a.opsReports.CountPending(ctx, areaCodes...)
+	co, _ := a.sipom.Companhia(areaID)
+	return map[string]any{
+		"city":         strings.ToUpper(strings.TrimSpace(in.City)),
+		"neighborhood": strings.ToUpper(strings.TrimSpace(in.Neighborhood)),
+		"area_id":      areaID,
+		"area":         co.Abreviado,
+		// Outras ocorrências que deixaram de ter pendência de área.
+		"resolved": max(pendingBefore-pendingAfter, 0),
+	}
+}
+
+// markAreaLearned diz, no bloco SIPOM da ficha, se a área veio da referência
+// aprendida — o que a tela mostra como origem e libera para correção.
+func (a *app) markAreaLearned(ctx context.Context, o *opsreport.Occurrence, s *sipomOccurrenceJSON) {
+	if s == nil || o.Sipom.AreaID == nil || hasStr(o.Sipom.Manual, opsreport.SipomFieldArea) {
+		return
+	}
+	rules, err := a.sipomAreas.Load(ctx)
+	if err != nil {
+		log.Printf("sipom area rules: %v", err)
+		return
+	}
+	in := opsreport.SipomInput(o)
+	if id, ok := rules.Lookup(in.City, in.Neighborhood); ok && id == *o.Sipom.AreaID {
+		s.AreaLearned = true
+	}
+}
+
+func hasStr(ss []string, s string) bool {
+	for _, x := range ss {
+		if x == s {
+			return true
+		}
+	}
+	return false
 }
 
 func sipomAuditSnapshot(so *opsreport.StoredOccurrence) map[string]any {

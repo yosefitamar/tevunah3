@@ -64,6 +64,12 @@ Importação do legado:
                               Use se a importação inicial rodou sem o media/
   import:teardown             Derruba mysql-legacy/pgloader e libera recursos
 
+Geocodificação (coordenada das ocorrências pelo endereço):
+  geo:up                      Sobe o Nominatim local (perfil "geo"). A primeira subida baixa
+                              e importa o mapa do Nordeste: leva de uma a algumas horas.
+  geo:backfill                Localiza as ocorrências do relatório operacional que estão
+                              sem coordenada e refaz as pendências (requer GEOCODER_URL)
+
 Espelhamento de produção:
   db:mirror-prod [user@host]  Copia banco + fotos de produção para o ambiente dev.
                               Somente leitura em prod; APAGA o banco local.
@@ -196,6 +202,16 @@ case "$cmd" in
 
   admin:create)
     $COMPOSE exec backend go run ./cmd/admin create "$@"
+    ;;
+
+  geo:up)
+    $COMPOSE --profile geo up -d nominatim
+    echo "→ Nominatim subindo. Acompanhe a importação do mapa: ./tevunah logs nominatim -f"
+    echo "  Quando terminar, defina GEOCODER_URL=http://nominatim:8080 no .env e rode ./tevunah up"
+    ;;
+
+  geo:backfill)
+    $COMPOSE exec backend go run ./cmd/admin ops-geocode
     ;;
 
   seed:dev)

@@ -14,6 +14,7 @@ import {
   type Incident,
   type IncidentMeans,
 } from "@/lib/incidents-api";
+import { listOccurrencesGeo, type OccurrenceRow } from "@/lib/occurrences-api";
 import { canReadIncidents } from "@/lib/permissions";
 import { periodBounds, type PeriodSelection } from "@/lib/period";
 import { useIncidentLocations } from "@/lib/useIncidentLocations";
@@ -21,6 +22,7 @@ import { useNavigation } from "@/contexts/NavigationContext";
 import { formatBRDate } from "@/lib/format";
 import type { ApiError } from "@/lib/api";
 import OcorrenciaDrawer from "../ocorrencias/OcorrenciaDrawer";
+import OpsOccurrenceDrawer from "../operacional/OpsOccurrenceDrawer";
 import IncidentFiltersModal, {
   incidentFilterCount,
   incidentFilterSummary,
@@ -40,9 +42,14 @@ const CrimeMap = dynamic(() => import("./CrimeMap"), {
 // O mapa é leitura territorial do momento: nasce no mês corrente.
 const DEFAULT_PERIOD: PeriodSelection = { kind: "preset", id: "mes_atual" };
 
+// Duas camadas. HOMICÍDIOS é o CVLI do cadastro — o caso de uso que originou
+// a tela, e a que nasce ligada. PRODUTIVIDADE é todo o resto (prisões,
+// apreensões e o que veio do relatório operacional), nunca homicídio: uma
+// ocorrência está numa camada ou na outra. O tipo não é filtro: a camada o
+// define. Meio utilizado só recorta os homicídios; período, território e
+// busca valem para as duas.
 const DEFAULT_FILTERS: IncidentFilters = {
-  // O mapa nasce focado em CVLI — é o caso de uso que originou a tela.
-  type: "homicidio",
+  type: "",
   means: "",
   city: "",
   neighborhood: "",
@@ -67,9 +74,17 @@ export default function MapaScreen() {
   const [error, setError] = useState<string | null>(null);
   const [dark, setDark] = useState(true);
   const [openId, setOpenId] = useState<string | null>(null);
+  const [showHomicides, setShowHomicides] = useState(true);
+  const [showProductivity, setShowProductivity] = useState(false);
+  const [prodItems, setProdItems] = useState<OccurrenceRow[]>([]);
+  const [prodTotal, setProdTotal] = useState<number | null>(null);
+  const [prodTruncated, setProdTruncated] = useState(false);
+  // Ocorrência só do relatório operacional aberta a partir da camada.
+  const [openOpsId, setOpenOpsId] = useState<string | null>(null);
 
   const canRead = canReadIncidents(me);
   const colorFor = useResolvedMeansColors();
+  const productivityColor = useResolvedColor("--info");
   const { cities, neighborhoodsOf } = useIncidentLocations();
   const { pending, consumePending } = useNavigation();
   // Ponto a destacar quando se chega aqui pela ficha de uma vítima.
@@ -90,12 +105,10 @@ export default function MapaScreen() {
       .then(({ incident }) => {
         const [y, m] = incident.occurred_on.split("-").map(Number);
         setPeriod({ kind: "month", year: y, month: m - 1 });
-        setFilters({
-          type: "",
-          means: "",
-          city: "",
-          neighborhood: "",
-        });
+        setFilters(DEFAULT_FILTERS);
+        // O ponto em foco precisa estar numa camada ligada.
+        if (incident.type === "homicidio") setShowHomicides(true);
+        else setShowProductivity(true);
         setFocusId(target);
         setOpenId(target);
       })
@@ -115,24 +128,27 @@ export default function MapaScreen() {
     if (!canRead) return;
     setLoading(true);
     setError(null);
-    const query = {
-      type: filters.type || undefined,
-      means: filters.means || undefined,
+    const shared = {
       city: filters.city || undefined,
       neighborhood: filters.neighborhood || undefined,
       search: debouncedSearch || undefined,
       date_from: bounds.from || undefined,
       date_to: bounds.to || undefined,
     };
+    const query = { ...shared, type: "homicidio" as const, means: filters.means || undefined };
     try {
-      const [geo, all] = await Promise.all([
-        listIncidentsGeo(query),
+      const [geo, all, prod] = await Promise.all([
+        showHomicides ? listIncidentsGeo(query) : null,
         // limit=1: só interessa o `total` do mesmo recorte.
-        listIncidents({ ...query, limit: 1 }),
+        showHomicides ? listIncidents({ ...query, limit: 1 }) : null,
+        showProductivity ? listOccurrencesGeo({ ...shared, category: "produtividade" }) : null,
       ]);
-      setItems(geo.items);
-      setTruncated(geo.truncated);
-      setTotalInRange(all.total);
+      setItems(geo?.items ?? []);
+      setTruncated(geo?.truncated ?? false);
+      setTotalInRange(all?.total ?? null);
+      setProdItems(prod?.items ?? []);
+      setProdTotal(prod?.total ?? null);
+      setProdTruncated(prod?.truncated ?? false);
     } catch (e) {
       setError((e as ApiError).message || "Erro ao carregar o mapa");
     } finally {
@@ -140,7 +156,8 @@ export default function MapaScreen() {
     }
   }, [
     canRead,
-    filters.type,
+    showHomicides,
+    showProductivity,
     filters.means,
     filters.city,
     filters.neighborhood,
@@ -172,7 +189,7 @@ export default function MapaScreen() {
   }, [items]);
 
   const activeCount = incidentFilterCount(filters, DEFAULT_FILTERS);
-  const filterSummary = incidentFilterSummary(filters);
+  const filterSummary = incidentFilterSummary(filters, false);
 
   if (!canRead) {
     return (
@@ -186,6 +203,8 @@ export default function MapaScreen() {
   }
 
   const semGeo = totalInRange != null ? Math.max(0, totalInRange - items.length) : null;
+  const prodSemGeo = prodTotal != null ? Math.max(0, prodTotal - prodItems.length) : null;
+  const prodApprox = prodItems.filter((r) => r.geo_precision === "bairro").length;
 
   return (
     <div className="screen-fill">
@@ -215,6 +234,25 @@ export default function MapaScreen() {
           {filterSummary}
         </span>
         <div style={{ marginLeft: "auto" }} />
+        {/* Camadas: liga e desliga cada uma; podem ficar as duas juntas. */}
+        <button
+          type="button"
+          className={"btn" + (showHomicides ? " btn-primary" : " btn-ghost")}
+          onClick={() => setShowHomicides((v) => !v)}
+          aria-pressed={showHomicides}
+          title="Camada dos homicídios (CVLI)"
+        >
+          HOMICÍDIOS
+        </button>
+        <button
+          type="button"
+          className={"btn" + (showProductivity ? " btn-primary" : " btn-ghost")}
+          onClick={() => setShowProductivity((v) => !v)}
+          aria-pressed={showProductivity}
+          title="Camada das ocorrências que não são homicídio: prisões, apreensões e o relatório operacional"
+        >
+          PRODUTIVIDADE
+        </button>
         <button
           type="button"
           className={"btn" + (dark ? " btn-primary" : " btn-ghost")}
@@ -230,7 +268,7 @@ export default function MapaScreen() {
       </div>
 
       {error && <div className="banner banner-error">⚠ {error}</div>}
-      {truncated && (
+      {(truncated || prodTruncated) && (
         <div className="banner banner-warn">
           ⚠ O recorte excedeu o limite de pontos do servidor e foi truncado. Estreite o
           período para uma leitura fiel.
@@ -242,10 +280,16 @@ export default function MapaScreen() {
           sem coordenadas e não {semGeo > 1 ? "aparecem" : "aparece"} no mapa.
         </div>
       )}
+      {prodSemGeo != null && prodSemGeo > 0 && (
+        <div className="banner">
+          {prodSemGeo} ocorrência{prodSemGeo > 1 ? "s" : ""} de produtividade do recorte{" "}
+          {prodSemGeo > 1 ? "estão" : "está"} sem coordenadas e não {prodSemGeo > 1 ? "aparecem" : "aparece"} no mapa.
+        </div>
+      )}
 
       <div className="map-layout">
         <div className="panel panel--fill map-panel">
-          {loading && items.length === 0 ? (
+          {loading && items.length === 0 && prodItems.length === 0 ? (
             <div className="map-loading muted">// CARREGANDO PONTOS…</div>
           ) : (
             <CrimeMap
@@ -254,6 +298,11 @@ export default function MapaScreen() {
               dark={dark}
               focusId={focusId}
               onOpen={(id) => setOpenId(id)}
+              productivity={prodItems}
+              productivityColor={productivityColor}
+              onOpenProductivity={(row) =>
+                row.incident_id ? setOpenId(row.incident_id) : setOpenOpsId(row.ops_id)
+              }
             />
           )}
         </div>
@@ -266,7 +315,7 @@ export default function MapaScreen() {
             <div className="panel-bd">
               <div className="kpi" style={{ padding: 0 }}>
                 <div className="kpi-lbl">PONTOS PLOTADOS</div>
-                <div className="kpi-val">{items.length}</div>
+                <div className="kpi-val">{items.length + prodItems.length}</div>
               </div>
               <dl className="dossier-list" style={{ marginTop: 12 }}>
                 <div>
@@ -283,10 +332,23 @@ export default function MapaScreen() {
                       : "TODOS OS MUNICÍPIOS"}
                   </dd>
                 </div>
-                <div>
-                  <dt>NO RECORTE</dt>
-                  <dd>{totalInRange ?? "—"} ocorrência(s)</dd>
-                </div>
+                {showHomicides && (
+                  <div>
+                    <dt>HOMICÍDIOS</dt>
+                    <dd>
+                      {items.length} no mapa · {totalInRange ?? "—"} no recorte
+                    </dd>
+                  </div>
+                )}
+                {showProductivity && (
+                  <div>
+                    <dt>PRODUTIVIDADE</dt>
+                    <dd>
+                      {prodItems.length} no mapa · {prodTotal ?? "—"} no recorte
+                      {prodApprox > 0 && ` · ${prodApprox} aproximada${prodApprox > 1 ? "s" : ""}`}
+                    </dd>
+                  </div>
+                )}
               </dl>
             </div>
           </div>
@@ -367,6 +429,14 @@ export default function MapaScreen() {
                 georreferenciada. Clique para ver os dados, os envolvidos e abrir o
                 dossiê completo.
               </div>
+              <div className="map-legend-row" style={{ marginTop: 8 }}>
+                <span className="map-legend-dot" style={{ background: productivityColor }} aria-hidden />
+                <span className="map-legend-lbl">PRODUTIVIDADE</span>
+              </div>
+              <div className="muted" style={{ fontSize: 12, lineHeight: 1.7 }}>
+                Ponto menor: ocorrência que não é homicídio. Tracejado e apagado quando a
+                localização é aproximada — só o bairro foi encontrado, e o ponto é o centro dele.
+              </div>
             </div>
           </div>
         </aside>
@@ -379,6 +449,8 @@ export default function MapaScreen() {
           defaults={DEFAULT_FILTERS}
           cities={cities}
           neighborhoodsOf={neighborhoodsOf}
+          // O tipo é a camada (HOMICÍDIOS / PRODUTIVIDADE), não um filtro.
+          types={[]}
           onApply={(f) => {
             setFilters(f);
             setShowFilters(false);
@@ -394,8 +466,25 @@ export default function MapaScreen() {
           onChanged={reload}
         />
       )}
+      {openOpsId && (
+        <OpsOccurrenceDrawer occurrenceId={openOpsId} onClose={() => setOpenOpsId(null)} onChanged={reload} />
+      )}
     </div>
   );
+}
+
+/** Resolve uma CSS custom property da paleta ativa para valor concreto. */
+function useResolvedColor(varName: string): string {
+  const [color, setColor] = useState("#888888");
+  useEffect(() => {
+    const root = document.documentElement;
+    const read = () => setColor(getComputedStyle(root).getPropertyValue(varName).trim() || "#888888");
+    read();
+    const obs = new MutationObserver(read);
+    obs.observe(root, { attributes: true, attributeFilter: ["data-palette"] });
+    return () => obs.disconnect();
+  }, [varName]);
+  return color;
 }
 
 /**

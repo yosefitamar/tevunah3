@@ -20,11 +20,17 @@ var (
 	ErrNotFound        = errors.New("ocorrência não encontrada")
 	ErrPersonNotFound  = errors.New("pessoa não encontrada na ocorrência")
 	ErrAlreadyImported = errors.New("este PDF já foi importado")
+	// ErrDuplicateCIOPS: a ficha CIOPS já identifica outra ocorrência do
+	// relatório (índice ops_occurrences_ciops_uniq).
+	ErrDuplicateCIOPS = errors.New("ficha CIOPS já pertence a outra ocorrência")
 )
 
 // Repo encapsula app.ops_reports e app.ops_occurrence*.
 type Repo struct {
 	db *sql.DB
+	// GeoRequired: o geocodificador está ligado. No recálculo da tradução,
+	// ocorrência sem coordenada fica com a pendência "coordenada".
+	GeoRequired bool
 }
 
 func New(db *sql.DB) *Repo { return &Repo{db: db} }
@@ -175,10 +181,11 @@ func (r *Repo) Import(ctx context.Context, in ImportInput) (*ImportResult, error
 			   seized_objects, narrative, created_by,
 			   intel_participation, intel_matched,
 			   sipom_natureza_id, sipom_logradouro, sipom_numeral, sipom_cidade_id,
-			   sipom_bairro_id, sipom_area_id, sipom_opm_id, sipom_pendencias)
+			   sipom_bairro_id, sipom_area_id, sipom_opm_id, sipom_pendencias,
+			   latitude, longitude, geo_precision, geo_source)
 			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::time,$11::time,$12,$13,
 			        $14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,
-			        $29,$30,$31,$32,$33,$34,$35,$36)
+			        $29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40)
 			ON CONFLICT (ciops_record) WHERE ciops_record <> '' AND deleted_at IS NULL
 			DO NOTHING
 			RETURNING id`,
@@ -191,6 +198,7 @@ func (r *Repo) Import(ctx context.Context, in ImportInput) (*ImportResult, error
 			len(o.IntelMatched) > 0, textArray(o.IntelMatched),
 			nilInt(o.Sipom.NaturezaID), o.Sipom.Logradouro, o.Sipom.Numeral, nilInt(o.Sipom.CidadeID),
 			nilInt(o.Sipom.BairroID), nilInt(o.Sipom.AreaID), nilInt(o.Sipom.OPMID), textArray(o.Sipom.Pending),
+			nilFloat(o.Geo.Lat), nilFloat(o.Geo.Lng), o.Geo.Precision, o.Geo.Source,
 		).Scan(&id)
 		if errors.Is(err, sql.ErrNoRows) {
 			res.Skipped = append(res.Skipped, o.CIOPS)
@@ -352,6 +360,11 @@ type StoredOccurrence struct {
 
 	// Report é a data do relatório (PDF) de onde a ocorrência veio.
 	Report *time.Time
+
+	// UpdatedAt/UpdatedByName: última correção do analista (Update). Nil =
+	// a ficha ainda é a cópia do PDF.
+	UpdatedAt     *time.Time
+	UpdatedByName string
 
 	// Contagens (preenchidas na listagem; no detalhe, os slices valem).
 	PeopleCount, WeaponCount, DrugCount, VehicleCount int
@@ -557,7 +570,9 @@ const occSelect = `
 	o.intel_participation, o.intel_mode, to_jsonb(o.intel_matched)::text,
 	o.sipom_natureza_id, o.sipom_logradouro, o.sipom_numeral, o.sipom_cidade_id, o.sipom_bairro_id,
 	o.sipom_area_id, o.sipom_opm_id, to_jsonb(o.sipom_pendencias)::text, to_jsonb(o.sipom_manual)::text,
-	(SELECT r.report_date FROM app.ops_reports r WHERE r.id = o.report_id)`
+	(SELECT r.report_date FROM app.ops_reports r WHERE r.id = o.report_id),
+	o.updated_at, COALESCE((SELECT u.display_name FROM app.users u WHERE u.id = o.updated_by), ''),
+	o.latitude, o.longitude, o.geo_precision, o.geo_source`
 
 // occArrays recebe as colunas de array de occSelect, que chegam como JSON
 // (to_jsonb) e são decodificadas por decode.
@@ -596,6 +611,8 @@ func occDest(so *StoredOccurrence, arr *occArrays) []any {
 		&o.Sipom.NaturezaID, &o.Sipom.Logradouro, &o.Sipom.Numeral, &o.Sipom.CidadeID, &o.Sipom.BairroID,
 		&o.Sipom.AreaID, &o.Sipom.OPMID, &arr.sipomPending, &arr.sipomManual,
 		&so.Report,
+		&so.UpdatedAt, &so.UpdatedByName,
+		&o.Geo.Lat, &o.Geo.Lng, &o.Geo.Precision, &o.Geo.Source,
 	}
 }
 
@@ -748,6 +765,191 @@ func (r *Repo) listPeople(ctx context.Context, occID string) ([]StoredPerson, er
 	return out, rows.Err()
 }
 
+// ─────────────────────────── Edição ────────────────────────────
+
+// Edit são as correções do analista sobre a ocorrência importada — o PDF
+// erra data, hora, ficha, bairro. Campo nil = não tocar. Os filhos (pessoas,
+// armas, drogas, veículos, composição) não entram aqui.
+type Edit struct {
+	Natures    *[]string
+	OccurredOn *time.Time
+	StartTime  *string // "HH:MM"; "" limpa
+	EndTime    *string
+	Teams      *string
+	CIOPS      *string
+	BaseCity   *string
+	CIA        *string
+	PEL        *string
+
+	PlaceAddress         *string
+	PlaceNeighborhood    *string
+	PlaceCity            *string
+	ApproachAddress      *string
+	ApproachNeighborhood *string
+	ApproachCity         *string
+
+	PoliceStation   *string
+	Delegate        *string
+	ProcedureType   *string
+	ProcedureNumber *string
+
+	SeizedObjects *string
+	Narrative     *string
+}
+
+// Update aplica as correções. Segue a grafia da importação: naturezas,
+// bairros e cidades em MAIÚSCULAS (é o que agrupa); ficha em maiúsculas e sem
+// espaços; endereço e histórico como digitados. Quem chama refaz a tradução
+// para o SIPOM e a marcação de inteligência, que dependem destes campos.
+func (r *Repo) Update(ctx context.Context, id, actor string, e Edit) error {
+	trim := func(p *string) any {
+		if p == nil {
+			return nil
+		}
+		return strings.TrimSpace(*p)
+	}
+	upper := func(p *string) any {
+		if p == nil {
+			return nil
+		}
+		return strings.ToUpper(strings.TrimSpace(*p))
+	}
+	clock := func(p *string) (bool, any) {
+		if p == nil {
+			return false, nil
+		}
+		return true, nilStr(strings.TrimSpace(*p))
+	}
+	var natures any
+	if e.Natures != nil {
+		list := []string{}
+		for _, n := range *e.Natures {
+			if n = strings.ToUpper(strings.Join(strings.Fields(n), " ")); n != "" {
+				list = append(list, n)
+			}
+		}
+		natures = list
+	}
+	var day any
+	if e.OccurredOn != nil {
+		day = e.OccurredOn.Format("2006-01-02")
+	}
+	var ciops any
+	if e.CIOPS != nil {
+		ciops = strings.ToUpper(strings.Join(strings.Fields(*e.CIOPS), ""))
+	}
+	setStart, start := clock(e.StartTime)
+	setEnd, end := clock(e.EndTime)
+
+	res, err := r.db.ExecContext(ctx, `
+		UPDATE app.ops_occurrences SET
+		  natures               = COALESCE($2::text[], natures),
+		  occurred_on           = COALESCE($3::date, occurred_on),
+		  start_time            = CASE WHEN $4 THEN $5::time ELSE start_time END,
+		  end_time              = CASE WHEN $6 THEN $7::time ELSE end_time END,
+		  teams                 = COALESCE($8::text, teams),
+		  ciops_record          = COALESCE($9::text, ciops_record),
+		  base_city             = COALESCE($10::text, base_city),
+		  cia                   = COALESCE($11::text, cia),
+		  pel                   = COALESCE($12::text, pel),
+		  place_address         = COALESCE($13::text, place_address),
+		  place_neighborhood    = COALESCE($14::text, place_neighborhood),
+		  place_city            = COALESCE($15::text, place_city),
+		  approach_address      = COALESCE($16::text, approach_address),
+		  approach_neighborhood = COALESCE($17::text, approach_neighborhood),
+		  approach_city         = COALESCE($18::text, approach_city),
+		  police_station        = COALESCE($19::text, police_station),
+		  delegate              = COALESCE($20::text, delegate),
+		  procedure_type        = COALESCE($21::text, procedure_type),
+		  procedure_number      = COALESCE($22::text, procedure_number),
+		  seized_objects        = COALESCE($23::text, seized_objects),
+		  narrative             = COALESCE($24::text, narrative),
+		  updated_at            = now(),
+		  updated_by            = $25
+		WHERE id = $1 AND deleted_at IS NULL`,
+		id, natures, day, setStart, start, setEnd, end,
+		trim(e.Teams), ciops, upper(e.BaseCity), upper(e.CIA), upper(e.PEL),
+		trim(e.PlaceAddress), upper(e.PlaceNeighborhood), upper(e.PlaceCity),
+		trim(e.ApproachAddress), upper(e.ApproachNeighborhood), upper(e.ApproachCity),
+		trim(e.PoliceStation), trim(e.Delegate), trim(e.ProcedureType), trim(e.ProcedureNumber),
+		trim(e.SeizedObjects), trim(e.Narrative), actor,
+	)
+	if err != nil {
+		if strings.Contains(err.Error(), "ops_occurrences_ciops_uniq") {
+			return ErrDuplicateCIOPS
+		}
+		return fmt.Errorf("ops_occurrences update: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// ─────────────────────────── Coordenada ────────────────────────────
+
+// SetGeo grava a coordenada da ocorrência — a do geocodificador ("auto", com
+// a precisão) ou a do analista ("manual"). Lat/Lng nil limpa: a ocorrência
+// volta a "não localizada". Quem chama refaz a tradução, que carrega a
+// pendência de coordenada.
+func (r *Repo) SetGeo(ctx context.Context, id string, g Geo) error {
+	if !g.Located() {
+		g = Geo{}
+	}
+	return r.execOne(ctx, `
+		UPDATE app.ops_occurrences
+		   SET latitude = $2, longitude = $3, geo_precision = $4, geo_source = $5
+		 WHERE id = $1 AND deleted_at IS NULL`,
+		id, nilFloat(g.Lat), nilFloat(g.Lng), g.Precision, g.Source)
+}
+
+// Unlocated devolve as ocorrências sem coordenada, para a geocodificação do
+// acervo (o que foi importado antes de o geocodificador existir, ou enquanto
+// ele estava fora do ar). Só os campos de endereço vêm preenchidos.
+func (r *Repo) Unlocated(ctx context.Context) ([]StoredOccurrence, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT o.id, o.place_address, o.place_neighborhood, o.place_city,
+		       o.approach_address, o.approach_neighborhood, o.approach_city
+		  FROM app.ops_occurrences o
+		 WHERE o.deleted_at IS NULL AND o.latitude IS NULL
+		 ORDER BY o.occurred_on DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []StoredOccurrence{}
+	for rows.Next() {
+		var so StoredOccurrence
+		o := &so.Occurrence
+		if err := rows.Scan(&so.ID, &o.PlaceAddress, &o.PlaceNeighborhood, &o.PlaceCity,
+			&o.ApproachAddress, &o.ApproachNeighborhood, &o.ApproachCity); err != nil {
+			return nil, err
+		}
+		out = append(out, so)
+	}
+	return out, rows.Err()
+}
+
+// SetIntelMatched regrava a marcação automática de inteligência de uma
+// ocorrência (o histórico ou a equipe mudaram). Não toca em decisão manual.
+func (r *Repo) SetIntelMatched(ctx context.Context, id string, matched []string) error {
+	_, err := r.db.ExecContext(ctx, `
+		UPDATE app.ops_occurrences
+		   SET intel_participation = $2, intel_matched = $3
+		 WHERE id = $1 AND deleted_at IS NULL AND intel_mode = 'auto'`,
+		id, len(matched) > 0, textArray(matched))
+	return err
+}
+
+// CountPending conta as ocorrências com alguma das pendências informadas.
+func (r *Repo) CountPending(ctx context.Context, codes ...string) (int, error) {
+	var n int
+	err := r.db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM app.ops_occurrences
+		 WHERE deleted_at IS NULL AND sipom_pendencias && $1`, codes).Scan(&n)
+	return n, err
+}
+
 // ─────────────────────────── Vínculo com dossiê ────────────────────────────
 
 // FindPerson devolve uma pessoa da ocorrência.
@@ -849,7 +1051,8 @@ func (r *Repo) SipomSources(ctx context.Context, onlyID string) ([]SipomSource, 
 		       o.approach_address, o.approach_neighborhood, o.approach_city,
 		       o.cia, o.bpm, o.teams, o.sipom_natureza_id, to_jsonb(o.sipom_manual)::text,
 		       (SELECT COUNT(*) FROM app.ops_occurrence_officers f WHERE f.occurrence_id = o.id),
-		       o.sipom_logradouro, o.sipom_numeral, o.sipom_area_id, o.sipom_opm_id
+		       o.sipom_logradouro, o.sipom_numeral, o.sipom_area_id, o.sipom_opm_id,
+		       o.latitude, o.longitude
 		  FROM app.ops_occurrences o
 		 WHERE o.deleted_at IS NULL AND ($1 = '' OR o.id::text = $1)
 		 ORDER BY o.occurred_on`, onlyID)
@@ -866,7 +1069,8 @@ func (r *Repo) SipomSources(ctx context.Context, onlyID string) ([]SipomSource, 
 			&s.PlaceAddress, &s.PlaceNeighborhood, &s.PlaceCity,
 			&s.ApproachAddress, &s.ApproachNeighborhood, &s.ApproachCity,
 			&s.CIA, &s.BPM, &s.Teams, &s.Sipom.NaturezaID, &manual, &officers,
-			&s.Sipom.Logradouro, &s.Sipom.Numeral, &s.Sipom.AreaID, &s.Sipom.OPMID); err != nil {
+			&s.Sipom.Logradouro, &s.Sipom.Numeral, &s.Sipom.AreaID, &s.Sipom.OPMID,
+			&s.Geo.Lat, &s.Geo.Lng); err != nil {
 			return nil, err
 		}
 		if err := decodeStrings(natures, &s.Natures); err != nil {

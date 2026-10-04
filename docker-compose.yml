@@ -127,6 +127,12 @@ services:
       # Resolução do link curto do Google Maps na importação de relatório de
       # ocorrência. "off" impede qualquer requisição do servidor ao Google.
       INCIDENT_MAPS_RESOLVER:  "${INCIDENT_MAPS_RESOLVER:-on}"
+      # Geocodificador: Nominatim da própria agência, que localiza o endereço
+      # das ocorrências importadas — sem custo por consulta e sem enviar
+      # endereço a terceiros. Vazio = desligado (coordenada só a que o analista
+      # informar, e a falta dela não vira pendência).
+      GEOCODER_URL:            "${GEOCODER_URL:-}"
+      GEOCODER_STATE:          "${GEOCODER_STATE:-Ceará}"
       # Seed dev — só usado pelo `admin seed-dev` quando APP_ENV=development
       DEV_ADMIN_EMAIL:    ${DEV_ADMIN_EMAIL:-admin@tevunah.local}
       DEV_ADMIN_NAME:     ${DEV_ADMIN_NAME:-Administrador Dev}
@@ -161,7 +167,33 @@ services:
     networks:
       - tevunah
 
+  # ─── Geocodificador (profile "geo") ──────────────────────────────────
+  # Nominatim próprio (OpenStreetMap): o endereço das ocorrências é localizado
+  # aqui dentro, sem consultar serviço de terceiros. Fica dormente em
+  # `./tevunah up`; sobe com `./tevunah geo:up`. A primeira subida baixa o
+  # recorte do Nordeste (~1 GB) e importa — de uma a algumas horas, e pede
+  # alguns GB de RAM e ~30 GB de disco. Depois disso o volume guarda o banco
+  # e a subida é imediata. Sem porta publicada: só o backend fala com ele.
+  nominatim:
+    image: mediagis/nominatim:4.4
+    container_name: tevunah-nominatim
+    profiles: [geo]
+    restart: unless-stopped
+    shm_size: 1gb
+    environment:
+      PBF_URL: "${NOMINATIM_PBF_URL:-https://download.geofabrik.de/south-america/brazil/nordeste-latest.osm.pbf}"
+      # Sem atualização contínua: o mapa é reimportado quando a agência quiser
+      # dados novos (o serviço não precisa de saída para a internet no dia a dia).
+      REPLICATION_URL: ""
+      IMPORT_STYLE: "address"
+      NOMINATIM_PASSWORD: "${NOMINATIM_PASSWORD:-nominatim}"
+    volumes:
+      - nominatim-data:/var/lib/postgresql/14/main
+    networks:
+      - tevunah
+
 volumes:
+  nominatim-data:
   postgres-data:
   redis-data:
   go-mod-cache:

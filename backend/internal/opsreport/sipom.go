@@ -30,7 +30,21 @@ func SipomInput(o *Occurrence) sipom.Input {
 		Teams:          o.Teams,
 		Officers:       len(o.Officers),
 		UnlinkedPeople: unlinkedPeople(o.People, o.peopleLinked),
+		HasGeo:         o.Geo.Located(),
 	}
+}
+
+// SipomRefs é o que a tradução consulta além do catálogo.
+type SipomRefs struct {
+	// Natures é o de-para de naturezas (nil = sem de-para: a natureza fica
+	// pendente).
+	Natures *sipom.NatureMap
+	// Areas é a referência de área aprendida das escolhas dos analistas
+	// (cidade + bairro → área).
+	Areas *sipom.AreaRules
+	// GeoRequired: o geocodificador está ligado — ocorrência sem coordenada
+	// fica pendente.
+	GeoRequired bool
 }
 
 // unlinkedPeople conta os envolvidos identificados sem dossiê. linked[i]
@@ -71,13 +85,17 @@ func SipomPeopleParsed(o *Occurrence) []sipom.Person {
 
 // TranslateSipom preenche o.Sipom e a composição de o.Officers. A natureza
 // sai do de-para (nm), salvo se o analista a fixou ("natureza" em
-// Sipom.Manual). Sem catálogo não faz nada: a ocorrência fica sem tradução e
-// o recálculo resolve depois.
-func TranslateSipom(cat *sipom.Catalog, nm *sipom.NatureMap, o *Occurrence) {
+// Sipom.Manual). A área sai da referência aprendida das escolhas dos
+// analistas (refs.Areas: cidade + bairro → área) e, sem ela, do catálogo. Sem
+// catálogo não faz nada: a ocorrência fica sem tradução e o recálculo resolve
+// depois.
+func TranslateSipom(cat *sipom.Catalog, refs SipomRefs, o *Occurrence) {
 	if cat == nil {
 		return
 	}
+	nm, ar := refs.Natures, refs.Areas
 	in := SipomInput(o)
+	in.GeoRequired = refs.GeoRequired
 	stored := o.Sipom
 	manual := func(f string) bool { return hasString(stored.Manual, f) }
 	if manual(SipomFieldComposicao) {
@@ -91,6 +109,14 @@ func TranslateSipom(cat *sipom.Catalog, nm *sipom.NatureMap, o *Occurrence) {
 		}
 	}
 	r := cat.Resolve(in)
+	// Referência aprendida: um analista já disse qual é a área deste lugar.
+	// Vale sobre o catálogo (inclusive onde ele resolve sozinho — se alguém
+	// corrigiu, o catálogo estava errado ali), desde que a companhia siga
+	// ativa no SIPOM.
+	if id, ok := ar.Lookup(in.City, in.Neighborhood); ok && cat.IsActiveCompany(id) {
+		r.AreaID, r.AreaOptions = &id, nil
+		r.Pending = without(r.Pending, sipom.PendArea, sipom.PendAreaAmbig)
+	}
 	// Campos fixados pelo analista valem sobre o automático, e as pendências
 	// deles passam a refletir o valor fixado.
 	if manual(SipomFieldEndereco) {
@@ -166,6 +192,10 @@ func (r *Repo) RecomputeSipom(ctx context.Context, cat *sipom.Catalog, onlyID st
 	if err != nil {
 		return 0, 0, err
 	}
+	ar, err := sipom.NewAreaRuleRepo(r.db).Load(ctx)
+	if err != nil {
+		return 0, 0, err
+	}
 	srcs, err := r.SipomSources(ctx, onlyID)
 	if err != nil {
 		return 0, 0, err
@@ -173,7 +203,7 @@ func (r *Repo) RecomputeSipom(ctx context.Context, cat *sipom.Catalog, onlyID st
 	for i := range srcs {
 		o := &srcs[i].Occurrence
 		o.Sipom.Manual = srcs[i].Manual
-		TranslateSipom(cat, nm, o)
+		TranslateSipom(cat, SipomRefs{Natures: nm, Areas: ar, GeoRequired: r.GeoRequired}, o)
 		if err := r.SaveSipom(ctx, srcs[i].ID, o.Sipom, o.Officers); err != nil {
 			return ready, pending, err
 		}

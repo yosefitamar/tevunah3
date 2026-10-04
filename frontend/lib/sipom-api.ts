@@ -58,10 +58,23 @@ export type SipomFieldInput =
   | { field: "composicao"; equipes: string[] }
   | { field: "composicao"; reset: true };
 
+/**
+ * Referência criada (ou trocada) pela escolha da área: daqui em diante as
+ * ocorrências do mesmo lugar já entram com ela. `resolved` são as outras
+ * ocorrências do acervo que deixaram de ter pendência de área.
+ */
+export type SipomAreaRule = {
+  city: string;
+  neighborhood: string;
+  area_id: number;
+  area: string;
+  resolved: number;
+};
+
 /** Fixa um campo da tradução (ou devolve ao automático com null/reset). */
 export function setOpsSipomField(occId: string, input: SipomFieldInput) {
   const { field, ...body } = input;
-  return api<{ sipom: SipomOccurrence; officers: OpsOfficer[] }>(
+  return api<{ sipom: SipomOccurrence; officers: OpsOfficer[]; area_rule?: SipomAreaRule | null }>(
     `/api/ops-occurrences/${encodeURIComponent(occId)}/sipom/${field}`,
     { method: "PUT", body: JSON.stringify(body) },
   );

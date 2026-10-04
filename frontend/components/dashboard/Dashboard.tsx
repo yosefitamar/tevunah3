@@ -204,6 +204,16 @@ export default function Dashboard() {
             )}
           </span>
         )}
+        {/* Só as verificadas contam: o que ainda tem pendência fica fora dos
+            números, e a diferença aparece aqui para não ser silenciosa. */}
+        {!!data?.operational?.pending && (
+          <span
+            className="pill hold"
+            title="Ocorrências do período com pendência ou aviso. Só as verificadas entram nas estatísticas — resolva as pendências na tela de Ocorrências para elas contarem."
+          >
+            {data.operational.pending} COM PENDÊNCIA FORA DOS NÚMEROS
+          </span>
+        )}
         <div style={{ marginLeft: "auto" }} />
         <button type="button" className="btn btn-ghost" onClick={reload} disabled={loading}>
           <RefreshCw size={14} strokeWidth={1.8} /> {loading ? "CARREGANDO…" : "ATUALIZAR"}

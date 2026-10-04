@@ -90,7 +90,22 @@ var (
 	ErrInvalidType    = errors.New("tipo inválido")
 	ErrInvalidMeans   = errors.New("meio utilizado inválido")
 	ErrInvalidRole    = errors.New("papel inválido")
+	// ErrDuplicateCIOPS: a ficha CIOPS já identifica outra ocorrência do
+	// cadastro (gatilho incidents_ciops_guard).
+	ErrDuplicateCIOPS = errors.New("ficha CIOPS já cadastrada")
 )
+
+// CleanCIOPS é a forma em que a ficha CIOPS é gravada: maiúsculas e sem
+// espaços, como o relatório operacional a escreve ("M20260705888").
+func CleanCIOPS(s string) string {
+	return strings.ToUpper(strings.Join(strings.Fields(s), ""))
+}
+
+// ciopsViolation reconhece a recusa do gatilho incidents_ciops_guard.
+func ciopsViolation(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "SQLSTATE 23505") && strings.Contains(msg, "ficha CIOPS")
+}
 
 // Incident é o registro consolidado (campos base + envolvidos).
 type Incident struct {
@@ -269,7 +284,7 @@ func (r *Repo) Create(ctx context.Context, in NewIncident) (*Incident, error) {
 		VALUES ($1, $2, $3::time, $4, $5, $6, $7, $8, $9, $10, $11, $13, $12, $12)
 		RETURNING id`,
 		in.Type, in.OccurredOn, nilTimeStr(in.OccurredTime),
-		strings.TrimSpace(in.CIOPSRecord),
+		CleanCIOPS(in.CIOPSRecord),
 		nilFloat(in.Latitude), nilFloat(in.Longitude),
 		upperTrim(in.City), upperTrim(in.Neighborhood),
 		upperTrim(in.Description),
@@ -277,6 +292,9 @@ func (r *Repo) Create(ctx context.Context, in NewIncident) (*Incident, error) {
 		in.IntelParticipation,
 	).Scan(&id)
 	if err != nil {
+		if ciopsViolation(err) {
+			return nil, ErrDuplicateCIOPS
+		}
 		return nil, fmt.Errorf("db: %w", err)
 	}
 	return r.FindByID(ctx, id)
@@ -585,7 +603,7 @@ func (r *Repo) Update(ctx context.Context, id, updatedBy string, p UpdateOpts) (
 		WHERE id = $12 AND deleted_at IS NULL`,
 		nilStrP(p.Type), nilTimePtr(p.OccurredOn),
 		useTime, timeArg,
-		nilTrimP(p.CIOPSRecord),
+		nilCIOPSP(p.CIOPSRecord),
 		useLat, latArg, useLng, lngArg,
 		nilUpperTrimP(p.Description), updatedBy, id,
 		p.MeansSet, meansArg, p.MeansDetailSet, detailArg,
@@ -593,6 +611,9 @@ func (r *Repo) Update(ctx context.Context, id, updatedBy string, p UpdateOpts) (
 		nilBoolP(p.IntelParticipation),
 	)
 	if err != nil {
+		if ciopsViolation(err) {
+			return nil, ErrDuplicateCIOPS
+		}
 		return nil, fmt.Errorf("db: %w", err)
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
@@ -818,18 +839,17 @@ func nilStrP(p *string) any {
 	return *p
 }
 
-// nilTrimP trata "" como NULL pra COALESCE manter o valor atual quando o
-// caller envia string vazia sem intenção de limpar (campos texto NOT NULL
-// usam DEFAULT ”, então "" seria gravado; aqui preferimos manter).
-func nilTrimP(p *string) any {
+// nilCIOPSP devolve a ficha CIOPS na forma gravada (CleanCIOPS); nil = campo
+// não enviado, e o COALESCE mantém o valor atual.
+func nilCIOPSP(p *string) any {
 	if p == nil {
 		return nil
 	}
-	return strings.TrimSpace(*p)
+	return CleanCIOPS(*p)
 }
 
-// nilUpperTrimP é nilTrimP com upper: usado nos campos de texto livre que o
-// sistema grava em MAIÚSCULAS.
+// nilUpperTrimP é o equivalente para os campos de texto livre que o sistema
+// grava em MAIÚSCULAS.
 func nilUpperTrimP(p *string) any {
 	if p == nil {
 		return nil

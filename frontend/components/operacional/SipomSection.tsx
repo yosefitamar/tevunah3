@@ -7,6 +7,7 @@ import {
   listSipomNaturezas,
   setOpsSipomField,
   setOpsSipomNatureza,
+  type SipomAreaRule,
   type SipomFieldInput,
   type SipomNatureza,
 } from "@/lib/sipom-api";
@@ -46,6 +47,8 @@ export default function SipomSection({ occ, editable = false, onChange }: Props)
   const [naturezas, setNaturezas] = useState<SipomNatureza[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Referência de área que a última escolha do analista criou.
+  const [areaRule, setAreaRule] = useState<SipomAreaRule | null>(null);
   const [editAddr, setEditAddr] = useState(false);
   const [showPayload, setShowPayload] = useState(false);
 
@@ -64,11 +67,15 @@ export default function SipomSection({ occ, editable = false, onChange }: Props)
   const toConfirm = pending.has("natureza_confirmar");
   const dataHora = occ.start_time ? `${formatBRDate(occ.occurred_on)} ${occ.start_time}` : "";
 
-  async function run(fn: () => Promise<{ sipom: SipomOccurrence; officers?: OpsOfficer[] }>) {
+  async function run(
+    fn: () => Promise<{ sipom: SipomOccurrence; officers?: OpsOfficer[]; area_rule?: SipomAreaRule | null }>,
+  ) {
     setBusy(true);
     setError(null);
+    setAreaRule(null);
     try {
       const r = await fn();
+      setAreaRule(r.area_rule ?? null);
       onChange?.(r.sipom, r.officers);
       return true;
     } catch (e) {
@@ -81,7 +88,10 @@ export default function SipomSection({ occ, editable = false, onChange }: Props)
   const setNatureza = (id: number | null) => occ.id && run(() => setOpsSipomNatureza(occ.id!, id));
   const setField = (input: SipomFieldInput) => occ.id && run(() => setOpsSipomField(occ.id!, input));
 
-  const areaEditable = editable && (pending.has("area") || pending.has("area_ambigua") || manual.has("area"));
+  // A área aprendida também pode ser trocada: corrigir aqui corrige a
+  // referência do lugar.
+  const areaEditable =
+    editable && (pending.has("area") || pending.has("area_ambigua") || manual.has("area") || s.area_learned);
   const areaChoices: SipomRef[] = s.area_options.length ? s.area_options : s.area_candidates;
   const opmEditable = editable && (pending.has("opm") || manual.has("opm"));
   const compEditable =
@@ -144,6 +154,17 @@ export default function SipomSection({ occ, editable = false, onChange }: Props)
         )}
       </div>
       {error && <div className="banner banner-error">⚠ {error}</div>}
+      {areaRule && (
+        <div className="banner banner-info">
+          REFERÊNCIA GRAVADA: {[areaRule.neighborhood || "SEM BAIRRO", areaRule.city].join(" · ")} → {areaRule.area}.
+          AS PRÓXIMAS OCORRÊNCIAS DESTE LOCAL JÁ ENTRAM COM ESTA ÁREA
+          {areaRule.resolved > 0 &&
+            ` — ${areaRule.resolved} OUTRA${areaRule.resolved > 1 ? "S" : ""} DO ACERVO ${
+              areaRule.resolved > 1 ? "FORAM RESOLVIDAS" : "FOI RESOLVIDA"
+            }`}
+          .
+        </div>
+      )}
 
       <dl className="ops-kv sipom-kv">
         <Field label="DATA E HORA" value={dataHora} missing={pending.has("data_hora")} />
@@ -151,7 +172,7 @@ export default function SipomSection({ occ, editable = false, onChange }: Props)
         <Field
           label="ÁREA DA UNIDADE MILITAR"
           missing={pending.has("area") || pending.has("area_ambigua")}
-          tag={manual.has("area") ? "ANALISTA" : undefined}
+          tag={manual.has("area") ? "ANALISTA" : s.area_learned ? "REFERÊNCIA" : undefined}
           value={s.area?.nome ?? ""}
         >
           {areaEditable && (
@@ -311,7 +332,9 @@ function Field({
         {tag && <span className="sipom-tag">{tag}</span>}
         {action}
       </dt>
-      {children ?? <dd>{value || "—"}</dd>}
+      {/* `||`: o filho condicional chega como `false` quando o campo não é
+          editável, e aí vale o valor. */}
+      {children || <dd>{value || "—"}</dd>}
     </div>
   );
 }

@@ -78,6 +78,9 @@ type dashboardOperational struct {
 	DrugKinds    []dashboardDrugFacet `json:"drug_kinds"`
 	VehicleKinds []dashboardFacet     `json:"vehicle_kinds"`
 	Series       []dashboardOpsMonth  `json:"series"`
+	// Pending: ocorrências do período fora dos números por terem pendência
+	// ou aviso — só as verificadas contam.
+	Pending int `json:"pending"`
 }
 
 // dashboardTerritory soma as fontes de ocorrência que o solicitante enxerga.
@@ -275,6 +278,7 @@ func toDashboardOperational(st *dashboard.OperationalStats) *dashboardOperationa
 		DrugKinds:    make([]dashboardDrugFacet, 0, len(st.DrugKinds)),
 		VehicleKinds: toDashboardFacets(st.VehicleKinds),
 		Series:       make([]dashboardOpsMonth, 0, len(st.Series)),
+		Pending:      st.Pending,
 	}
 	for _, d := range st.DrugKinds {
 		out.DrugKinds = append(out.DrugKinds, dashboardDrugFacet{Name: d.Name, Grams: d.Grams})

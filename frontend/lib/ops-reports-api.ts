@@ -3,6 +3,7 @@
 
 import { api, type ApiError } from "./api";
 import { terminalHeaders } from "./device-id";
+import type { DuplicateCandidate } from "./occurrences-api";
 
 export type OpsPersonRole = "ACUSADO" | "VÍTIMA" | "TESTEMUNHA";
 
@@ -76,6 +77,11 @@ export type SipomOccurrence = {
   cidade: SipomRef | null;
   bairro: SipomRef | null;
   area: SipomRef | null;
+  /**
+   * A área veio da referência aprendida das escolhas dos analistas (cidade +
+   * bairro → área), e não do catálogo nem de escolha feita nesta ficha.
+   */
+  area_learned: boolean;
   area_options: SipomRef[];
   opm: SipomRef | null;
   pendencias: SipomPending[];
@@ -119,6 +125,16 @@ export type OpsOccurrence = {
   procedure_number: string;
   seized_objects: string;
   narrative: string;
+  /**
+   * Coordenada do local do fato; null = não localizada. `geo_precision` vale
+   * para o ponto do geocodificador: "porta" (rua e número), "rua" ou "bairro"
+   * (aproximada — centro do bairro). `geo_source`: "auto" ou "manual" (o
+   * analista informou).
+   */
+  latitude: number | null;
+  longitude: number | null;
+  geo_precision: "" | "porta" | "rua" | "bairro";
+  geo_source: "" | "auto" | "manual";
   people: OpsPerson[];
   weapons: OpsWeapon[];
   drugs: OpsDrug[];
@@ -134,8 +150,50 @@ export type OpsOccurrence = {
   status?: "new" | "duplicate";
   existing_id?: string;
   warnings: string[];
+  /**
+   * Só na prévia, contra o cadastro manual de Ocorrências. `linked_incident_id`:
+   * cadastro com a mesma ficha — é a mesma ocorrência, e a listagem as une.
+   * `possible_duplicates`: cadastros de ficha DIFERENTE com a mesma data, hora
+   * e lugar — sinal de ficha digitada errado no cadastro.
+   */
+  linked_incident_id?: string;
+  possible_duplicates?: DuplicateCandidate[];
   created_at?: string;
+  /** Última correção do analista; ausentes = a ficha é a cópia do PDF. */
+  updated_at?: string;
+  updated_by_name?: string;
 };
+
+/**
+ * Correção da ocorrência importada: só os campos presentes são alterados.
+ * Hora "" limpa. Tudo vai para a auditoria com o antes e o depois.
+ */
+export type OpsOccurrenceEdit = Partial<
+  Pick<
+    OpsOccurrence,
+    | "natures"
+    | "occurred_on"
+    | "start_time"
+    | "end_time"
+    | "teams"
+    | "ciops_record"
+    | "base_city"
+    | "cia"
+    | "pel"
+    | "place_address"
+    | "place_neighborhood"
+    | "place_city"
+    | "approach_address"
+    | "approach_neighborhood"
+    | "approach_city"
+    | "police_station"
+    | "delegate"
+    | "procedure_type"
+    | "procedure_number"
+    | "seized_objects"
+    | "narrative"
+  >
+>;
 
 export type OpsOccurrenceRow = {
   id: string;
@@ -268,6 +326,24 @@ export function getOpsFacets() {
 
 export function getOpsOccurrence(id: string) {
   return api<{ occurrence: OpsOccurrence }>(`/api/ops-occurrences/${encodeURIComponent(id)}`);
+}
+
+export function updateOpsOccurrence(id: string, input: OpsOccurrenceEdit) {
+  return api<{ occurrence: OpsOccurrence }>(`/api/ops-occurrences/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+/**
+ * Coordenada da ocorrência: o ponto informado pelo analista, ou `reset` para
+ * mandar o geocodificador localizar o endereço de novo.
+ */
+export function setOpsGeo(id: string, input: { latitude: number; longitude: number } | { reset: true }) {
+  return api<{ occurrence: OpsOccurrence }>(`/api/ops-occurrences/${encodeURIComponent(id)}/geo`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
 }
 
 export function linkOpsPerson(occId: string, personId: string, entityId: string) {

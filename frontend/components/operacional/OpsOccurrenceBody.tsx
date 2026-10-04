@@ -13,6 +13,7 @@ import {
 } from "@/lib/ops-reports-api";
 import { formatBRDate } from "@/lib/format";
 import { IntelSummary } from "./IntelStatus";
+import OpsGeoSection from "./OpsGeoSection";
 import SipomSection from "./SipomSection";
 
 type Props = {
@@ -23,6 +24,8 @@ type Props = {
   intelSlot?: ReactNode;
   /** Ficha gravada com permissão de edição: natureza SIPOM escolhível. */
   onSipomChange?: (s: SipomOccurrence, officers?: OpsOfficer[]) => void;
+  /** Ficha gravada com permissão de edição: o analista informa a coordenada. */
+  onGeoChange?: (occ: OpsOccurrence) => void;
 };
 
 /**
@@ -30,12 +33,17 @@ type Props = {
  * ordem do documento. Usado na prévia da importação e no drawer — o que
  * muda entre os dois é só o vínculo das pessoas, injetado por renderPerson.
  */
-export default function OpsOccurrenceBody({ occ, renderPerson, intelSlot, onSipomChange }: Props) {
+export default function OpsOccurrenceBody({ occ, renderPerson, intelSlot, onSipomChange, onGeoChange }: Props) {
   const place = [occ.place_address, occ.place_neighborhood, occ.place_city].filter(Boolean).join(" · ");
   const approach = [occ.approach_address, occ.approach_neighborhood, occ.approach_city]
     .filter(Boolean)
     .join(" · ");
   const hasSeizures = occ.weapons.length + occ.drugs.length + occ.vehicles.length > 0;
+  // Na ficha gravada a localização aparece sempre (é onde o analista informa
+  // o ponto). Na prévia, só quando há o que dizer: o ponto encontrado, ou a
+  // pendência de coordenada (geocodificador ligado e endereço não localizado).
+  const showGeo =
+    !!occ.id || occ.latitude != null || !!occ.sipom?.pendencias.some((p) => p.code === "coordenada");
 
   return (
     <div className="ops-body">
@@ -102,6 +110,8 @@ export default function OpsOccurrenceBody({ occ, renderPerson, intelSlot, onSipo
       </dl>
 
       <SipomSection occ={occ} editable={!!onSipomChange && !!occ.id} onChange={onSipomChange} />
+
+      {showGeo && <OpsGeoSection occ={occ} editable={!!onGeoChange && !!occ.id} onChange={onGeoChange} />}
 
       {occ.people.length > 0 && (
         <section className="ops-section">

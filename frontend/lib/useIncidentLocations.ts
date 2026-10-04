@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { listIncidentLocations, type PlaceFacet } from "./incidents-api";
+import { listIncidentLocations, type IncidentLocations, type PlaceFacet } from "./incidents-api";
 
 export type IncidentLocationsState = {
   /** Municípios com ocorrência registrada, ordenados por volume. */
@@ -18,20 +18,26 @@ export type IncidentLocationsState = {
  * tanto para o recorte territorial do mapa quanto para o autocompletar de
  * bairro no cadastro — em ambos os casos o que interessa é o que já existe,
  * não um cadastro universal de bairros.
+ *
+ * `load` troca a fonte: a listagem de Ocorrências passa a que inclui o
+ * relatório operacional; mapa e cadastro ficam com o padrão (só o cadastro
+ * manual). Precisa ser uma referência estável (função de módulo).
  */
-export function useIncidentLocations(): IncidentLocationsState {
+export function useIncidentLocations(
+  load: () => Promise<IncidentLocations> = listIncidentLocations,
+): IncidentLocationsState {
   const [cities, setCities] = useState<PlaceFacet[]>([]);
   const [neighborhoods, setNeighborhoods] = useState<PlaceFacet[]>([]);
 
   const reload = useCallback(() => {
-    listIncidentLocations()
+    load()
       .then((r) => {
         setCities([...r.cities].sort((a, b) => b.count - a.count));
         setNeighborhoods(r.neighborhoods);
       })
       // Silencioso: sem sugestões a tela segue utilizável (campo é livre).
       .catch(() => undefined);
-  }, []);
+  }, [load]);
 
   useEffect(() => {
     reload();

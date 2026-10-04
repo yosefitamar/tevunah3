@@ -50,6 +50,10 @@ FRONTEND_PORT="${FRONTEND_PORT:-3000}"
 # Resolução do link curto do Google Maps na importação de relatório de
 # ocorrência. "off" impede qualquer requisição do servidor ao Google.
 INCIDENT_MAPS_RESOLVER="${INCIDENT_MAPS_RESOLVER:-on}"
+# Geocodificador (Nominatim da agência) para a coordenada das ocorrências
+# importadas. Vazio = desligado.
+GEOCODER_URL="${GEOCODER_URL:-}"
+GEOCODER_STATE="${GEOCODER_STATE:-Ceará}"
 
 # ─── 2. Pacotes de sistema ───────────────────────────────────────────────
 log "Instalando pacotes apt"
@@ -200,6 +204,8 @@ AUDIT_DATABASE_URL=postgres://${AUDIT_DB_USER}:${AUDIT_DB_PASSWORD}@127.0.0.1:54
 REDIS_URL=redis://127.0.0.1:6379/0
 SESSION_IDLE_MINUTES=${SESSION_IDLE_MINUTES}
 INCIDENT_MAPS_RESOLVER=${INCIDENT_MAPS_RESOLVER}
+GEOCODER_URL=${GEOCODER_URL}
+GEOCODER_STATE=${GEOCODER_STATE}
 EOF
 
 cat > "$REPO_DIR/frontend.env" <<EOF

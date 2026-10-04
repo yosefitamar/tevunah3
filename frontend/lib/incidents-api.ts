@@ -110,6 +110,11 @@ export type Incident = {
   /** A SAI participou da ocorrência. */
   intel_participation: boolean;
   involved: InvolvedEntity[];
+  /**
+   * Ocorrência do relatório operacional com a mesma ficha CIOPS — é a mesma
+   * ocorrência, vista pela tropa. Só vem no detalhe e para quem lê o módulo.
+   */
+  ops_occurrence_id?: string;
   created_at: string;
   created_by: string;
   updated_at: string;
@@ -223,6 +228,11 @@ export type NewIncidentInput = {
   means_detail?: string;
   intel_participation?: boolean;
   involved?: NewInvolvedInput[];
+  /**
+   * O analista viu as ocorrências parecidas (mesma data, hora e lugar) e
+   * confirma que esta é outra. Sem isso o servidor recusa com 409.
+   */
+  confirm_duplicates?: boolean;
 };
 
 // ─── Importação de relatório (grupo operacional) ──────────────────────

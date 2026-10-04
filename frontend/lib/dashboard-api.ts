@@ -56,6 +56,11 @@ export type DashOperational = {
   /** Ocorrências do relatório por mês; as que já estão no cadastro manual
    *  (mesma ficha CIOPS) não entram, para não contar duas vezes. */
   series: { month: string; count: number }[];
+  /**
+   * Ocorrências do período fora dos números por terem pendência ou aviso —
+   * só as verificadas entram nas estatísticas.
+   */
+  pending: number;
 };
 
 /** Municípios e bairros somando cadastro manual e relatório operacional. */

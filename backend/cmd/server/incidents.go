@@ -17,6 +17,7 @@ import (
 	"github.com/belia/tevunah/backend/internal/httpx"
 	"github.com/belia/tevunah/backend/internal/incidents"
 	"github.com/belia/tevunah/backend/internal/middleware"
+	"github.com/belia/tevunah/backend/internal/occurrences"
 )
 
 // publicIncident é a forma JSON da ocorrência.
@@ -36,10 +37,13 @@ type publicIncident struct {
 	MeansDetail  string           `json:"means_detail"`
 	Intel        bool             `json:"intel_participation"`
 	Involved     []publicInvolved `json:"involved"`
-	CreatedAt    time.Time        `json:"created_at"`
-	CreatedBy    string           `json:"created_by"`
-	UpdatedAt    time.Time        `json:"updated_at"`
-	UpdatedBy    *string          `json:"updated_by,omitempty"`
+	// OpsOccurrenceID: ocorrência do relatório operacional com a mesma ficha
+	// CIOPS (preenchido por incidentJSON, no detalhe).
+	OpsOccurrenceID *string   `json:"ops_occurrence_id,omitempty"`
+	CreatedAt       time.Time `json:"created_at"`
+	CreatedBy       string    `json:"created_by"`
+	UpdatedAt       time.Time `json:"updated_at"`
+	UpdatedBy       *string   `json:"updated_by,omitempty"`
 }
 
 type publicInvolved struct {
@@ -213,6 +217,9 @@ type createIncidentRequest struct {
 	MeansDetail  string          `json:"means_detail"`
 	Intel        bool            `json:"intel_participation"`
 	Involved     []involvedInput `json:"involved"`
+	// ConfirmDuplicates: o analista viu as possíveis repetições e confirma
+	// que esta é outra ocorrência.
+	ConfirmDuplicates bool `json:"confirm_duplicates"`
 }
 
 func (a *app) handleIncidentCreate(w http.ResponseWriter, r *http.Request) {
@@ -245,6 +252,43 @@ func (a *app) handleIncidentCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Duplicidade, em duas camadas. Ficha igual à de outro cadastro: recusa.
+	// Ficha diferente mas mesma data, hora e lugar (ou ficha quase igual) —
+	// o sinal de ficha digitada errado: só grava com confirmação explícita.
+	// Ocorrência do relatório operacional com a MESMA ficha não é
+	// duplicidade: é a mesma ocorrência, e a listagem as une.
+	subject := occurrences.Subject{
+		CIOPS: req.CIOPSRecord, OccurredOn: occurredOn,
+		City: req.City, Neighborhood: req.Neighborhood,
+	}
+	if timePtr != nil {
+		subject.Time = *timePtr
+	}
+	existing, err := a.occurrences.IncidentByCIOPS(r.Context(), req.CIOPSRecord, "")
+	if err != nil {
+		log.Printf("incidents create (ficha): %v", err)
+		httpx.Error(w, http.StatusInternalServerError, "erro ao verificar a ficha CIOPS")
+		return
+	}
+	if existing != nil {
+		duplicateConflict(w, conflictCIOPSDuplicate,
+			"ficha CIOPS já cadastrada em outra ocorrência", []occurrences.Candidate{*existing})
+		return
+	}
+	similar, err := a.occurrences.PossibleDuplicates(r.Context(), occurrences.DuplicateQuery{
+		Subject: subject, Scope: a.occScope(r),
+	})
+	if err != nil {
+		log.Printf("incidents create (duplicidade): %v", err)
+		httpx.Error(w, http.StatusInternalServerError, "erro ao verificar duplicidade")
+		return
+	}
+	if len(similar) > 0 && !req.ConfirmDuplicates {
+		duplicateConflict(w, conflictPossibleDuplicates,
+			"possível duplicidade: já existe ocorrência com a mesma data, hora e local", similar)
+		return
+	}
+
 	inc, err := a.incidents.Create(r.Context(), incidents.NewIncident{
 		Type:               req.Type,
 		OccurredOn:         occurredOn,
@@ -260,6 +304,12 @@ func (a *app) handleIncidentCreate(w http.ResponseWriter, r *http.Request) {
 		IntelParticipation: req.Intel,
 		CreatedBy:          me.ID,
 	})
+	if errors.Is(err, incidents.ErrDuplicateCIOPS) {
+		// Outra gravação usou a ficha entre a checagem e o INSERT.
+		duplicateConflict(w, conflictCIOPSDuplicate,
+			"ficha CIOPS já cadastrada em outra ocorrência", nil)
+		return
+	}
 	if err != nil {
 		log.Printf("incidents create: %v", err)
 		httpx.Error(w, http.StatusInternalServerError, "erro ao criar")
@@ -284,16 +334,21 @@ func (a *app) handleIncidentCreate(w http.ResponseWriter, r *http.Request) {
 		inc = reloaded
 	}
 
+	after := map[string]any{"type": inc.Type, "occurred_on": inc.OccurredOn.Format("2006-01-02"),
+		"ciops_record": inc.CIOPSRecord, "intel_participation": inc.IntelParticipation}
+	// O trilho guarda o que o analista viu e dispensou.
+	if len(similar) > 0 {
+		after["duplicates_overridden"] = toDuplicateCandidatesJSON(similar)
+	}
 	aid, sid, ip, ua := a.actorInfo(r)
 	_ = a.audit.Log(r.Context(), audit.Entry{
 		ActorUserID: aid, ActorSessionID: sid, ActorIP: ip, ActorUserAgent: ua,
 		Action:       "incident.create",
 		ResourceType: audit.Ptr("incident"),
 		ResourceID:   audit.Ptr(inc.ID),
-		After: map[string]any{"type": inc.Type, "occurred_on": inc.OccurredOn.Format("2006-01-02"),
-			"intel_participation": inc.IntelParticipation},
+		After:        after,
 	})
-	httpx.Created(w, map[string]any{"incident": toPublicIncident(inc)})
+	httpx.Created(w, map[string]any{"incident": a.incidentJSON(r, inc)})
 }
 
 // ─── GET /api/incidents/{id} ───────────────────────────────────────────
@@ -316,7 +371,7 @@ func (a *app) handleIncidentDetail(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusNotFound, "ocorrência não encontrada")
 		return
 	}
-	httpx.OK(w, map[string]any{"incident": toPublicIncident(inc)})
+	httpx.OK(w, map[string]any{"incident": a.incidentJSON(r, inc)})
 }
 
 // ─── PATCH /api/incidents/{id} ─────────────────────────────────────────
@@ -473,6 +528,23 @@ func (a *app) handleIncidentUpdate(w http.ResponseWriter, r *http.Request) {
 		opts.IntelParticipation = &b
 	}
 
+	// Trocar a ficha por uma que já identifica outro cadastro é recusado
+	// aqui, com a ocorrência em conflito na resposta; o gatilho do banco
+	// cobre a corrida entre duas gravações.
+	if opts.CIOPSRecord != nil {
+		existing, err := a.occurrences.IncidentByCIOPS(r.Context(), *opts.CIOPSRecord, id)
+		if err != nil {
+			log.Printf("incidents update (ficha): %v", err)
+			httpx.Error(w, http.StatusInternalServerError, "erro ao verificar a ficha CIOPS")
+			return
+		}
+		if existing != nil {
+			duplicateConflict(w, conflictCIOPSDuplicate,
+				"ficha CIOPS já cadastrada em outra ocorrência", []occurrences.Candidate{*existing})
+			return
+		}
+	}
+
 	// Snapshot anterior para o audit: com o dossiê editável, o trilho precisa
 	// mostrar o que mudou, e não só que houve edição.
 	before, errBefore := a.incidents.FindByID(r.Context(), id)
@@ -488,6 +560,9 @@ func (a *app) handleIncidentUpdate(w http.ResponseWriter, r *http.Request) {
 			httpx.Error(w, http.StatusBadRequest, "tipo inválido")
 		case errors.Is(err, incidents.ErrInvalidMeans):
 			httpx.Error(w, http.StatusBadRequest, "meio utilizado inválido")
+		case errors.Is(err, incidents.ErrDuplicateCIOPS):
+			duplicateConflict(w, conflictCIOPSDuplicate,
+				"ficha CIOPS já cadastrada em outra ocorrência", nil)
 		default:
 			log.Printf("incidents update: %v", err)
 			httpx.Error(w, http.StatusInternalServerError, "erro ao atualizar")
@@ -506,7 +581,7 @@ func (a *app) handleIncidentUpdate(w http.ResponseWriter, r *http.Request) {
 		entry.Before = toPublicIncident(before)
 	}
 	_ = a.audit.Log(r.Context(), entry)
-	httpx.OK(w, map[string]any{"incident": toPublicIncident(inc)})
+	httpx.OK(w, map[string]any{"incident": a.incidentJSON(r, inc)})
 }
 
 // ─── DELETE /api/incidents/{id} ────────────────────────────────────────
@@ -632,7 +707,7 @@ func (a *app) handleIncidentEntityAdd(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusInternalServerError, "erro ao recarregar")
 		return
 	}
-	httpx.OK(w, map[string]any{"incident": toPublicIncident(updated)})
+	httpx.OK(w, map[string]any{"incident": a.incidentJSON(r, updated)})
 }
 
 func (a *app) handleIncidentEntityRemove(w http.ResponseWriter, r *http.Request) {
@@ -751,7 +826,7 @@ func (a *app) handleIncidentPhotoUpload(w http.ResponseWriter, r *http.Request) 
 		httpx.Error(w, http.StatusInternalServerError, "erro ao recarregar")
 		return
 	}
-	httpx.OK(w, map[string]any{"incident": toPublicIncident(updated)})
+	httpx.OK(w, map[string]any{"incident": a.incidentJSON(r, updated)})
 }
 
 func (a *app) handleIncidentPhotoGet(w http.ResponseWriter, r *http.Request) {

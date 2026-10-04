@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Camera, Eye, Pencil, Trash, Trash2, X } from "lucide-react";
+import { createPortal } from "react-dom";
+import { Camera, Eye, FileText, Pencil, Trash, Trash2, X } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useModal } from "@/contexts/ModalContext";
 import {
@@ -25,6 +26,7 @@ import { canDeleteIncidents, canEditIncidents } from "@/lib/permissions";
 import { photoURL } from "@/lib/entities-api";
 import { formatBR, formatBRDate } from "@/lib/format";
 import type { ApiError } from "@/lib/api";
+import { duplicateConflictOf } from "@/lib/occurrences-api";
 import DateInput from "../shared/DateInput";
 import Select from "../shared/Select";
 import { useIncidentLocations } from "@/lib/useIncidentLocations";
@@ -37,6 +39,7 @@ import ConfirmVitimaModal, { type VictimCandidate } from "./ConfirmVitimaModal";
 import DeceasedPhoto from "../shared/DeceasedPhoto";
 import { isVictimRole } from "@/lib/incidents-api";
 import EntidadeDrawer from "../entidades/EntidadeDrawer";
+import OpsOccurrenceDrawer from "../operacional/OpsOccurrenceDrawer";
 
 // Cor do papel na lista de envolvidos: vítima puxa para o vermelho, acusado
 // para o âmbar, testemunha fica neutra — leitura da linha sem precisar ler.
@@ -77,6 +80,11 @@ export default function OcorrenciaDrawer({ incidentId, onClose, onChanged }: Pro
   const { neighborhoodsOf, reload: reloadLocations } = useIncidentLocations();
   const [photoBust, setPhotoBust] = useState(0);
   const [entityOverlayId, setEntityOverlayId] = useState<string | null>(null);
+  // Ocorrência do relatório operacional de mesma ficha, aberta por cima.
+  const [opsOverlayId, setOpsOverlayId] = useState<string | null>(null);
+  // Remonta o campo da ficha quando o servidor recusa a troca, para ele
+  // voltar a mostrar a ficha gravada em vez da recusada.
+  const [ciopsRev, setCiopsRev] = useState(0);
   const [editing, setEditing] = useState(false);
   // Vínculo de vítima aguardando confirmação (checagem de homônimo).
   const [pendingVictim, setPendingVictim] = useState<{
@@ -123,6 +131,18 @@ export default function OcorrenciaDrawer({ incidentId, onClose, onChanged }: Pro
         reloadLocations();
       }
     } catch (e) {
+      const dup = duplicateConflictOf(e);
+      if (dup?.code === "ciops_duplicate") {
+        // A ficha identifica a ocorrência: não pode repetir a de outro cadastro.
+        const other = dup.candidates[0];
+        setError(
+          "FICHA CIOPS JÁ CADASTRADA EM OUTRA OCORRÊNCIA" +
+            (other ? ` (${formatBRDate(other.occurred_on)}${other.time ? " " + other.time : ""})` : "") +
+            " — A FICHA NÃO FOI ALTERADA.",
+        );
+        setCiopsRev((n) => n + 1);
+        return;
+      }
       setError((e as ApiError).message || "Erro ao gravar");
     }
   }
@@ -285,6 +305,19 @@ export default function OcorrenciaDrawer({ incidentId, onClose, onChanged }: Pro
                     <span className={"pill " + (editing ? "hold" : "cold")}>
                       {editing ? "EDITANDO" : "VISUALIZAÇÃO"}
                     </span>
+                    {data.ops_occurrence_id && (
+                      // Mesma ficha CIOPS no relatório operacional: é a mesma
+                      // ocorrência, com o que a tropa registrou (equipe,
+                      // apreensões, procedimento, envio ao SIPOM).
+                      <button
+                        type="button"
+                        className="btn btn-ghost"
+                        title="Esta ficha CIOPS consta no relatório operacional"
+                        onClick={() => setOpsOverlayId(data.ops_occurrence_id ?? null)}
+                      >
+                        <FileText size={13} strokeWidth={1.8} /> VER NO RELATÓRIO OPERACIONAL
+                      </button>
+                    )}
                   </div>
                   {hasEditPerm && (
                     <button
@@ -333,6 +366,7 @@ export default function OcorrenciaDrawer({ incidentId, onClose, onChanged }: Pro
                       <label className="form-field">
                         <span>FICHA CIOPS</span>
                         <input
+                          key={ciopsRev}
                           type="text"
                           defaultValue={data.ciops_record}
                           onBlur={(e) =>
@@ -598,6 +632,18 @@ export default function OcorrenciaDrawer({ incidentId, onClose, onChanged }: Pro
           onOpenEntity={(id) => setEntityOverlayId(id)}
         />
       )}
+
+      {/* Portal: abre por cima deste drawer, fora da árvore dele. */}
+      {opsOverlayId &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <OpsOccurrenceDrawer
+            occurrenceId={opsOverlayId}
+            onClose={() => setOpsOverlayId(null)}
+            onChanged={onChanged}
+          />,
+          document.body,
+        )}
     </>
   );
 }

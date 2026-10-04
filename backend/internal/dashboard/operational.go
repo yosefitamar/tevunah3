@@ -10,6 +10,13 @@ import (
 // drogas, veículos, conduzidos). O painel lê quantidades, não ocorrências:
 // uma abordagem com três armas conta três.
 //
+// Só entra no painel a ocorrência VERIFICADA — sem pendência nem aviso na
+// tradução para o SIPOM (sipom_pendencias vazio), o mesmo critério da coluna
+// SITUAÇÃO da tela de Ocorrências. Enquanto o analista não resolve o que
+// falta, os números dela (inclusive armas, drogas e conduzidos) ficam fora:
+// dado ainda não conferido não vira estatística. Pending diz quantas estão
+// nessa espera, para a diferença não ser silenciosa.
+//
 // Uma mesma ocorrência pode existir nos dois lados — importada do relatório e
 // cadastrada à mão como CVLI. Onde o painel conta OCORRÊNCIAS (série e
 // território), a ficha CIOPS decide: se o cadastro manual já tem a ficha, a
@@ -24,6 +31,9 @@ type OperationalStats struct {
 	DrugKinds    []DrugFacet
 	VehicleKinds []Facet
 	Series       []OperationalMonth
+	// Pending: ocorrências do período corrente fora dos números acima por
+	// terem pendência ou aviso.
+	Pending int
 }
 
 // OperationalTotals são as quantidades de um recorte.
@@ -58,6 +68,22 @@ const dedupeClause = `
 	   WHERE i.deleted_at IS NULL AND i.ciops_record <> ''
 	     AND upper(replace(i.ciops_record, ' ', '')) = o.ciops_record)`
 
+// verified restringe às ocorrências do relatório sem pendência nem aviso (o
+// alias da tabela é sempre "o").
+const verified = `
+	AND cardinality(o.sipom_pendencias) = 0`
+
+// VerifiedIncident restringe o cadastro manual (alias "i") ao que está
+// verificado: o cadastro em si não tem pendências, mas quando a mesma ficha
+// CIOPS está no relatório operacional com pendência a ocorrência é uma só — e
+// aparece como pendente na tela.
+const VerifiedIncident = `
+	AND NOT EXISTS (
+	  SELECT 1 FROM app.ops_occurrences vo
+	   WHERE vo.deleted_at IS NULL AND vo.ciops_record <> '' AND i.ciops_record <> ''
+	     AND app.norm_ciops(vo.ciops_record) = app.norm_ciops(i.ciops_record)
+	     AND cardinality(vo.sipom_pendencias) > 0)`
+
 func opsDedupe(withIncidents bool) string {
 	if withIncidents {
 		return dedupeClause
@@ -82,7 +108,7 @@ func (r *Repo) Operational(ctx context.Context, w Window, withIncidents bool) (*
 		SELECT COALESCE(NULLIF(x.kind, ''), 'NÃO INFORMADO'), '', COUNT(*)
 		  FROM app.ops_occurrence_weapons x
 		  JOIN app.ops_occurrences o ON o.id = x.occurrence_id
-		 WHERE o.deleted_at IS NULL
+		 WHERE o.deleted_at IS NULL`+verified+`
 		   AND ($1::date IS NULL OR o.occurred_on >= $1::date)
 		   AND ($2::date IS NULL OR o.occurred_on <= $2::date)
 		 GROUP BY 1 ORDER BY 3 DESC, 1 LIMIT 3`,
@@ -93,7 +119,7 @@ func (r *Repo) Operational(ctx context.Context, w Window, withIncidents bool) (*
 		SELECT COALESCE(NULLIF(x.kind, ''), 'NÃO INFORMADO'), '', COUNT(*)
 		  FROM app.ops_occurrence_vehicles x
 		  JOIN app.ops_occurrences o ON o.id = x.occurrence_id
-		 WHERE o.deleted_at IS NULL
+		 WHERE o.deleted_at IS NULL`+verified+`
 		   AND ($1::date IS NULL OR o.occurred_on >= $1::date)
 		   AND ($2::date IS NULL OR o.occurred_on <= $2::date)
 		 GROUP BY 1 ORDER BY 3 DESC, 1 LIMIT 3`,
@@ -106,6 +132,15 @@ func (r *Repo) Operational(ctx context.Context, w Window, withIncidents bool) (*
 	if st.Series, err = r.opsSeries(ctx, w.Series, withIncidents); err != nil {
 		return nil, err
 	}
+	if err = r.db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM app.ops_occurrences o
+		 WHERE o.deleted_at IS NULL
+		   AND cardinality(o.sipom_pendencias) > 0
+		   AND ($1::date IS NULL OR o.occurred_on >= $1::date)
+		   AND ($2::date IS NULL OR o.occurred_on <= $2::date)`,
+		nilDate(w.Current.From), nilDate(w.Current.To)).Scan(&st.Pending); err != nil {
+		return nil, err
+	}
 	return st, nil
 }
 
@@ -113,10 +148,10 @@ func (r *Repo) opsTotals(ctx context.Context, p Period) (OperationalTotals, erro
 	var t OperationalTotals
 	err := r.db.QueryRowContext(ctx, `
 		WITH occ AS (
-		  SELECT id FROM app.ops_occurrences
-		   WHERE deleted_at IS NULL
-		     AND ($1::date IS NULL OR occurred_on >= $1::date)
-		     AND ($2::date IS NULL OR occurred_on <= $2::date))
+		  SELECT o.id FROM app.ops_occurrences o
+		   WHERE o.deleted_at IS NULL`+verified+`
+		     AND ($1::date IS NULL OR o.occurred_on >= $1::date)
+		     AND ($2::date IS NULL OR o.occurred_on <= $2::date))
 		SELECT
 		  (SELECT COUNT(*) FROM occ),
 		  (SELECT COUNT(*) FROM app.ops_occurrence_weapons  x WHERE x.occurrence_id IN (SELECT id FROM occ)),
@@ -134,7 +169,7 @@ func (r *Repo) drugKinds(ctx context.Context, p Period) ([]DrugFacet, error) {
 		SELECT COALESCE(NULLIF(x.description, ''), 'NÃO INFORMADA'), COALESCE(SUM(x.grams), 0)::float8
 		  FROM app.ops_occurrence_drugs x
 		  JOIN app.ops_occurrences o ON o.id = x.occurrence_id
-		 WHERE o.deleted_at IS NULL
+		 WHERE o.deleted_at IS NULL`+verified+`
 		   AND ($1::date IS NULL OR o.occurred_on >= $1::date)
 		   AND ($2::date IS NULL OR o.occurred_on <= $2::date)
 		 GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT 3`, nilDate(p.From), nilDate(p.To))
@@ -157,7 +192,7 @@ func (r *Repo) opsSeries(ctx context.Context, p Period, withIncidents bool) ([]O
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT to_char(date_trunc('month', o.occurred_on), 'YYYY-MM'), COUNT(*)
 		  FROM app.ops_occurrences o
-		 WHERE o.deleted_at IS NULL
+		 WHERE o.deleted_at IS NULL`+verified+`
 		   AND o.occurred_on >= $1::date
 		   AND o.occurred_on <= $2::date`+opsDedupe(withIncidents)+`
 		 GROUP BY 1`, p.From, p.To)
@@ -220,14 +255,14 @@ func (r *Repo) Territory(ctx context.Context, p Period, withIncidents, withOps b
 
 func territorySource(withIncidents, withOps bool) string {
 	const incidents = `
-		SELECT city, neighborhood FROM app.incidents
-		 WHERE deleted_at IS NULL
-		   AND ($1::date IS NULL OR occurred_on >= $1::date)
-		   AND ($2::date IS NULL OR occurred_on <= $2::date)`
+		SELECT i.city, i.neighborhood FROM app.incidents i
+		 WHERE i.deleted_at IS NULL` + VerifiedIncident + `
+		   AND ($1::date IS NULL OR i.occurred_on >= $1::date)
+		   AND ($2::date IS NULL OR i.occurred_on <= $2::date)`
 	ops := `
 		SELECT o.place_city AS city, o.place_neighborhood AS neighborhood
 		  FROM app.ops_occurrences o
-		 WHERE o.deleted_at IS NULL
+		 WHERE o.deleted_at IS NULL` + verified + `
 		   AND ($1::date IS NULL OR o.occurred_on >= $1::date)
 		   AND ($2::date IS NULL OR o.occurred_on <= $2::date)` + opsDedupe(withIncidents)
 	switch {

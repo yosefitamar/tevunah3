@@ -23,11 +23,22 @@ const (
 	PendComposicao      = "composicao"        // equipe não reconhecida
 	PendComposicaoMulti = "composicao_multi"  // mais de uma equipe na ficha
 	PendPessoaSemDossie = "pessoa_sem_dossie" // identificado sem dossiê: vai só nome e mãe
+	// PendCoordenada: o endereço não foi localizado no mapa. Não é exigência
+	// do SIPOM (lá a coordenada é opcional), mas é pendência da ocorrência:
+	// ela fica fora das estatísticas e do mapa até ser localizada.
+	PendCoordenada = "coordenada"
 )
 
-// Blocking diz se a pendência impede o envio.
+// Notice diz se o código é só um aviso: não impede nada, mas a ocorrência
+// ainda não conta como verificada.
+func Notice(code string) bool {
+	return code == PendComposicao || code == PendComposicaoMulti || code == PendPessoaSemDossie
+}
+
+// Blocking diz se a pendência impede o envio ao SIPOM. A coordenada é
+// pendência da ocorrência, não do envio.
 func Blocking(code string) bool {
-	return code != PendComposicao && code != PendComposicaoMulti && code != PendPessoaSemDossie
+	return !Notice(code) && code != PendCoordenada
 }
 
 // PendingLabel é o texto da pendência para a tela.
@@ -45,6 +56,7 @@ var PendingLabel = map[string]string{
 	PendComposicao:      "Equipe não reconhecida (esperado VTRA ou RAIO)",
 	PendComposicaoMulti: "Mais de uma equipe na ficha — defina a equipe de cada policial",
 	PendPessoaSemDossie: "Envolvido identificado sem dossiê — vai ao SIPOM só com nome e mãe",
+	PendCoordenada:      "Sem coordenada — o endereço não foi localizado no mapa",
 }
 
 // Tipos de policiamento e funções do SIPOM (policiamentos_tipos/_funcoes).
@@ -78,6 +90,10 @@ type Input struct {
 	Officers          int    // policiais na composição, em ordem
 	// UnlinkedPeople: envolvidos identificados sem dossiê vinculado.
 	UnlinkedPeople int
+	// GeoRequired: o geocodificador está ligado, então ocorrência sem
+	// coordenada (HasGeo) fica pendente.
+	GeoRequired bool
+	HasGeo      bool
 }
 
 // Officer é a tradução de um policial da composição.
@@ -161,6 +177,9 @@ func (c *Catalog) Resolve(in Input) Result {
 	}
 	if in.UnlinkedPeople > 0 {
 		r.Pending = append(r.Pending, PendPessoaSemDossie)
+	}
+	if in.GeoRequired && !in.HasGeo {
+		r.Pending = append(r.Pending, PendCoordenada)
 	}
 	return r
 }

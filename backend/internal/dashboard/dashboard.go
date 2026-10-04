@@ -132,6 +132,9 @@ func nilDate(s string) any {
 
 // Incidents devolve o bloco de ocorrências. Ocorrência não tem sigilo por
 // registro nesta versão — quem tem incident.read vê o conjunto inteiro.
+// Só conta a ocorrência verificada (ver VerifiedIncident): a que tem a mesma
+// ficha CIOPS no relatório operacional com pendência fica fora até o analista
+// resolver.
 func (r *Repo) Incidents(ctx context.Context, w Window) (*IncidentStats, error) {
 	st := &IncidentStats{}
 
@@ -150,11 +153,11 @@ func (r *Repo) Incidents(ctx context.Context, w Window) (*IncidentStats, error) 
 	}
 	if err = r.db.QueryRowContext(ctx, `
 		SELECT COUNT(*)
-		  FROM app.incidents
-		 WHERE deleted_at IS NULL
-		   AND latitude IS NOT NULL AND longitude IS NOT NULL
-		   AND ($1::date IS NULL OR occurred_on >= $1::date)
-		   AND ($2::date IS NULL OR occurred_on <= $2::date)`,
+		  FROM app.incidents i
+		 WHERE i.deleted_at IS NULL`+VerifiedIncident+`
+		   AND i.latitude IS NOT NULL AND i.longitude IS NOT NULL
+		   AND ($1::date IS NULL OR i.occurred_on >= $1::date)
+		   AND ($2::date IS NULL OR i.occurred_on <= $2::date)`,
 		nilDate(w.Current.From), nilDate(w.Current.To),
 	).Scan(&st.Geocoded); err != nil {
 		return nil, err
@@ -164,12 +167,12 @@ func (r *Repo) Incidents(ctx context.Context, w Window) (*IncidentStats, error) 
 
 func (r *Repo) countByType(ctx context.Context, p Period) (map[string]int, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT type, COUNT(*)
-		  FROM app.incidents
-		 WHERE deleted_at IS NULL
-		   AND ($1::date IS NULL OR occurred_on >= $1::date)
-		   AND ($2::date IS NULL OR occurred_on <= $2::date)
-		 GROUP BY type`, nilDate(p.From), nilDate(p.To))
+		SELECT i.type, COUNT(*)
+		  FROM app.incidents i
+		 WHERE i.deleted_at IS NULL`+VerifiedIncident+`
+		   AND ($1::date IS NULL OR i.occurred_on >= $1::date)
+		   AND ($2::date IS NULL OR i.occurred_on <= $2::date)
+		 GROUP BY i.type`, nilDate(p.From), nilDate(p.To))
 	if err != nil {
 		return nil, err
 	}
@@ -192,13 +195,13 @@ func (r *Repo) countByType(ctx context.Context, p Period) (map[string]int, error
 // queda, e o banco só devolve o que existe.
 func (r *Repo) series(ctx context.Context, p Period) ([]MonthPoint, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT to_char(date_trunc('month', occurred_on), 'YYYY-MM') AS ym,
-		       type,
+		SELECT to_char(date_trunc('month', i.occurred_on), 'YYYY-MM') AS ym,
+		       i.type,
 		       COUNT(*)
-		  FROM app.incidents
-		 WHERE deleted_at IS NULL
-		   AND occurred_on >= $1::date
-		   AND occurred_on <= $2::date
+		  FROM app.incidents i
+		 WHERE i.deleted_at IS NULL`+VerifiedIncident+`
+		   AND i.occurred_on >= $1::date
+		   AND i.occurred_on <= $2::date
 		 GROUP BY 1, 2`, p.From, p.To)
 	if err != nil {
 		return nil, err
@@ -250,14 +253,14 @@ func (r *Repo) series(ctx context.Context, p Period) ([]MonthPoint, error) {
 // no balde "não informado".
 func (r *Repo) meansFacets(ctx context.Context, p Period) ([]Facet, error) {
 	return r.facets(ctx, `
-		SELECT means, '', COUNT(*)
-		  FROM app.incidents
-		 WHERE deleted_at IS NULL
-		   AND type = 'homicidio'
-		   AND ($1::date IS NULL OR occurred_on >= $1::date)
-		   AND ($2::date IS NULL OR occurred_on <= $2::date)
-		 GROUP BY means
-		 ORDER BY COUNT(*) DESC, means`, nilDate(p.From), nilDate(p.To))
+		SELECT i.means, '', COUNT(*)
+		  FROM app.incidents i
+		 WHERE i.deleted_at IS NULL`+VerifiedIncident+`
+		   AND i.type = 'homicidio'
+		   AND ($1::date IS NULL OR i.occurred_on >= $1::date)
+		   AND ($2::date IS NULL OR i.occurred_on <= $2::date)
+		 GROUP BY i.means
+		 ORDER BY COUNT(*) DESC, i.means`, nilDate(p.From), nilDate(p.To))
 }
 
 func (r *Repo) facets(ctx context.Context, query string, args ...any) ([]Facet, error) {

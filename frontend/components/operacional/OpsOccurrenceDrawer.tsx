@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { FileText, Link2, Search, Unlink, X } from "lucide-react";
+import { FileText, Link2, Pencil, Search, Unlink, X } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   getOpsOccurrence,
@@ -18,6 +18,7 @@ import { canLinkOpsPeople, canSetOpsIntel } from "@/lib/permissions";
 import { formatBR, formatBRDate } from "@/lib/format";
 import type { ApiError } from "@/lib/api";
 import EntidadeDrawer from "../entidades/EntidadeDrawer";
+import EditOpsOccurrenceModal from "./EditOpsOccurrenceModal";
 import OpsOccurrenceBody from "./OpsOccurrenceBody";
 import { IntelPill, IntelSummary } from "./IntelStatus";
 
@@ -28,10 +29,12 @@ type Props = {
 };
 
 /**
- * Ocorrência importada do relatório operacional. O conteúdo é cópia fiel do
- * PDF e não se edita; o que o analista faz aqui é ligar as pessoas aos
- * dossiês (ou desfazer um vínculo automático errado) e corrigir a marcação
- * de participação da inteligência.
+ * Ocorrência importada do relatório operacional. Nasce como cópia do PDF; o
+ * analista liga as pessoas aos dossiês (ou desfaz um vínculo automático
+ * errado), corrige a marcação de participação da inteligência e conserta o
+ * que o relatório trouxe errado (CORRIGIR) — data, hora, ficha, local,
+ * histórico. Cada correção vai para a auditoria com o antes e o depois, e o
+ * PDF original segue disponível para conferência.
  */
 export default function OpsOccurrenceDrawer({ occurrenceId, onClose, onChanged }: Props) {
   const { user: me } = useAuth();
@@ -44,6 +47,7 @@ export default function OpsOccurrenceDrawer({ occurrenceId, onClose, onChanged }
   const [busyPerson, setBusyPerson] = useState<string | null>(null);
   const [searchFor, setSearchFor] = useState<string | null>(null);
   const [entityOverlayId, setEntityOverlayId] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -197,11 +201,18 @@ export default function OpsOccurrenceDrawer({ occurrenceId, onClose, onChanged }
                       </span>
                     ))}
                   </div>
-                  {data.report_id && (
-                    <a className="btn ops-nowrap" href={opsReportFileURL(data.report_id)} target="_blank" rel="noreferrer">
-                      <FileText size={13} strokeWidth={1.8} /> PDF ORIGINAL · PÁG. {data.page}
-                    </a>
-                  )}
+                  <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                    {canLink && data.id && (
+                      <button type="button" className="btn ops-nowrap" onClick={() => setEditing(true)}>
+                        <Pencil size={13} strokeWidth={1.8} /> CORRIGIR
+                      </button>
+                    )}
+                    {data.report_id && (
+                      <a className="btn ops-nowrap" href={opsReportFileURL(data.report_id)} target="_blank" rel="noreferrer">
+                        <FileText size={13} strokeWidth={1.8} /> PDF ORIGINAL · PÁG. {data.page}
+                      </a>
+                    )}
+                  </div>
                 </div>
 
                 <OpsOccurrenceBody
@@ -211,6 +222,14 @@ export default function OpsOccurrenceDrawer({ occurrenceId, onClose, onChanged }
                     canIntel
                       ? (sipom, officers) => {
                           setData({ ...data, sipom, officers: officers ?? data.officers });
+                          onChanged();
+                        }
+                      : undefined
+                  }
+                  onGeoChange={
+                    canLink
+                      ? (occ) => {
+                          setData(occ);
                           onChanged();
                         }
                       : undefined
@@ -254,6 +273,15 @@ export default function OpsOccurrenceDrawer({ occurrenceId, onClose, onChanged }
                       <dd>{formatBR(data.created_at)}</dd>
                     </div>
                   )}
+                  {data.updated_at && (
+                    <div>
+                      <dt>CORRIGIDO EM</dt>
+                      <dd>
+                        {formatBR(data.updated_at)}
+                        {data.updated_by_name && ` · ${data.updated_by_name.toUpperCase()}`}
+                      </dd>
+                    </div>
+                  )}
                 </dl>
               </>
             )}
@@ -267,6 +295,17 @@ export default function OpsOccurrenceDrawer({ occurrenceId, onClose, onChanged }
           onClose={() => setEntityOverlayId(null)}
           onChanged={reload}
           onOpenEntity={(id) => setEntityOverlayId(id)}
+        />
+      )}
+      {editing && data && (
+        <EditOpsOccurrenceModal
+          occ={data}
+          onClose={() => setEditing(false)}
+          onSaved={(occ) => {
+            setEditing(false);
+            setData(occ);
+            onChanged();
+          }}
         />
       )}
     </>

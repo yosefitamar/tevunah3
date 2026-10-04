@@ -26,11 +26,13 @@ import (
 	"github.com/belia/tevunah/backend/internal/dashboard"
 	idb "github.com/belia/tevunah/backend/internal/db"
 	"github.com/belia/tevunah/backend/internal/entities"
+	"github.com/belia/tevunah/backend/internal/geocode"
 	"github.com/belia/tevunah/backend/internal/httpx"
 	"github.com/belia/tevunah/backend/internal/incidents"
 	"github.com/belia/tevunah/backend/internal/informes"
 	"github.com/belia/tevunah/backend/internal/intel"
 	"github.com/belia/tevunah/backend/internal/middleware"
+	"github.com/belia/tevunah/backend/internal/occurrences"
 	"github.com/belia/tevunah/backend/internal/opsreport"
 	"github.com/belia/tevunah/backend/internal/pdf"
 	"github.com/belia/tevunah/backend/internal/permissions"
@@ -58,6 +60,7 @@ type app struct {
 	reports     *reports.Repo
 	incidents   *incidents.Repo
 	opsReports  *opsreport.Repo
+	occurrences *occurrences.Repo
 	intel       *intel.Repo
 	settings    *settings.Repo
 	dashboard   *dashboard.Repo
@@ -67,6 +70,12 @@ type app struct {
 	sipom *sipom.Catalog
 	// sipomMap é o de-para de naturezas relatório → SIPOM.
 	sipomMap *sipom.MapRepo
+	// sipomAreas é a referência de área aprendida das escolhas dos analistas
+	// (cidade + bairro → área da unidade militar).
+	sipomAreas *sipom.AreaRuleRepo
+	// geocoder localiza o endereço das ocorrências no Nominatim da agência;
+	// nil = desligado (GEOCODER_URL vazio).
+	geocoder *geocode.Geocoder
 	// opsUnit é o batalhão cujas ocorrências o relatório operacional importa.
 	opsUnit string
 	// tz é o fuso da agência, usado onde carimbo de tempo vira dia civil
@@ -106,6 +115,7 @@ func main() {
 		reports:     reports.New(appDB),
 		incidents:   incidents.New(appDB),
 		opsReports:  opsreport.New(appDB),
+		occurrences: occurrences.New(appDB),
 		intel:       intel.New(appDB),
 		opsUnit:     idb.Env("OPS_REPORT_UNIT", "2º BPRAIO"),
 		settings:    settings.New(appDB),
@@ -120,6 +130,12 @@ func main() {
 		a.sipom = cat
 	}
 	a.sipomMap = sipom.NewMapRepo(appDB)
+	a.sipomAreas = sipom.NewAreaRuleRepo(appDB)
+
+	var geoStatus string
+	a.geocoder, geoStatus = geocode.FromEnv(appDB)
+	a.opsReports.GeoRequired = a.geocoder.Enabled()
+	log.Printf("geocodificador %s", geoStatus)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", a.handleHealth)
@@ -217,6 +233,11 @@ func main() {
 	mux.Handle("GET /api/reports/{id}/qualifications/{qid}/photo", auth(http.HandlerFunc(a.handleQualificationPhotoGet)))
 	mux.Handle("DELETE /api/reports/{id}/qualifications/{qid}/photo", auth(http.HandlerFunc(a.handleQualificationPhotoDelete)))
 
+	// Ocorrências: listagem que une o cadastro manual e o relatório operacional.
+	mux.Handle("GET /api/occurrences", auth(http.HandlerFunc(a.handleOccurrencesList)))
+	mux.Handle("GET /api/occurrences/locations", auth(http.HandlerFunc(a.handleOccurrencesLocations)))
+	mux.Handle("GET /api/occurrences/geo", auth(http.HandlerFunc(a.handleOccurrencesGeo)))
+
 	mux.Handle("GET /api/incidents", auth(http.HandlerFunc(a.handleIncidentsList)))
 	// Precede /api/incidents/{id} — padrão literal vence o wildcard no ServeMux.
 	mux.Handle("GET /api/incidents/geo", auth(http.HandlerFunc(a.handleIncidentsGeo)))
@@ -241,9 +262,11 @@ func main() {
 	mux.Handle("GET /api/ops-occurrences", auth(http.HandlerFunc(a.handleOpsOccurrencesList)))
 	mux.Handle("GET /api/ops-occurrences/facets", auth(http.HandlerFunc(a.handleOpsOccurrencesFacets)))
 	mux.Handle("GET /api/ops-occurrences/{id}", auth(http.HandlerFunc(a.handleOpsOccurrenceDetail)))
+	mux.Handle("PATCH /api/ops-occurrences/{id}", auth(http.HandlerFunc(a.handleOpsOccurrenceUpdate)))
 	mux.Handle("PUT /api/ops-occurrences/{id}/people/{pid}/entity", auth(http.HandlerFunc(a.handleOpsPersonLink)))
 	mux.Handle("DELETE /api/ops-occurrences/{id}/people/{pid}/entity", auth(http.HandlerFunc(a.handleOpsPersonUnlink)))
 	mux.Handle("PUT /api/ops-occurrences/{id}/intel", auth(http.HandlerFunc(a.handleOpsOccurrenceIntel)))
+	mux.Handle("PUT /api/ops-occurrences/{id}/geo", auth(http.HandlerFunc(a.handleOpsOccurrenceGeo)))
 	mux.Handle("POST /api/ops-occurrences/sipom/recompute", auth(http.HandlerFunc(a.handleSipomRecompute)))
 	mux.Handle("PUT /api/ops-occurrences/{id}/sipom/natureza", auth(http.HandlerFunc(a.handleSipomSetNatureza)))
 	mux.Handle("PUT /api/ops-occurrences/{id}/sipom/{field}", auth(http.HandlerFunc(a.handleSipomSetField)))

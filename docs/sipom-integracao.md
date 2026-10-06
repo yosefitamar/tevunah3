@@ -17,7 +17,8 @@ A proposta é um **POST único** por ocorrência, que cria no SIPOM a ocorrênci
 | Fase | Conteúdo |
 |---|---|
 | **1 (esta proposta)** | Cabeçalho da ocorrência, histórico, envolvidos (com foto) e composição |
-| 2 (a combinar) | Procedimento, materiais apreendidos, fotos da ocorrência, histórico de inteligência |
+| **2 (implementada; contrato "2")** | Procedimento (delegacia e delegado do dump de 05/10/2026) e materiais apreendidos (armas, drogas, veículos) — ver `sipom-materiais.md` |
+| 3 (a combinar) | Munição, celulares, dinheiro e outros materiais; fotos da ocorrência; histórico de inteligência |
 
 ---
 

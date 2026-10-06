@@ -45,6 +45,9 @@ type SipomRefs struct {
 	// GeoRequired: o geocodificador está ligado — ocorrência sem coordenada
 	// fica pendente.
 	GeoRequired bool
+	// Terms são os termos aprendidos das escolhas dos analistas (delegacia,
+	// delegado, tipos de arma, drogas, cores…).
+	Terms *sipom.TermMap
 }
 
 // unlinkedPeople conta os envolvidos identificados sem dossiê. linked[i]
@@ -140,11 +143,25 @@ func TranslateSipom(cat *sipom.Catalog, refs SipomRefs, o *Occurrence) {
 			r.Pending = append(r.Pending, sipom.PendOPM)
 		}
 	}
+	// Procedimento (fase 2): tipo, delegacia e delegado.
+	proc := cat.ResolveProcedure(sipom.ProcInput{
+		Type: o.ProcedureType, Number: o.ProcedureNumber,
+		Station: o.PoliceStation, Delegate: o.Delegate, Terms: refs.Terms,
+		ProcedimentoID: stored.ProcedimentoID, DelegaciaID: stored.DelegaciaID, DelegadoID: stored.DelegadoID,
+		ManualProc: manual(SipomFieldProcedimento), ManualDelegacia: manual(SipomFieldDelegacia),
+		ManualDelegado: manual(SipomFieldDelegado),
+	})
+	r.Pending = append(r.Pending, proc.Pending...)
+
+	// Materiais (fase 2): armas, drogas e veículos nas listas do SIPOM.
+	r.Pending = append(r.Pending, translateMaterials(cat, refs.Terms, o)...)
+
 	o.Sipom = SipomFields{
 		NaturezaID: in.NaturezaID,
 		Logradouro: r.Logradouro, Numeral: r.Numeral,
 		CidadeID: r.CidadeID, BairroID: r.BairroID,
 		AreaID: r.AreaID, OPMID: r.OPMID,
+		ProcedimentoID: proc.ProcedimentoID, DelegaciaID: proc.DelegaciaID, DelegadoID: proc.DelegadoID,
 		Pending: r.Pending, Manual: o.Sipom.Manual,
 	}
 	for i := range o.Officers {
@@ -154,6 +171,65 @@ func TranslateSipom(cat *sipom.Catalog, refs SipomRefs, o *Occurrence) {
 			o.Officers[i].SipomFuncaoID = r.Officers[i].FuncaoID
 		}
 	}
+}
+
+// translateMaterials grava nos itens a tradução para o SIPOM e devolve as
+// pendências: uma por tipo de material com algum item não resolvido.
+func translateMaterials(cat *sipom.Catalog, terms *sipom.TermMap, o *Occurrence) []string {
+	var pending []string
+	okAll := true
+	for i := range o.Weapons {
+		w := &o.Weapons[i]
+		r := cat.ResolveWeapon(sipom.WeaponInput{
+			Kind: w.Kind, Brand: w.Brand, Model: w.Model, Caliber: w.Caliber,
+			TipoID: w.SipomTipoID, MarcaID: w.SipomMarcaID, CalibreID: w.SipomCalibreID, Manual: w.SipomManual,
+		}, terms)
+		w.SipomTipoID, w.SipomMarcaID, w.SipomCalibreID = r.TipoID, r.MarcaID, r.CalibreID
+		okAll = okAll && r.OK
+	}
+	if !okAll {
+		pending = append(pending, sipom.PendArma)
+	}
+	okAll = true
+	for i := range o.Drugs {
+		d := &o.Drugs[i]
+		r := cat.ResolveDrug(sipom.DrugInput{
+			Description: d.Description, Grams: d.Grams,
+			DrogaID: d.SipomDrogaID, Quantidade: d.SipomQuantidade, Manual: d.SipomManual,
+		}, terms)
+		d.SipomDrogaID, d.SipomQuantidade = r.DrogaID, r.Quantidade
+		okAll = okAll && r.OK
+	}
+	if !okAll {
+		pending = append(pending, sipom.PendDroga)
+	}
+	okAll = true
+	for i := range o.Vehicles {
+		v := &o.Vehicles[i]
+		r := cat.ResolveVehicle(sipom.VehicleInput{
+			Kind: v.Kind, Brand: v.Brand, Model: v.Model, Color: v.Color, Recovered: o.RecoveredVehicle(),
+			TipoCodigo: v.SipomTipoCodigo, CorCodigo: v.SipomCorCodigo, MarcaModeloCodigo: v.SipomMarcaModeloCodigo,
+			Situacao: v.SipomSituacao, Manual: v.SipomManual,
+		}, terms)
+		v.SipomTipoCodigo, v.SipomCorCodigo, v.SipomMarcaModeloCodigo, v.SipomSituacao =
+			r.TipoCodigo, r.CorCodigo, r.MarcaModeloCodigo, r.Situacao
+		okAll = okAll && r.OK
+	}
+	if !okAll {
+		pending = append(pending, sipom.PendVeiculo)
+	}
+	return pending
+}
+
+// RecoveredVehicle diz se a ocorrência é de recuperação de veículo (pela
+// natureza): o veículo vai ao SIPOM como recuperado, não apreendido.
+func (o *Occurrence) RecoveredVehicle() bool {
+	for _, n := range o.Natures {
+		if strings.Contains(strings.ToLower(n), "recupera") {
+			return true
+		}
+	}
+	return false
 }
 
 func without(ss []string, drop ...string) []string {
@@ -196,6 +272,10 @@ func (r *Repo) RecomputeSipom(ctx context.Context, cat *sipom.Catalog, onlyID st
 	if err != nil {
 		return 0, 0, err
 	}
+	terms, err := sipom.NewTermRepo(r.db).Load(ctx)
+	if err != nil {
+		return 0, 0, err
+	}
 	srcs, err := r.SipomSources(ctx, onlyID)
 	if err != nil {
 		return 0, 0, err
@@ -203,8 +283,8 @@ func (r *Repo) RecomputeSipom(ctx context.Context, cat *sipom.Catalog, onlyID st
 	for i := range srcs {
 		o := &srcs[i].Occurrence
 		o.Sipom.Manual = srcs[i].Manual
-		TranslateSipom(cat, SipomRefs{Natures: nm, Areas: ar, GeoRequired: r.GeoRequired}, o)
-		if err := r.SaveSipom(ctx, srcs[i].ID, o.Sipom, o.Officers); err != nil {
+		TranslateSipom(cat, SipomRefs{Natures: nm, Areas: ar, GeoRequired: r.GeoRequired, Terms: terms}, o)
+		if err := r.SaveSipomAll(ctx, srcs[i].ID, o.Sipom, o.Officers, o.Weapons, o.Drugs, o.Vehicles); err != nil {
 			return ready, pending, err
 		}
 		if SipomBlocked(o.Sipom.Pending) {

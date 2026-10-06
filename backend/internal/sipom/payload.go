@@ -5,8 +5,9 @@ package sipom
 // (natureza_fatos, companhias, cidade, bairro, policiamentos_*,
 // postos_graduacoes); textos acompanham os ids só para conferência.
 //
-// Versão do contrato: muda quando um campo muda de sentido ou sai.
-const PayloadVersion = "1"
+// Versão do contrato: muda quando um campo muda de sentido ou sai. A "2"
+// acrescenta procedimento e materiais (fase 2, docs/sipom-materiais.md).
+const PayloadVersion = "2"
 
 // Payload é uma ocorrência completa: cabeçalho, históricos, envolvidos e
 // composição, num POST só (o SIPOM grava tudo ou nada).
@@ -19,6 +20,70 @@ type Payload struct {
 	HistoricoInteligencia *string             `json:"historico_inteligencia"`
 	Envolvidos            []PayloadEnvolvido  `json:"envolvidos"`
 	Composicao            []PayloadComposicao `json:"composicao"`
+	// Fase 2: o procedimento (aba Procedimentos) e os materiais apreendidos
+	// (aba Materiais). Procedimento null = o relatório não trouxe.
+	Procedimento *PayloadProcedimento `json:"procedimento"`
+	Materiais    []PayloadMaterial    `json:"materiais"`
+}
+
+// PayloadProcedimento são os campos do modal "Procedimento Ocorrência",
+// repartição Polícia Civil (a única que o relatório operacional traz).
+type PayloadProcedimento struct {
+	Reparticao     int     `json:"reparticao"`      // 2 = Polícia Civil
+	ProcedimentoID int     `json:"procedimento_id"` // procedimentos.id
+	Procedimento   string  `json:"procedimento"`    // conferência
+	Numero         string  `json:"numero"`
+	Ano            string  `json:"ano"`
+	DelegaciaID    int     `json:"delegacia_id"` // delegacias.id
+	Delegacia      string  `json:"delegacia"`    // conferência
+	DelegadoID     *int    `json:"delegado_id"`  // delegados.id; null = não identificado (não é obrigatório)
+	Delegado       *string `json:"delegado"`
+}
+
+// Tipos de material (material_tipos.id).
+const (
+	MaterialArma     = 1
+	MaterialMunicao  = 2
+	MaterialDroga    = 3
+	MaterialVeiculo  = 4
+	MaterialCelular  = 5
+	MaterialDinheiro = 6
+	MaterialOutros   = 7
+)
+
+// PayloadMaterial é um item do modal "Material": o tipo decide quais campos
+// vêm preenchidos (os demais ficam null/zero). Os textos acompanham os ids
+// para conferência.
+type PayloadMaterial struct {
+	TipoID int    `json:"tipo_id"` // material_tipos.id
+	Tipo   string `json:"tipo"`
+
+	// Arma.
+	ArmaTipoID    *int   `json:"arma_tipo_id,omitempty"`
+	ArmaTipo      string `json:"arma_tipo,omitempty"`
+	ArmaMarcaID   *int   `json:"arma_marca_id,omitempty"`
+	ArmaMarca     string `json:"arma_marca,omitempty"`
+	ArmaCalibreID *int   `json:"arma_calibre_id,omitempty"`
+	ArmaCalibre   string `json:"arma_calibre,omitempty"`
+	Numero        string `json:"numero,omitempty"`
+	Descricao     string `json:"descricao,omitempty"`
+
+	// Droga: nome e unidade como a lista do SIPOM mostra (não há id lá).
+	Droga   string `json:"droga,omitempty"`
+	Unidade string `json:"unidade,omitempty"`
+
+	// Quantidade: unidades (arma), ou na unidade da droga.
+	Quantidade *float64 `json:"quantidade,omitempty"`
+
+	// Veículo: códigos DENATRAN, como os selects do SIPOM enviam.
+	Situacao          *int   `json:"situacao,omitempty"` // 1 apreendido, 2 recuperado
+	Placa             string `json:"placa,omitempty"`
+	VeiculoTipoCodigo *int   `json:"veiculo_tipo_codigo,omitempty"`
+	VeiculoTipo       string `json:"veiculo_tipo,omitempty"`
+	MarcaModeloCodigo *int   `json:"marca_modelo_codigo,omitempty"`
+	MarcaModelo       string `json:"marca_modelo,omitempty"`
+	CorCodigo         *int   `json:"cor_codigo,omitempty"`
+	Cor               string `json:"cor,omitempty"`
 }
 
 // PayloadOrigem identifica o registro no Tevunah. origem.id é a chave de

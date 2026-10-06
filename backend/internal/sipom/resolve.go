@@ -30,9 +30,11 @@ const (
 )
 
 // Notice diz se o código é só um aviso: não impede nada, mas a ocorrência
-// ainda não conta como verificada.
+// ainda não conta como verificada. O delegado entra aqui porque o SIPOM não
+// o exige — mas é desejável, e por isso continua pendência da ocorrência.
 func Notice(code string) bool {
-	return code == PendComposicao || code == PendComposicaoMulti || code == PendPessoaSemDossie
+	return code == PendComposicao || code == PendComposicaoMulti || code == PendPessoaSemDossie ||
+		code == PendDelegado
 }
 
 // Blocking diz se a pendência impede o envio ao SIPOM. A coordenada é
@@ -57,6 +59,14 @@ var PendingLabel = map[string]string{
 	PendComposicaoMulti: "Mais de uma equipe na ficha — defina a equipe de cada policial",
 	PendPessoaSemDossie: "Envolvido identificado sem dossiê — vai ao SIPOM só com nome e mãe",
 	PendCoordenada:      "Sem coordenada — o endereço não foi localizado no mapa",
+	PendProcedimento:    "Sem procedimento no relatório",
+	PendProcTipo:        "Tipo de procedimento não reconhecido (IP, TCO, BO ou Ato Infracional)",
+	PendProcNumero:      "Número do procedimento fora do padrão (ex.: 939-7635/2026)",
+	PendDelegacia:       "Delegacia não identificada — escolha a do catálogo do SIPOM",
+	PendDelegado:        "Delegado não identificado pelo nome — escolha, se souber (não é obrigatório)",
+	PendArma:            "Arma sem tipo, marca ou calibre do SIPOM",
+	PendDroga:           "Droga sem correspondência na lista do SIPOM, ou sem quantidade na unidade dela",
+	PendVeiculo:         "Veículo sem tipo, cor, marca/modelo ou situação do SIPOM",
 }
 
 // Tipos de policiamento e funções do SIPOM (policiamentos_tipos/_funcoes).

@@ -87,6 +87,9 @@ type sipomOccurrenceJSON struct {
 	// AreaLearned: a área veio da referência aprendida (cidade + bairro),
 	// e não do catálogo nem de escolha feita nesta ficha.
 	AreaLearned bool `json:"area_learned"`
+	// Fase 2: procedimento e materiais (docs/sipom-materiais.md).
+	Procedimento *sipomProcedimentoJSON `json:"procedimento"`
+	Materiais    *sipomMateriaisJSON    `json:"materiais"`
 	// Listas de escolha para as correções do analista.
 	AreaCandidates []sipomRefJSON `json:"area_candidates"`
 	OPMCandidates  []sipomRefJSON `json:"opm_candidates"`
@@ -155,6 +158,14 @@ func (a *app) sipomJSON(o *opsreport.Occurrence, people []sipom.Person) *sipomOc
 		return &sipomRefJSON{ID: *id, Nome: co.Abreviado}
 	}
 	out.Area, out.OPM = company(f.AreaID), company(f.OPMID)
+	// Termos aprendidos: só para recalcular candidatos (delegado, marca e
+	// modelo); a tradução gravada já os considerou.
+	terms, err := a.sipomTerms.Load(context.Background())
+	if err != nil {
+		log.Printf("sipom terms: %v", err)
+	}
+	out.Procedimento = a.sipomProcedimentoJSON(o, terms)
+	out.Materiais = a.sipomMateriaisJSON(o, terms)
 	for _, p := range f.Pending {
 		out.Pendencias = append(out.Pendencias, sipomPendingJSON{
 			Code: p, Label: sipom.PendingLabel[p], Blocking: sipom.Blocking(p),
@@ -596,10 +607,25 @@ func sipomAuditSnapshot(so *opsreport.StoredOccurrence) map[string]any {
 	for _, f := range so.Officers {
 		equipes = append(equipes, f.SipomEquipe)
 	}
+	armas := make([]map[string]any, 0, len(so.Weapons))
+	for _, w := range so.Weapons {
+		armas = append(armas, map[string]any{"tipo": w.SipomTipoID, "marca": w.SipomMarcaID, "calibre": w.SipomCalibreID, "manual": w.SipomManual})
+	}
+	drogas := make([]map[string]any, 0, len(so.Drugs))
+	for _, d := range so.Drugs {
+		drogas = append(drogas, map[string]any{"droga": d.SipomDrogaID, "quantidade": d.SipomQuantidade, "manual": d.SipomManual})
+	}
+	veiculos := make([]map[string]any, 0, len(so.Vehicles))
+	for _, v := range so.Vehicles {
+		veiculos = append(veiculos, map[string]any{"tipo": v.SipomTipoCodigo, "cor": v.SipomCorCodigo,
+			"marca_modelo": v.SipomMarcaModeloCodigo, "situacao": v.SipomSituacao, "manual": v.SipomManual})
+	}
 	return map[string]any{
 		"area_id": so.Sipom.AreaID, "opm_id": so.Sipom.OPMID,
 		"logradouro": so.Sipom.Logradouro, "numeral": so.Sipom.Numeral,
 		"equipes": equipes, "manual": nonNil(so.Sipom.Manual), "pendencias": nonNil(so.Sipom.Pending),
+		"procedimento_id": so.Sipom.ProcedimentoID, "delegacia_id": so.Sipom.DelegaciaID, "delegado_id": so.Sipom.DelegadoID,
+		"armas": armas, "drogas": drogas, "veiculos": veiculos,
 	}
 }
 

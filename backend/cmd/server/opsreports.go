@@ -247,13 +247,13 @@ func (a *app) toOpsOccurrenceJSON(o *opsreport.Occurrence) opsOccurrenceJSON {
 		})
 	}
 	for _, w := range o.Weapons {
-		out.Weapons = append(out.Weapons, opsWeaponJSON(w))
+		out.Weapons = append(out.Weapons, opsWeaponJSON{Kind: w.Kind, Model: w.Model, Brand: w.Brand, Caliber: w.Caliber, Serial: w.Serial})
 	}
 	for _, d := range o.Drugs {
-		out.Drugs = append(out.Drugs, opsDrugJSON(d))
+		out.Drugs = append(out.Drugs, opsDrugJSON{Description: d.Description, Grams: d.Grams, Packages: d.Packages})
 	}
 	for _, v := range o.Vehicles {
-		out.Vehicles = append(out.Vehicles, opsVehicleJSON(v))
+		out.Vehicles = append(out.Vehicles, opsVehicleJSON{Kind: v.Kind, Brand: v.Brand, Model: v.Model, Plate: v.Plate, Color: v.Color})
 	}
 	for _, f := range o.Officers {
 		pol, fn := a.sipomOfficerLabels(f)
@@ -367,6 +367,10 @@ func (a *app) readOpsUpload(w http.ResponseWriter, r *http.Request) (*parsedUplo
 	if err != nil {
 		log.Printf("opsreport sipom area rules: %v", err)
 	}
+	terms, err := a.sipomTerms.Load(r.Context())
+	if err != nil {
+		log.Printf("opsreport sipom terms: %v", err)
+	}
 	// Coordenada das ocorrências novas, pelo geocodificador da agência. Tem
 	// prazo: a leitura do PDF não pode ficar presa a ele. O que não for
 	// localizado (ou não der tempo) entra com a pendência de coordenada e pode
@@ -388,7 +392,7 @@ func (a *app) readOpsUpload(w http.ResponseWriter, r *http.Request) (*parsedUplo
 			up.mine[i].Geo = geo
 		}
 	}
-	refs := opsreport.SipomRefs{Natures: nm, Areas: areas, GeoRequired: a.geocoder.Enabled()}
+	refs := opsreport.SipomRefs{Natures: nm, Areas: areas, GeoRequired: a.geocoder.Enabled(), Terms: terms}
 	for i := range up.mine {
 		up.mine[i].IntelMatched = matcher.Match(up.mine[i].IntelTexts()...)
 		opsreport.TranslateSipom(a.sipom, refs, &up.mine[i])

@@ -5598,3 +5598,16 @@ body.session-locked > *:not(.session-overlay-root) {
   color: var(--fg-1);
   white-space: pre;
 }
+
+/* ───────── SIPOM · fase 2: materiais ───────── */
+.sipom-material {
+  border: 1px solid var(--line);
+  background: var(--bg-2);
+  padding: 8px 10px;
+  margin-top: 6px;
+}
+.sipom-material-hd { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; }
+.sipom-material-hd .pill { margin-left: auto; }
+.sipom-material-kind { font-size: 11px; letter-spacing: 0.1em; color: var(--fg-2); font-weight: 700; }
+.sipom-material-edit { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.sipom-material-edit .sel { min-width: 160px; flex: 1; }

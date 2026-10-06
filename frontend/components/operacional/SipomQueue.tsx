@@ -27,6 +27,15 @@ const SHORT: Record<string, string> = {
   composicao: "COMPOSIÇÃO",
   composicao_multi: "DUAS EQUIPES",
   pessoa_sem_dossie: "PESSOA SEM DOSSIÊ",
+  coordenada: "SEM COORDENADA",
+  procedimento: "SEM PROCEDIMENTO",
+  procedimento_tipo: "TIPO DO PROCED.",
+  procedimento_numero: "Nº DO PROCED.",
+  delegacia: "SEM DELEGACIA",
+  delegado: "SEM DELEGADO",
+  arma: "ARMA",
+  droga: "DROGA",
+  veiculo: "VEÍCULO",
 };
 
 type Status = "all" | "pending" | "ready";

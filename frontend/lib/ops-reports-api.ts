@@ -94,6 +94,60 @@ export type SipomOccurrence = {
   area_candidates: SipomRef[];
   opm_candidates: SipomRef[];
   equipes: string[];
+  /** Fase 2: procedimento e materiais (docs/sipom-materiais.md). */
+  procedimento: SipomProcedimento;
+  materiais: SipomMateriais;
+};
+
+/** Procedimento como vai ao SIPOM, com o texto do relatório ao lado. */
+export type SipomProcedimento = {
+  procedimento: SipomRef | null;
+  numero: string;
+  ano: string;
+  delegacia: SipomRef | null;
+  delegado: SipomRef | null;
+  /** Delegados que casam com o nome abreviado quando mais de um serve. */
+  delegado_candidates: SipomRef[];
+  tipo_texto: string;
+  numero_texto: string;
+  delegacia_texto: string;
+  delegado_texto: string;
+};
+
+export type SipomArma = {
+  index: number;
+  tipo: SipomRef | null;
+  marca: SipomRef | null;
+  calibre: SipomRef | null;
+  manual: boolean;
+  ok: boolean;
+};
+
+export type SipomDroga = {
+  index: number;
+  droga: SipomRef | null;
+  unidade: string;
+  quantidade: number | null;
+  manual: boolean;
+  ok: boolean;
+};
+
+export type SipomVeiculo = {
+  index: number;
+  tipo: SipomRef | null;
+  cor: SipomRef | null;
+  marca_modelo: SipomRef | null;
+  marca_modelo_candidates: SipomRef[];
+  /** 1 apreendido, 2 recuperado, 0 indefinida. */
+  situacao: 0 | 1 | 2;
+  manual: boolean;
+  ok: boolean;
+};
+
+export type SipomMateriais = {
+  armas: SipomArma[];
+  drogas: SipomDroga[];
+  veiculos: SipomVeiculo[];
 };
 
 export type OpsIntelMode = "auto" | "manual";

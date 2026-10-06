@@ -15,6 +15,7 @@ import { formatBRDate } from "@/lib/format";
 import type { ApiError } from "@/lib/api";
 import Select from "../shared/Select";
 import SipomPayloadModal from "./SipomPayloadModal";
+import SipomPhase2 from "./SipomPhase2";
 
 // Catálogo de naturezas do SIPOM: 146 itens que não mudam — uma busca por
 // sessão serve para todas as fichas.
@@ -249,6 +250,8 @@ export default function SipomSection({ occ, editable = false, onChange }: Props)
           onReset={() => setField({ field: "composicao", reset: true })}
         />
       )}
+
+      <SipomPhase2 occ={occ} editable={editable} busy={busy} run={run} />
 
       {s.pessoas.length > 0 && (
         <>

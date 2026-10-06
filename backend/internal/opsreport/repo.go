@@ -182,10 +182,11 @@ func (r *Repo) Import(ctx context.Context, in ImportInput) (*ImportResult, error
 			   intel_participation, intel_matched,
 			   sipom_natureza_id, sipom_logradouro, sipom_numeral, sipom_cidade_id,
 			   sipom_bairro_id, sipom_area_id, sipom_opm_id, sipom_pendencias,
-			   latitude, longitude, geo_precision, geo_source)
+			   latitude, longitude, geo_precision, geo_source,
+			   sipom_procedimento_id, sipom_delegacia_id, sipom_delegado_id)
 			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::time,$11::time,$12,$13,
 			        $14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,
-			        $29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40)
+			        $29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43)
 			ON CONFLICT (ciops_record) WHERE ciops_record <> '' AND deleted_at IS NULL
 			DO NOTHING
 			RETURNING id`,
@@ -199,6 +200,7 @@ func (r *Repo) Import(ctx context.Context, in ImportInput) (*ImportResult, error
 			nilInt(o.Sipom.NaturezaID), o.Sipom.Logradouro, o.Sipom.Numeral, nilInt(o.Sipom.CidadeID),
 			nilInt(o.Sipom.BairroID), nilInt(o.Sipom.AreaID), nilInt(o.Sipom.OPMID), textArray(o.Sipom.Pending),
 			nilFloat(o.Geo.Lat), nilFloat(o.Geo.Lng), o.Geo.Precision, o.Geo.Source,
+			nilInt(o.Sipom.ProcedimentoID), nilInt(o.Sipom.DelegaciaID), nilInt(o.Sipom.DelegadoID),
 		).Scan(&id)
 		if errors.Is(err, sql.ErrNoRows) {
 			res.Skipped = append(res.Skipped, o.CIOPS)
@@ -233,9 +235,11 @@ func (r *Repo) Import(ctx context.Context, in ImportInput) (*ImportResult, error
 		for k, w := range o.Weapons {
 			if _, err := tx.ExecContext(ctx, `
 				INSERT INTO app.ops_occurrence_weapons
-				  (occurrence_id, position, kind, model, brand, caliber, serial)
-				VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+				  (occurrence_id, position, kind, model, brand, caliber, serial,
+				   sipom_tipo_id, sipom_marca_id, sipom_calibre_id)
+				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
 				id, k, w.Kind, w.Model, w.Brand, w.Caliber, w.Serial,
+				nilInt(w.SipomTipoID), nilInt(w.SipomMarcaID), nilInt(w.SipomCalibreID),
 			); err != nil {
 				return nil, fmt.Errorf("ops_occurrence_weapons: %w", err)
 			}
@@ -243,9 +247,11 @@ func (r *Repo) Import(ctx context.Context, in ImportInput) (*ImportResult, error
 		for k, d := range o.Drugs {
 			if _, err := tx.ExecContext(ctx, `
 				INSERT INTO app.ops_occurrence_drugs
-				  (occurrence_id, position, description, grams, packages)
-				VALUES ($1,$2,$3,$4,$5)`,
+				  (occurrence_id, position, description, grams, packages,
+				   sipom_droga_id, sipom_quantidade)
+				VALUES ($1,$2,$3,$4,$5,$6,$7)`,
 				id, k, d.Description, nilFloat(d.Grams), nilInt(d.Packages),
+				nilInt(d.SipomDrogaID), nilFloat(d.SipomQuantidade),
 			); err != nil {
 				return nil, fmt.Errorf("ops_occurrence_drugs: %w", err)
 			}
@@ -253,9 +259,11 @@ func (r *Repo) Import(ctx context.Context, in ImportInput) (*ImportResult, error
 		for k, v := range o.Vehicles {
 			if _, err := tx.ExecContext(ctx, `
 				INSERT INTO app.ops_occurrence_vehicles
-				  (occurrence_id, position, kind, brand, model, plate, color)
-				VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+				  (occurrence_id, position, kind, brand, model, plate, color,
+				   sipom_tipo_codigo, sipom_cor_codigo, sipom_marca_modelo_codigo, sipom_situacao)
+				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
 				id, k, v.Kind, v.Brand, v.Model, v.Plate, v.Color,
+				nilInt(v.SipomTipoCodigo), nilInt(v.SipomCorCodigo), nilInt(v.SipomMarcaModeloCodigo), v.SipomSituacao,
 			); err != nil {
 				return nil, fmt.Errorf("ops_occurrence_vehicles: %w", err)
 			}
@@ -572,7 +580,8 @@ const occSelect = `
 	o.sipom_area_id, o.sipom_opm_id, to_jsonb(o.sipom_pendencias)::text, to_jsonb(o.sipom_manual)::text,
 	(SELECT r.report_date FROM app.ops_reports r WHERE r.id = o.report_id),
 	o.updated_at, COALESCE((SELECT u.display_name FROM app.users u WHERE u.id = o.updated_by), ''),
-	o.latitude, o.longitude, o.geo_precision, o.geo_source`
+	o.latitude, o.longitude, o.geo_precision, o.geo_source,
+	o.sipom_procedimento_id, o.sipom_delegacia_id, o.sipom_delegado_id`
 
 // occArrays recebe as colunas de array de occSelect, que chegam como JSON
 // (to_jsonb) e são decodificadas por decode.
@@ -613,6 +622,7 @@ func occDest(so *StoredOccurrence, arr *occArrays) []any {
 		&so.Report,
 		&so.UpdatedAt, &so.UpdatedByName,
 		&o.Geo.Lat, &o.Geo.Lng, &o.Geo.Precision, &o.Geo.Source,
+		&o.Sipom.ProcedimentoID, &o.Sipom.DelegaciaID, &o.Sipom.DelegadoID,
 	}
 }
 
@@ -650,47 +660,10 @@ func (r *Repo) FindByID(ctx context.Context, id string) (*StoredOccurrence, erro
 	}
 	so.People = people
 
-	if err := r.each(ctx, `SELECT kind, model, brand, caliber, serial FROM app.ops_occurrence_weapons
-		WHERE occurrence_id = $1 ORDER BY position`, id, func(rows *sql.Rows) error {
-		var w Weapon
-		if err := rows.Scan(&w.Kind, &w.Model, &w.Brand, &w.Caliber, &w.Serial); err != nil {
-			return err
-		}
-		so.Weapons = append(so.Weapons, w)
-		return nil
-	}); err != nil {
-		return nil, err
-	}
-	if err := r.each(ctx, `SELECT description, grams::float8, packages FROM app.ops_occurrence_drugs
-		WHERE occurrence_id = $1 ORDER BY position`, id, func(rows *sql.Rows) error {
-		var d Drug
-		var g sql.NullFloat64
-		var p sql.NullInt64
-		if err := rows.Scan(&d.Description, &g, &p); err != nil {
-			return err
-		}
-		if g.Valid {
-			d.Grams = &g.Float64
-		}
-		if p.Valid {
-			n := int(p.Int64)
-			d.Packages = &n
-		}
-		so.Drugs = append(so.Drugs, d)
-		return nil
-	}); err != nil {
-		return nil, err
-	}
-	if err := r.each(ctx, `SELECT kind, brand, model, plate, color FROM app.ops_occurrence_vehicles
-		WHERE occurrence_id = $1 ORDER BY position`, id, func(rows *sql.Rows) error {
-		var v Vehicle
-		if err := rows.Scan(&v.Kind, &v.Brand, &v.Model, &v.Plate, &v.Color); err != nil {
-			return err
-		}
-		so.Vehicles = append(so.Vehicles, v)
-		return nil
-	}); err != nil {
-		return nil, err
+	var errMat error
+	so.Weapons, so.Drugs, so.Vehicles, errMat = r.materials(ctx, id)
+	if errMat != nil {
+		return nil, errMat
 	}
 	if err := r.each(ctx, `SELECT registration, rank, number, war_name, raw,
 		       sipom_equipe, sipom_policiamento_tipo_id, sipom_funcao_id FROM app.ops_occurrence_officers
@@ -706,6 +679,59 @@ func (r *Repo) FindByID(ctx context.Context, id string) (*StoredOccurrence, erro
 		return nil, err
 	}
 	return &so, nil
+}
+
+// materials carrega armas, drogas e veículos da ocorrência, com a tradução
+// para o SIPOM.
+func (r *Repo) materials(ctx context.Context, id string) (weapons []Weapon, drugs []Drug, vehicles []Vehicle, err error) {
+	if err := r.each(ctx, `SELECT kind, model, brand, caliber, serial,
+		       sipom_tipo_id, sipom_marca_id, sipom_calibre_id, sipom_manual
+		  FROM app.ops_occurrence_weapons WHERE occurrence_id = $1 ORDER BY position`, id, func(rows *sql.Rows) error {
+		var w Weapon
+		if err := rows.Scan(&w.Kind, &w.Model, &w.Brand, &w.Caliber, &w.Serial,
+			&w.SipomTipoID, &w.SipomMarcaID, &w.SipomCalibreID, &w.SipomManual); err != nil {
+			return err
+		}
+		weapons = append(weapons, w)
+		return nil
+	}); err != nil {
+		return nil, nil, nil, err
+	}
+	if err := r.each(ctx, `SELECT description, grams::float8, packages,
+		       sipom_droga_id, sipom_quantidade::float8, sipom_manual
+		  FROM app.ops_occurrence_drugs WHERE occurrence_id = $1 ORDER BY position`, id, func(rows *sql.Rows) error {
+		var d Drug
+		var g sql.NullFloat64
+		var p sql.NullInt64
+		if err := rows.Scan(&d.Description, &g, &p, &d.SipomDrogaID, &d.SipomQuantidade, &d.SipomManual); err != nil {
+			return err
+		}
+		if g.Valid {
+			d.Grams = &g.Float64
+		}
+		if p.Valid {
+			n := int(p.Int64)
+			d.Packages = &n
+		}
+		drugs = append(drugs, d)
+		return nil
+	}); err != nil {
+		return nil, nil, nil, err
+	}
+	if err := r.each(ctx, `SELECT kind, brand, model, plate, color,
+		       sipom_tipo_codigo, sipom_cor_codigo, sipom_marca_modelo_codigo, sipom_situacao, sipom_manual
+		  FROM app.ops_occurrence_vehicles WHERE occurrence_id = $1 ORDER BY position`, id, func(rows *sql.Rows) error {
+		var v Vehicle
+		if err := rows.Scan(&v.Kind, &v.Brand, &v.Model, &v.Plate, &v.Color,
+			&v.SipomTipoCodigo, &v.SipomCorCodigo, &v.SipomMarcaModeloCodigo, &v.SipomSituacao, &v.SipomManual); err != nil {
+			return err
+		}
+		vehicles = append(vehicles, v)
+		return nil
+	}); err != nil {
+		return nil, nil, nil, err
+	}
+	return weapons, drugs, vehicles, nil
 }
 
 func (r *Repo) each(ctx context.Context, q, id string, fn func(*sql.Rows) error) error {
@@ -1052,7 +1078,9 @@ func (r *Repo) SipomSources(ctx context.Context, onlyID string) ([]SipomSource, 
 		       o.cia, o.bpm, o.teams, o.sipom_natureza_id, to_jsonb(o.sipom_manual)::text,
 		       (SELECT COUNT(*) FROM app.ops_occurrence_officers f WHERE f.occurrence_id = o.id),
 		       o.sipom_logradouro, o.sipom_numeral, o.sipom_area_id, o.sipom_opm_id,
-		       o.latitude, o.longitude
+		       o.latitude, o.longitude,
+		       o.police_station, o.delegate, o.procedure_type, o.procedure_number,
+		       o.sipom_procedimento_id, o.sipom_delegacia_id, o.sipom_delegado_id
 		  FROM app.ops_occurrences o
 		 WHERE o.deleted_at IS NULL AND ($1 = '' OR o.id::text = $1)
 		 ORDER BY o.occurred_on`, onlyID)
@@ -1070,7 +1098,9 @@ func (r *Repo) SipomSources(ctx context.Context, onlyID string) ([]SipomSource, 
 			&s.ApproachAddress, &s.ApproachNeighborhood, &s.ApproachCity,
 			&s.CIA, &s.BPM, &s.Teams, &s.Sipom.NaturezaID, &manual, &officers,
 			&s.Sipom.Logradouro, &s.Sipom.Numeral, &s.Sipom.AreaID, &s.Sipom.OPMID,
-			&s.Geo.Lat, &s.Geo.Lng); err != nil {
+			&s.Geo.Lat, &s.Geo.Lng,
+			&s.PoliceStation, &s.Delegate, &s.ProcedureType, &s.ProcedureNumber,
+			&s.Sipom.ProcedimentoID, &s.Sipom.DelegaciaID, &s.Sipom.DelegadoID); err != nil {
 			return nil, err
 		}
 		if err := decodeStrings(natures, &s.Natures); err != nil {
@@ -1112,13 +1142,32 @@ func (r *Repo) SipomSources(ctx context.Context, onlyID string) ([]SipomSource, 
 			out[i].peopleLinked = append(out[i].peopleLinked, linked)
 		}
 	}
-	return out, prows.Err()
+	if err := prows.Err(); err != nil {
+		return nil, err
+	}
+	// Materiais, que também são traduzidos.
+	for i := range out {
+		w, d, v, err := r.materials(ctx, out[i].ID)
+		if err != nil {
+			return nil, err
+		}
+		out[i].Weapons, out[i].Drugs, out[i].Vehicles = w, d, v
+	}
+	return out, nil
 }
 
 // SaveSipom grava a tradução de uma ocorrência. Campos que o analista fixou
 // (sipom_manual) ficam como estão; a composição também, se "composicao"
 // estiver entre eles. As pendências são sempre regravadas.
 func (r *Repo) SaveSipom(ctx context.Context, id string, f SipomFields, officers []Officer) error {
+	return r.SaveSipomAll(ctx, id, f, officers, nil, nil, nil)
+}
+
+// SaveSipomAll é SaveSipom com os materiais traduzidos (armas, drogas e
+// veículos, na ordem das posições). Item fixado pelo analista (sipom_manual)
+// não é tocado; listas nil não são gravadas.
+func (r *Repo) SaveSipomAll(ctx context.Context, id string, f SipomFields, officers []Officer,
+	weapons []Weapon, drugs []Drug, vehicles []Vehicle) error {
 	manual := map[string]bool{}
 	var cur []string
 	var js string
@@ -1149,7 +1198,10 @@ func (r *Repo) SaveSipom(ctx context.Context, id string, f SipomFields, officers
 		  sipom_bairro_id   = CASE WHEN $7 THEN sipom_bairro_id ELSE $9::integer END,
 		  sipom_area_id     = CASE WHEN $10 THEN sipom_area_id ELSE $11::integer END,
 		  sipom_opm_id      = CASE WHEN $12 THEN sipom_opm_id ELSE $13::integer END,
-		  sipom_pendencias  = $14
+		  sipom_pendencias  = $14,
+		  sipom_procedimento_id = CASE WHEN $15 THEN sipom_procedimento_id ELSE $16::integer END,
+		  sipom_delegacia_id    = CASE WHEN $17 THEN sipom_delegacia_id ELSE $18::integer END,
+		  sipom_delegado_id     = CASE WHEN $19 THEN sipom_delegado_id ELSE $20::integer END
 		WHERE id = $1`,
 		id, manual[SipomFieldNatureza], nilInt(f.NaturezaID),
 		manual[SipomFieldEndereco], f.Logradouro, f.Numeral,
@@ -1157,8 +1209,38 @@ func (r *Repo) SaveSipom(ctx context.Context, id string, f SipomFields, officers
 		manual[SipomFieldArea], nilInt(f.AreaID),
 		manual[SipomFieldOPM], nilInt(f.OPMID),
 		textArray(f.Pending),
+		manual[SipomFieldProcedimento], nilInt(f.ProcedimentoID),
+		manual[SipomFieldDelegacia], nilInt(f.DelegaciaID),
+		manual[SipomFieldDelegado], nilInt(f.DelegadoID),
 	); err != nil {
 		return fmt.Errorf("sipom occurrence: %w", err)
+	}
+	for k, w := range weapons {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE app.ops_occurrence_weapons
+			   SET sipom_tipo_id = $3, sipom_marca_id = $4, sipom_calibre_id = $5
+			 WHERE occurrence_id = $1 AND position = $2 AND NOT sipom_manual`,
+			id, k, nilInt(w.SipomTipoID), nilInt(w.SipomMarcaID), nilInt(w.SipomCalibreID)); err != nil {
+			return fmt.Errorf("sipom weapons: %w", err)
+		}
+	}
+	for k, d := range drugs {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE app.ops_occurrence_drugs
+			   SET sipom_droga_id = $3, sipom_quantidade = $4
+			 WHERE occurrence_id = $1 AND position = $2 AND NOT sipom_manual`,
+			id, k, nilInt(d.SipomDrogaID), nilFloat(d.SipomQuantidade)); err != nil {
+			return fmt.Errorf("sipom drugs: %w", err)
+		}
+	}
+	for k, v := range vehicles {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE app.ops_occurrence_vehicles
+			   SET sipom_tipo_codigo = $3, sipom_cor_codigo = $4, sipom_marca_modelo_codigo = $5, sipom_situacao = $6
+			 WHERE occurrence_id = $1 AND position = $2 AND NOT sipom_manual`,
+			id, k, nilInt(v.SipomTipoCodigo), nilInt(v.SipomCorCodigo), nilInt(v.SipomMarcaModeloCodigo), v.SipomSituacao); err != nil {
+			return fmt.Errorf("sipom vehicles: %w", err)
+		}
 	}
 	if !manual[SipomFieldComposicao] {
 		for k, o := range officers {
@@ -1284,6 +1366,81 @@ func (r *Repo) SetSipomComposicao(ctx context.Context, id string, officers []Off
 	return tx.Commit()
 }
 
+// SetSipomProcedimento fixa o que o analista decidiu do procedimento: cada
+// campo informado (não nil) é gravado e marcado como manual; reset devolve
+// os três ao automático. Quem chama recalcula em seguida.
+func (r *Repo) SetSipomProcedimento(ctx context.Context, id string, proc, delegacia, delegado *int, reset bool) error {
+	if reset {
+		return r.execOne(ctx, `
+			UPDATE app.ops_occurrences
+			   SET sipom_manual = array_remove(array_remove(array_remove(sipom_manual, $2), $3), $4)
+			 WHERE id = $1 AND deleted_at IS NULL`,
+			id, SipomFieldProcedimento, SipomFieldDelegacia, SipomFieldDelegado)
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, f := range []struct {
+		col, field string
+		val        *int
+	}{
+		{"sipom_procedimento_id", SipomFieldProcedimento, proc},
+		{"sipom_delegacia_id", SipomFieldDelegacia, delegacia},
+		{"sipom_delegado_id", SipomFieldDelegado, delegado},
+	} {
+		if f.val == nil {
+			continue
+		}
+		res, err := tx.ExecContext(ctx, `
+			UPDATE app.ops_occurrences
+			   SET `+f.col+` = $3, sipom_manual = `+sipomManualAdd+`
+			 WHERE id = $1 AND deleted_at IS NULL`, id, f.field, *f.val)
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			return ErrNotFound
+		}
+	}
+	return tx.Commit()
+}
+
+// SetWeaponSipom fixa a tradução de uma arma (posição na lista) ou, com
+// reset, devolve ao automático.
+func (r *Repo) SetWeaponSipom(ctx context.Context, id string, pos int, tipo, marca, calibre *int, reset bool) error {
+	return r.execOne(ctx, `
+		UPDATE app.ops_occurrence_weapons w
+		   SET sipom_tipo_id = $4, sipom_marca_id = $5, sipom_calibre_id = $6, sipom_manual = $3
+		  FROM app.ops_occurrences o
+		 WHERE w.occurrence_id = $1 AND w.position = $2 AND o.id = w.occurrence_id AND o.deleted_at IS NULL`,
+		id, pos, !reset, nilInt(tipo), nilInt(marca), nilInt(calibre))
+}
+
+// SetDrugSipom fixa a tradução de uma droga ou, com reset, devolve ao
+// automático.
+func (r *Repo) SetDrugSipom(ctx context.Context, id string, pos int, droga *int, quantidade *float64, reset bool) error {
+	return r.execOne(ctx, `
+		UPDATE app.ops_occurrence_drugs d
+		   SET sipom_droga_id = $4, sipom_quantidade = $5, sipom_manual = $3
+		  FROM app.ops_occurrences o
+		 WHERE d.occurrence_id = $1 AND d.position = $2 AND o.id = d.occurrence_id AND o.deleted_at IS NULL`,
+		id, pos, !reset, nilInt(droga), nilFloat(quantidade))
+}
+
+// SetVehicleSipom fixa a tradução de um veículo ou, com reset, devolve ao
+// automático.
+func (r *Repo) SetVehicleSipom(ctx context.Context, id string, pos int, tipo, cor, marcaModelo *int, situacao int, reset bool) error {
+	return r.execOne(ctx, `
+		UPDATE app.ops_occurrence_vehicles v
+		   SET sipom_tipo_codigo = $4, sipom_cor_codigo = $5, sipom_marca_modelo_codigo = $6,
+		       sipom_situacao = $7, sipom_manual = $3
+		  FROM app.ops_occurrences o
+		 WHERE v.occurrence_id = $1 AND v.position = $2 AND o.id = v.occurrence_id AND o.deleted_at IS NULL`,
+		id, pos, !reset, nilInt(tipo), nilInt(cor), nilInt(marcaModelo), situacao)
+}
+
 // ConfirmSipomNaturezas confirma a natureza sugerida pelo de-para nas
 // ocorrências informadas (fixa como do analista) e devolve as alteradas.
 // Só mexe nas que estão pendentes de confirmação.
@@ -1400,12 +1557,15 @@ func (r *Repo) SeenNatures(ctx context.Context) ([]SeenNature, error) {
 
 // Campos da tradução que o analista pode fixar (valores de sipom_manual).
 const (
-	SipomFieldNatureza   = "natureza"
-	SipomFieldEndereco   = "endereco"
-	SipomFieldLocal      = "local"
-	SipomFieldArea       = "area"
-	SipomFieldOPM        = "opm"
-	SipomFieldComposicao = "composicao"
+	SipomFieldNatureza     = "natureza"
+	SipomFieldEndereco     = "endereco"
+	SipomFieldLocal        = "local"
+	SipomFieldArea         = "area"
+	SipomFieldOPM          = "opm"
+	SipomFieldComposicao   = "composicao"
+	SipomFieldProcedimento = "procedimento"
+	SipomFieldDelegacia    = "delegacia"
+	SipomFieldDelegado     = "delegado"
 )
 
 // ─────────────────────────── Inteligência ────────────────────────────

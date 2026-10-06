@@ -130,6 +130,11 @@ type SipomFields struct {
 	BairroID   *int
 	AreaID     *int
 	OPMID      *int
+	// Procedimento: tipo, delegacia e delegado (sipom.procedimentos,
+	// delegacias, delegados).
+	ProcedimentoID *int
+	DelegaciaID    *int
+	DelegadoID     *int
 	// Pending são os códigos de pendência (ver internal/sipom).
 	Pending []string
 	// Manual são os campos que o analista fixou; o recálculo não os toca.
@@ -158,6 +163,11 @@ type Person struct {
 // Weapon é uma arma apreendida.
 type Weapon struct {
 	Kind, Model, Brand, Caliber, Serial string
+
+	// Tradução para o material "Arma" do SIPOM. SipomManual: o analista
+	// definiu os três — o recálculo não mexe.
+	SipomTipoID, SipomMarcaID, SipomCalibreID *int
+	SipomManual                               bool
 }
 
 // Drug é uma droga apreendida. Grams/Packages nil = não informado.
@@ -165,11 +175,23 @@ type Drug struct {
 	Description string
 	Grams       *float64
 	Packages    *int
+
+	// Tradução para o material "Droga" do SIPOM: a droga da lista e a
+	// quantidade na unidade dela.
+	SipomDrogaID    *int
+	SipomQuantidade *float64
+	SipomManual     bool
 }
 
 // Vehicle é um veículo apreendido.
 type Vehicle struct {
 	Kind, Brand, Model, Plate, Color string
+
+	// Tradução para o material "Veículo" do SIPOM: códigos DENATRAN e a
+	// situação (1 apreendido, 2 recuperado; 0 = não decidida).
+	SipomTipoCodigo, SipomCorCodigo, SipomMarcaModeloCodigo *int
+	SipomSituacao                                           int
+	SipomManual                                             bool
 }
 
 // Officer é um policial da composição ("30079116-2SGT 22410 SOARES").

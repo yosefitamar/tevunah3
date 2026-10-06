@@ -19,6 +19,66 @@ export function setOpsSipomNatureza(occId: string, naturezaId: number | null) {
   });
 }
 
+// ─── Fase 2: procedimento e materiais ───
+
+export type SipomDrogaRef = SipomRef & { unidade: string };
+
+/** Listas dos selects de procedimento e materiais. */
+export type SipomCatalogo = {
+  procedimentos: SipomRef[];
+  delegacias: SipomRef[];
+  delegados: SipomRef[];
+  arma_tipos: SipomRef[];
+  arma_marcas: SipomRef[];
+  arma_calibres: SipomRef[];
+  drogas: SipomDrogaRef[];
+  veiculo_tipos: SipomRef[];
+  veiculo_cores: SipomRef[];
+  celular_marcas: SipomRef[];
+};
+
+// As listas não mudam durante a sessão: uma busca serve para todas as fichas.
+let catalogoCache: Promise<SipomCatalogo> | null = null;
+export function getSipomCatalogo(): Promise<SipomCatalogo> {
+  catalogoCache ??= api<SipomCatalogo>("/api/sipom/catalogo").catch((e) => {
+    catalogoCache = null;
+    throw e;
+  });
+  return catalogoCache;
+}
+
+/** Marca/modelo de veículo (tabela DENATRAN), por texto. */
+export function searchSipomMarcasModelos(q: string) {
+  return api<{ items: SipomRef[] }>(`/api/sipom/marcas-modelos?q=${encodeURIComponent(q)}`);
+}
+
+export type SipomProcedimentoInput =
+  | { procedimento_id?: number; delegacia_id?: number; delegado_id?: number }
+  | { reset: true };
+
+/** Fixa o procedimento (tipo, delegacia, delegado) ou devolve ao automático. */
+export function setOpsSipomProcedimento(occId: string, input: SipomProcedimentoInput) {
+  return api<{ sipom: SipomOccurrence; officers: OpsOfficer[] }>(
+    `/api/ops-occurrences/${encodeURIComponent(occId)}/sipom/procedimento`,
+    { method: "PUT", body: JSON.stringify(input) },
+  );
+}
+
+export type SipomMaterialInput =
+  | { kind: "armas"; tipo_id: number; marca_id: number; calibre_id: number }
+  | { kind: "drogas"; droga_id: number; quantidade: number }
+  | { kind: "veiculos"; tipo_codigo: number; cor_codigo: number; marca_modelo_codigo: number; situacao: 1 | 2 }
+  | { kind: "armas" | "drogas" | "veiculos"; reset: true };
+
+/** Fixa a tradução de um material (pela posição na lista) ou devolve ao automático. */
+export function setOpsSipomMaterial(occId: string, index: number, input: SipomMaterialInput) {
+  const { kind, ...body } = input;
+  return api<{ sipom: SipomOccurrence; officers: OpsOfficer[] }>(
+    `/api/ops-occurrences/${encodeURIComponent(occId)}/sipom/materiais/${kind}/${index}`,
+    { method: "PUT", body: JSON.stringify(body) },
+  );
+}
+
 export type SipomConfianca = "direta" | "sugerida";
 
 export type SipomRule = {

@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"errors"
 	"os"
+	"strings"
 	"testing"
 
 	idb "github.com/belia/tevunah/backend/internal/db"
@@ -333,5 +334,189 @@ func TestSmoke_SetGeo(t *testing.T) {
 	}
 	if !unlocated() {
 		t.Errorf("ocorrência sem coordenada não apareceu em Unlocated")
+	}
+}
+
+// Procedimento e materiais traduzidos a partir do que o relatório escreve.
+// Contra o catálogo real do banco.
+func TestSmoke_ProcedureAndMaterials(t *testing.T) {
+	db, _ := smokeDB(t)
+	ctx := context.Background()
+	cat, err := sipom.Load(ctx, db)
+	if err != nil {
+		t.Skipf("catálogo do SIPOM não carregado: %v", err)
+	}
+	g := 582.0
+	o := &Occurrence{
+		Natures: []string{"TRÁFICO DE DROGAS"}, StartTime: "10:00", CIOPS: "SMK4",
+		PlaceNeighborhood: "CENTRO", PlaceCity: "CAUCAIA",
+		PoliceStation: "DMC", Delegate: "Ítalo Renno Alves", ProcedureType: "IP", ProcedureNumber: "939-7653/2026",
+		Weapons: []Weapon{
+			{Kind: "REVOLVER", Brand: "TAURUS", Caliber: "38", Serial: "GI63237"},
+			{Kind: "SUBMETRALHADORA", Model: "ARTESANAL", Caliber: "9MM"},
+		},
+		Drugs:    []Drug{{Description: "MACONHA", Grams: &g}},
+		Vehicles: []Vehicle{{Kind: "MOTOCICLETA", Brand: "HONDA", Model: "CG 160 FAN", Color: "PRETO", Plate: "ABC1D23"}},
+	}
+	TranslateSipom(cat, SipomRefs{}, o)
+	f := o.Sipom
+	if f.ProcedimentoID == nil || *f.ProcedimentoID != sipom.ProcIP {
+		t.Errorf("tipo IP: %v", f.ProcedimentoID)
+	}
+	if f.DelegaciaID == nil {
+		t.Errorf("delegacia pelo prefixo 939 não resolvida")
+	} else if d, _ := cat.Delegacia(*f.DelegaciaID); d.Code != 939 {
+		t.Errorf("delegacia %d (%s), quer o código 939", d.ID, d.Nome)
+	}
+	if f.DelegadoID == nil {
+		t.Errorf("delegado abreviado não resolvido")
+	} else if d, _ := cat.Delegado(*f.DelegadoID); d.Nome != "ITALO RENNO ALVES FEITOSA" {
+		t.Errorf("delegado: %s", d.Nome)
+	}
+	w := o.Weapons[0]
+	if w.SipomTipoID == nil || cat.ArmaTipoNome(*w.SipomTipoID) != "Revolver" ||
+		w.SipomMarcaID == nil || cat.ArmaMarcaNome(*w.SipomMarcaID) != "Taurus" ||
+		w.SipomCalibreID == nil || cat.ArmaCalibreNome(*w.SipomCalibreID) != ".38" {
+		t.Errorf("revólver Taurus .38: %+v", w)
+	}
+	w = o.Weapons[1]
+	if w.SipomTipoID == nil || cat.ArmaTipoNome(*w.SipomTipoID) != "Artesanal" || w.SipomMarcaID != nil ||
+		w.SipomCalibreID == nil || cat.ArmaCalibreNome(*w.SipomCalibreID) != "9mm" {
+		t.Errorf("submetralhadora artesanal 9mm: %+v", w)
+	}
+	if !hasString(f.Pending, sipom.PendArma) {
+		t.Errorf("arma sem marca deveria deixar a pendência de arma: %v", f.Pending)
+	}
+	d := o.Drugs[0]
+	if d.SipomDrogaID == nil || d.SipomQuantidade == nil || *d.SipomQuantidade != 582 {
+		t.Errorf("maconha 582 g: %+v", d)
+	} else if dr, _ := cat.Droga(*d.SipomDrogaID); dr.Nome != "Maconha" {
+		t.Errorf("droga: %s", dr.Nome)
+	}
+	v := o.Vehicles[0]
+	if v.SipomTipoCodigo == nil || *v.SipomTipoCodigo != 4 || v.SipomCorCodigo == nil || *v.SipomCorCodigo != 11 ||
+		v.SipomSituacao != sipom.VeiculoApreendido {
+		t.Errorf("moto preta apreendida: %+v", v)
+	}
+	// "HONDA/CG 160 FAN" existe tal qual na tabela DENATRAN.
+	if v.SipomMarcaModeloCodigo == nil {
+		t.Errorf("marca/modelo exato não resolvido: %+v", v)
+	} else if mm, _ := cat.MarcaModelo(*v.SipomMarcaModeloCodigo); mm.Descricao != "HONDA/CG 160 FAN" {
+		t.Errorf("marca/modelo: %s", mm.Descricao)
+	}
+	if hasString(f.Pending, sipom.PendDroga) || hasString(f.Pending, sipom.PendVeiculo) ||
+		hasString(f.Pending, sipom.PendDelegacia) || hasString(f.Pending, sipom.PendDelegado) {
+		t.Errorf("pendências inesperadas: %v", f.Pending)
+	}
+
+	// Sem procedimento no relatório; delegado desconhecido; cor com termo
+	// aprendido; veículo recuperado.
+	terms := &sipom.TermMap{}
+	o2 := &Occurrence{
+		Natures: []string{"RECUPERAÇÃO DE VEÍCULO"}, StartTime: "10:00", CIOPS: "SMK5",
+		PlaceCity: "CAUCAIA", PoliceStation: "22° DP", Delegate: "Fulano Inexistente", ProcedureType: "BO",
+		ProcedureNumber: "5291/2026",
+		Vehicles:        []Vehicle{{Kind: "CARRO", Brand: "HONDA", Model: "CG", Color: "VERMELHO"}},
+	}
+	TranslateSipom(cat, SipomRefs{Terms: terms}, o2)
+	f2 := o2.Sipom
+	if f2.DelegaciaID == nil {
+		t.Errorf("22° DP deveria virar o 22º Distrito")
+	} else if d, _ := cat.Delegacia(*f2.DelegaciaID); d.Code != 122 {
+		t.Errorf("delegacia do 22° DP: %d (%s)", d.Code, d.Nome)
+	}
+	if f2.DelegadoID != nil || !hasString(f2.Pending, sipom.PendDelegado) {
+		t.Errorf("delegado inexistente: id=%v pend=%v", f2.DelegadoID, f2.Pending)
+	}
+	if SipomBlocked([]string{sipom.PendDelegado}) {
+		t.Errorf("delegado não é obrigatório: não pode travar o envio")
+	}
+	v2 := o2.Vehicles[0]
+	if v2.SipomSituacao != sipom.VeiculoRecuperado || v2.SipomTipoCodigo == nil || *v2.SipomTipoCodigo != 6 ||
+		v2.SipomCorCodigo == nil || *v2.SipomCorCodigo != 15 {
+		t.Errorf("carro vermelho recuperado: %+v", v2)
+	}
+	// "HONDA/CG" não existe tal qual, e "CG" casa dezenas de linhas: fica
+	// pendente, com candidatos para o analista.
+	if v2.SipomMarcaModeloCodigo != nil || !hasString(f2.Pending, sipom.PendVeiculo) {
+		t.Errorf("HONDA CG ambíguo deveria ficar pendente: %+v %v", v2, f2.Pending)
+	}
+	if r := cat.ResolveVehicle(sipom.VehicleInput{Kind: "CARRO", Brand: "HONDA", Model: "CG"}, nil); len(r.MarcaModeloCandidates) < 2 {
+		t.Errorf("candidatos de HONDA CG: %d", len(r.MarcaModeloCandidates))
+	}
+
+	o3 := &Occurrence{Natures: []string{"FURTO"}, StartTime: "10:00", CIOPS: "SMK6", PlaceCity: "CAUCAIA"}
+	TranslateSipom(cat, SipomRefs{}, o3)
+	if !hasString(o3.Sipom.Pending, sipom.PendProcedimento) || !sipom.Blocking(sipom.PendProcedimento) {
+		t.Errorf("sem procedimento deveria ser pendência bloqueante: %v", o3.Sipom.Pending)
+	}
+}
+
+// O payload completo (fase 2) leva o procedimento e um item por material.
+func TestSmoke_PayloadPhase2(t *testing.T) {
+	db, _ := smokeDB(t)
+	ctx := context.Background()
+	cat, err := sipom.Load(ctx, db)
+	if err != nil {
+		t.Skipf("catálogo do SIPOM não carregado: %v", err)
+	}
+	g := 582.0
+	so := &StoredOccurrence{ID: "smoke-payload", Occurrence: Occurrence{
+		Natures: []string{"TRÁFICO DE DROGAS"}, StartTime: "10:00", CIOPS: "SMK7",
+		PlaceAddress: "Rua Um, 10", PlaceNeighborhood: "CENTRO", PlaceCity: "CAUCAIA", CIA: "1ª CIA", BPM: "2º BPRAIO",
+		PoliceStation: "DMC", Delegate: "Ítalo Renno Alves", ProcedureType: "IP", ProcedureNumber: "939-7653/2026",
+		Weapons:  []Weapon{{Kind: "REVOLVER", Brand: "TAURUS", Caliber: "38", Serial: "GI63237", Model: "RT 85"}},
+		Drugs:    []Drug{{Description: "MACONHA", Grams: &g}},
+		Vehicles: []Vehicle{{Kind: "MOTOCICLETA", Brand: "HONDA", Model: "CG 160 FAN", Color: "PRETO", Plate: "ABC1D23"}},
+	}}
+	TranslateSipom(cat, SipomRefs{}, &so.Occurrence)
+	// Natureza e o que o catálogo não resolver para este endereço fictício:
+	// o teste é do procedimento e dos materiais, não do cabeçalho.
+	nat := cat.Naturezas()[0].ID
+	so.Sipom.NaturezaID = &nat
+	if so.Sipom.AreaID == nil || so.Sipom.OPMID == nil || so.Sipom.CidadeID == nil {
+		var comp int
+		for _, c := range cat.ActiveCompanies() {
+			comp = c.ID
+			break
+		}
+		if so.Sipom.AreaID == nil {
+			so.Sipom.AreaID = &comp
+		}
+		if so.Sipom.OPMID == nil {
+			so.Sipom.OPMID = &comp
+		}
+	}
+	if so.Sipom.CidadeID == nil {
+		t.Skip("CAUCAIA fora do catálogo de cidades")
+	}
+	so.Sipom.Pending = nil
+	p, err := BuildSipomPayload(cat, so, "SAI/2º BPRAIO", nil)
+	if err != nil {
+		t.Fatalf("payload: %v", err)
+	}
+	if p.Origem.Versao != "2" {
+		t.Errorf("versão do contrato: %s", p.Origem.Versao)
+	}
+	if p.Procedimento == nil || p.Procedimento.ProcedimentoID != sipom.ProcIP || p.Procedimento.Numero != "7653" ||
+		p.Procedimento.Ano != "2026" || p.Procedimento.Reparticao != sipom.ReparticaoPoliciaCivil ||
+		p.Procedimento.DelegadoID == nil || !strings.HasPrefix(p.Procedimento.Delegacia, "939-") {
+		t.Errorf("procedimento: %+v", p.Procedimento)
+	}
+	if len(p.Materiais) != 3 {
+		t.Fatalf("materiais: %d itens, quer 3 (%+v)", len(p.Materiais), p.Materiais)
+	}
+	arma, droga, veic := p.Materiais[0], p.Materiais[1], p.Materiais[2]
+	if arma.TipoID != sipom.MaterialArma || arma.ArmaTipo != "Revolver" || arma.ArmaMarca != "Taurus" ||
+		arma.ArmaCalibre != ".38" || arma.Numero != "GI63237" || arma.Descricao != "RT 85" || arma.Quantidade == nil || *arma.Quantidade != 1 {
+		t.Errorf("arma: %+v", arma)
+	}
+	if droga.TipoID != sipom.MaterialDroga || droga.Droga != "Maconha" || droga.Unidade != "gramas (g)" ||
+		droga.Quantidade == nil || *droga.Quantidade != 582 {
+		t.Errorf("droga: %+v", droga)
+	}
+	if veic.TipoID != sipom.MaterialVeiculo || veic.Placa != "ABC1D23" || veic.MarcaModelo != "HONDA/CG 160 FAN" ||
+		veic.Cor != "PRETA" || veic.Situacao == nil || *veic.Situacao != sipom.VeiculoApreendido {
+		t.Errorf("veículo: %+v", veic)
 	}
 }

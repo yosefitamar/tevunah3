@@ -77,6 +77,7 @@ func BuildSipomPayload(cat *sipom.Catalog, so *StoredOccurrence, unidade string,
 		Historico:  so.Narrative,
 		Envolvidos: []sipom.PayloadEnvolvido{},
 		Composicao: []sipom.PayloadComposicao{},
+		Materiais:  []sipom.PayloadMaterial{},
 	}
 	if so.Report != nil && !so.Report.IsZero() {
 		d := so.Report.Format("2006-01-02")
@@ -102,6 +103,65 @@ func BuildSipomPayload(cat *sipom.Catalog, so *StoredOccurrence, unidade string,
 			e.Foto = photo(*sp.EntityID)
 		}
 		p.Envolvidos = append(p.Envolvidos, e)
+	}
+
+	// Procedimento: só vai quando o relatório trouxe (sem ele a ocorrência
+	// está pendente e não chega aqui); delegado é opcional.
+	if f.ProcedimentoID != nil && f.DelegaciaID != nil {
+		procName, _ := cat.Procedimento(*f.ProcedimentoID)
+		dele, _ := cat.Delegacia(*f.DelegaciaID)
+		num := cat.ResolveProcedure(sipom.ProcInput{Number: so.ProcedureNumber, Type: so.ProcedureType,
+			ProcedimentoID: f.ProcedimentoID, ManualProc: true, DelegaciaID: f.DelegaciaID, ManualDelegacia: true,
+			ManualDelegado: true})
+		p.Procedimento = &sipom.PayloadProcedimento{
+			Reparticao: sipom.ReparticaoPoliciaCivil, ProcedimentoID: *f.ProcedimentoID, Procedimento: procName,
+			Numero: num.Numero, Ano: num.Ano, DelegaciaID: dele.ID, Delegacia: dele.Nome,
+		}
+		if f.DelegadoID != nil {
+			if d, ok := cat.Delegado(*f.DelegadoID); ok {
+				id := d.ID
+				p.Procedimento.DelegadoID, p.Procedimento.Delegado = &id, &d.Nome
+			}
+		}
+	}
+
+	// Materiais, um item por arma, droga e veículo. Item sem tradução
+	// completa não chega aqui: é pendência bloqueante.
+	for _, w := range so.Weapons {
+		if w.SipomTipoID == nil || w.SipomMarcaID == nil || w.SipomCalibreID == nil {
+			continue
+		}
+		one := 1.0
+		p.Materiais = append(p.Materiais, sipom.PayloadMaterial{
+			TipoID: sipom.MaterialArma, Tipo: "Arma",
+			ArmaTipoID: w.SipomTipoID, ArmaTipo: cat.ArmaTipoNome(*w.SipomTipoID),
+			ArmaMarcaID: w.SipomMarcaID, ArmaMarca: cat.ArmaMarcaNome(*w.SipomMarcaID),
+			ArmaCalibreID: w.SipomCalibreID, ArmaCalibre: cat.ArmaCalibreNome(*w.SipomCalibreID),
+			Numero: w.Serial, Descricao: w.Model, Quantidade: &one,
+		})
+	}
+	for _, d := range so.Drugs {
+		if d.SipomDrogaID == nil || d.SipomQuantidade == nil {
+			continue
+		}
+		dr, _ := cat.Droga(*d.SipomDrogaID)
+		q := *d.SipomQuantidade
+		p.Materiais = append(p.Materiais, sipom.PayloadMaterial{
+			TipoID: sipom.MaterialDroga, Tipo: "Droga", Droga: dr.Nome, Unidade: dr.Unidade, Quantidade: &q,
+		})
+	}
+	for _, v := range so.Vehicles {
+		if v.SipomTipoCodigo == nil || v.SipomCorCodigo == nil || v.SipomMarcaModeloCodigo == nil || v.SipomSituacao == 0 {
+			continue
+		}
+		mm, _ := cat.MarcaModelo(*v.SipomMarcaModeloCodigo)
+		sit := v.SipomSituacao
+		p.Materiais = append(p.Materiais, sipom.PayloadMaterial{
+			TipoID: sipom.MaterialVeiculo, Tipo: "Veículo", Situacao: &sit, Placa: v.Plate,
+			VeiculoTipoCodigo: v.SipomTipoCodigo, VeiculoTipo: cat.VeiculoTipoNome(*v.SipomTipoCodigo),
+			MarcaModeloCodigo: v.SipomMarcaModeloCodigo, MarcaModelo: mm.Descricao,
+			CorCodigo: v.SipomCorCodigo, Cor: cat.VeiculoCorNome(*v.SipomCorCodigo),
+		})
 	}
 
 	for _, o := range so.Officers {

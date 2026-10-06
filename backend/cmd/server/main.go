@@ -73,6 +73,9 @@ type app struct {
 	// sipomAreas é a referência de área aprendida das escolhas dos analistas
 	// (cidade + bairro → área da unidade militar).
 	sipomAreas *sipom.AreaRuleRepo
+	// sipomTerms são os termos aprendidos (delegacia, delegado, tipos de
+	// arma, drogas, cores…) das escolhas dos analistas.
+	sipomTerms *sipom.TermRepo
 	// geocoder localiza o endereço das ocorrências no Nominatim da agência;
 	// nil = desligado (GEOCODER_URL vazio).
 	geocoder *geocode.Geocoder
@@ -131,6 +134,7 @@ func main() {
 	}
 	a.sipomMap = sipom.NewMapRepo(appDB)
 	a.sipomAreas = sipom.NewAreaRuleRepo(appDB)
+	a.sipomTerms = sipom.NewTermRepo(appDB)
 
 	var geoStatus string
 	a.geocoder, geoStatus = geocode.FromEnv(appDB)
@@ -269,7 +273,11 @@ func main() {
 	mux.Handle("PUT /api/ops-occurrences/{id}/geo", auth(http.HandlerFunc(a.handleOpsOccurrenceGeo)))
 	mux.Handle("POST /api/ops-occurrences/sipom/recompute", auth(http.HandlerFunc(a.handleSipomRecompute)))
 	mux.Handle("PUT /api/ops-occurrences/{id}/sipom/natureza", auth(http.HandlerFunc(a.handleSipomSetNatureza)))
+	mux.Handle("PUT /api/ops-occurrences/{id}/sipom/procedimento", auth(http.HandlerFunc(a.handleSipomSetProcedimento)))
+	mux.Handle("PUT /api/ops-occurrences/{id}/sipom/materiais/{kind}/{pos}", auth(http.HandlerFunc(a.handleSipomSetMaterial)))
 	mux.Handle("PUT /api/ops-occurrences/{id}/sipom/{field}", auth(http.HandlerFunc(a.handleSipomSetField)))
+	mux.Handle("GET /api/sipom/catalogo", auth(http.HandlerFunc(a.handleSipomCatalogo)))
+	mux.Handle("GET /api/sipom/marcas-modelos", auth(http.HandlerFunc(a.handleSipomMarcasModelos)))
 	mux.Handle("GET /api/ops-occurrences/{id}/sipom/payload", auth(http.HandlerFunc(a.handleSipomPayload)))
 	mux.Handle("GET /api/ops-occurrences/sipom/queue", auth(http.HandlerFunc(a.handleSipomQueue)))
 	mux.Handle("POST /api/ops-occurrences/sipom/natureza/confirm", auth(http.HandlerFunc(a.handleSipomConfirmNaturezas)))

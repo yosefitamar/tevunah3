@@ -46,7 +46,15 @@ func Error(w http.ResponseWriter, status int, message string) {
 
 // Decode lê e valida um corpo JSON limitado a 1 MiB.
 func Decode(r *http.Request, dst any) error {
-	r.Body = http.MaxBytesReader(nil, r.Body, 1<<20)
+	return DecodeLimit(nil, r, dst, 1<<20)
+}
+
+// DecodeLimit é o Decode com teto configurável, para endpoints cujo corpo
+// carrega conteúdo grande (ex.: body_html do relatório, com imagens inline em
+// base64). Passar w permite ao servidor fechar a conexão de forma limpa quando
+// o teto estoura; o erro devolvido é *http.MaxBytesError (ver IsTooLarge).
+func DecodeLimit(w http.ResponseWriter, r *http.Request, dst any, limit int64) error {
+	r.Body = http.MaxBytesReader(w, r.Body, limit)
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(dst); err != nil {
@@ -59,6 +67,12 @@ func Decode(r *http.Request, dst any) error {
 		return errors.New("corpo deve conter um único objeto JSON")
 	}
 	return nil
+}
+
+// IsTooLarge indica se o erro de Decode/DecodeLimit veio do teto de tamanho.
+func IsTooLarge(err error) bool {
+	var mbe *http.MaxBytesError
+	return errors.As(err, &mbe)
 }
 
 // ClientIP devolve o IP do cliente. Tenta primeiro X-Forwarded-For (primeiro

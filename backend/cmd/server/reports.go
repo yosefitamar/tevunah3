@@ -286,6 +286,11 @@ type updateReportRequest struct {
 	BodyHTML        *string `json:"body_html,omitempty"`
 }
 
+// reportUpdateMaxBytes limita o PATCH do relatório. O body_html carrega as
+// imagens inline em base64 (ver fileToInlineImage no frontend), então o teto
+// padrão de 1 MiB do httpx.Decode estoura com duas ou três fotos.
+const reportUpdateMaxBytes = 25 << 20
+
 func (a *app) handleReportUpdate(w http.ResponseWriter, r *http.Request) {
 	if !a.requirePerm(w, r, "report.update") {
 		return
@@ -293,7 +298,12 @@ func (a *app) handleReportUpdate(w http.ResponseWriter, r *http.Request) {
 	me := middleware.UserFrom(r.Context())
 	id := r.PathValue("id")
 	var req updateReportRequest
-	if err := httpx.Decode(r, &req); err != nil {
+	if err := httpx.DecodeLimit(w, r, &req, reportUpdateMaxBytes); err != nil {
+		if httpx.IsTooLarge(err) {
+			httpx.Error(w, http.StatusRequestEntityTooLarge,
+				"relatório excede o limite de 25 MiB — reduza ou remova imagens do corpo")
+			return
+		}
 		httpx.Error(w, http.StatusBadRequest, "corpo inválido")
 		return
 	}

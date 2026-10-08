@@ -183,10 +183,11 @@ export function lookupUsers(search: string) {
   return api<{ items: UserLookup[] }>(`/api/users/lookup${qs}`);
 }
 
-export function updateReport(id: string, input: UpdateReportInput) {
+export function updateReport(id: string, input: UpdateReportInput, signal?: AbortSignal) {
   return api<{ report: Report }>(`/api/reports/${encodeURIComponent(id)}`, {
     method: "PATCH",
     body: JSON.stringify(input),
+    signal,
   });
 }
 

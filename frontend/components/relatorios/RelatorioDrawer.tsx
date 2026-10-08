@@ -74,7 +74,8 @@ export default function RelatorioDrawer({ reportId, onClose, onChanged }: Props)
   // Buffer local do corpo (TipTap). Debounce de 700ms antes de enviar PATCH —
   // evita chamada por keystroke. saveStatus indica visualmente o estado.
   const [bodyDraft, setBodyDraft] = useState<string>("");
-  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [undiffuseOpen, setUndiffuseOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   // ID da entidade aberta como overlay sobre o drawer do relatório. Permite
@@ -107,15 +108,25 @@ export default function RelatorioDrawer({ reportId, onClose, onChanged }: Props)
     if (data.status !== "criado") return;
     setSaveStatus("saving");
     const h = window.setTimeout(async () => {
+      // Sem teto de tempo, uma requisição que nunca responde deixava o
+      // indicador em "SALVANDO…" indefinidamente e escondia a perda de dados.
+      const ctrl = new AbortController();
+      const t = window.setTimeout(() => ctrl.abort(), SAVE_TIMEOUT_MS);
       try {
-        const r = await updateReport(data.id, { body_html: bodyDraft });
+        const r = await updateReport(data.id, { body_html: bodyDraft }, ctrl.signal);
         setData(r.report);
+        setSaveError(null);
         setSaveStatus("saved");
         window.setTimeout(() => setSaveStatus("idle"), 1500);
         onChanged();
       } catch (e) {
-        setError((e as ApiError).message || "Erro ao salvar corpo");
-        setSaveStatus("idle");
+        const msg = ctrl.signal.aborted
+          ? "o servidor não respondeu a tempo"
+          : (e as ApiError).message || "erro ao salvar corpo";
+        setSaveError(msg);
+        setSaveStatus("error");
+      } finally {
+        window.clearTimeout(t);
       }
     }, 700);
     return () => window.clearTimeout(h);
@@ -438,6 +449,13 @@ export default function RelatorioDrawer({ reportId, onClose, onChanged }: Props)
                     {saveStatus === "saving" && (
                       <span className="muted" style={{ marginLeft: 8, fontSize: 11.5 }}>
                         // SALVANDO…
+                      </span>
+                    )}
+                    {saveStatus === "error" && (
+                      <span
+                        style={{ marginLeft: 8, fontSize: 11.5, color: "var(--crit)" }}
+                      >
+                        ✗ NÃO SALVO — {saveError}
                       </span>
                     )}
                     {saveStatus === "saved" && (
@@ -810,18 +828,22 @@ export default function RelatorioDrawer({ reportId, onClose, onChanged }: Props)
   );
 }
 
+// Teto do PATCH do corpo; imagens inline deixam o payload na casa dos MB.
+const SAVE_TIMEOUT_MS = 60_000;
+
 // fileToInlineImage carrega o arquivo escolhido, reescala via canvas se a
-// largura ultrapassar 1600px (preservando proporção) e devolve uma data URI
-// base64 pronta pra ser usada como `src` do <img>. JPEG q=0.85 para fotos;
-// PNG quando o arquivo original era PNG (preserva transparência).
+// largura ultrapassar 1280px (preservando proporção) e devolve uma data URI
+// base64 pronta pra ser usada como `src` do <img>. Sempre JPEG q=0.8: o corpo
+// inteiro (com todas as imagens) vai em cada autosave, e prints em PNG chegavam
+// a MBs cada. Transparência é achatada sobre branco, que é o fundo do papel.
 //
 // Optamos por inline data URI em vez de upload separado: simplifica o
 // pipeline (sem orphan files, sem auth extra em /uploads), e o wkhtmltopdf
 // já está acostumado a renderizar data: URIs (brasoes do RELINT funcionam
 // pela mesma rota).
 async function fileToInlineImage(file: File): Promise<string> {
-  const MAX_WIDTH = 1600;
-  const QUALITY = 0.85;
+  const MAX_WIDTH = 1280;
+  const QUALITY = 0.8;
   const url = URL.createObjectURL(file);
   try {
     const img = await new Promise<HTMLImageElement>((resolve, reject) => {
@@ -838,9 +860,10 @@ async function fileToInlineImage(file: File): Promise<string> {
     canvas.height = h;
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("canvas indisponível neste navegador");
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, w, h);
     ctx.drawImage(img, 0, 0, w, h);
-    const mime = file.type === "image/png" ? "image/png" : "image/jpeg";
-    return canvas.toDataURL(mime, QUALITY);
+    return canvas.toDataURL("image/jpeg", QUALITY);
   } finally {
     URL.revokeObjectURL(url);
   }

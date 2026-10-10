@@ -79,6 +79,8 @@ export type ListReportsOpts = {
   status?: "" | ReportStatus;
   search?: string;
   year?: number;
+  date_from?: string;      // YYYY-MM-DD, data do documento (inclusivo)
+  date_to?: string;
   sort_by?: string;
   sort_dir?: "asc" | "desc";
 };
@@ -90,6 +92,8 @@ function qs(opts: ListReportsOpts): string {
   if (opts.status) p.set("status", opts.status);
   if (opts.search) p.set("search", opts.search);
   if (opts.year && opts.year > 0) p.set("year", String(opts.year));
+  if (opts.date_from) p.set("date_from", opts.date_from);
+  if (opts.date_to) p.set("date_to", opts.date_to);
   if (opts.sort_by) p.set("sort_by", opts.sort_by);
   if (opts.sort_dir) p.set("sort_dir", opts.sort_dir);
   const s = p.toString();

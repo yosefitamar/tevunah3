@@ -21,6 +21,7 @@ import { formatBR } from "@/lib/format";
 import type { ApiError } from "@/lib/api";
 import SortHeader, { type SortState } from "../shared/SortHeader";
 import Select from "../shared/Select";
+import FiltersModal, { FiltersButton } from "../shared/FiltersModal";
 
 type TabId = "pending_for_me" | "mine" | "all";
 
@@ -34,6 +35,7 @@ export default function AprovacoesScreen() {
   const { user: me } = useAuth();
   const [tab, setTab] = useState<TabId>("pending_for_me");
   const [statusFilter, setStatusFilter] = useState<"" | ApprovalStatus>("");
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [items, setItems] = useState<Approval[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -135,23 +137,40 @@ export default function AprovacoesScreen() {
 
         <div style={{ marginLeft: "auto" }} />
 
-        <label className="filter-field" style={{ minWidth: 180 }}>
-          <span>STATUS</span>
-          <Select
-            value={statusFilter}
-            onChange={(v) => setStatusFilter(v as "" | ApprovalStatus)}
-            placeholder="TODOS"
-            options={[
-              { value: "", label: "TODOS" },
-              { value: "pending", label: STATUS_LABEL.pending },
-              { value: "approved", label: STATUS_LABEL.approved },
-              { value: "rejected", label: STATUS_LABEL.rejected },
-              { value: "expired", label: STATUS_LABEL.expired },
-              { value: "cancelled", label: STATUS_LABEL.cancelled },
-            ]}
-          />
-        </label>
+        <FiltersButton count={statusFilter ? 1 : 0} onClick={() => setFiltersOpen(true)} />
       </div>
+
+      {filtersOpen && (
+        <FiltersModal
+          title="FILTROS · APROVAÇÕES"
+          value={{ status: statusFilter }}
+          empty={{ status: "" as "" | ApprovalStatus }}
+          width={420}
+          onClose={() => setFiltersOpen(false)}
+          onApply={(f) => {
+            setStatusFilter(f.status);
+            setFiltersOpen(false);
+          }}
+        >
+          {(d, set) => (
+            <div className="form-field">
+              <span>STATUS</span>
+              <Select
+                value={d.status}
+                onChange={(v) => set({ status: v as "" | ApprovalStatus })}
+                options={[
+                  { value: "", label: "TODOS" },
+                  { value: "pending", label: STATUS_LABEL.pending },
+                  { value: "approved", label: STATUS_LABEL.approved },
+                  { value: "rejected", label: STATUS_LABEL.rejected },
+                  { value: "expired", label: STATUS_LABEL.expired },
+                  { value: "cancelled", label: STATUS_LABEL.cancelled },
+                ]}
+              />
+            </div>
+          )}
+        </FiltersModal>
+      )}
 
       {error && <div className="banner banner-error">⚠ {error}</div>}
 

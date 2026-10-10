@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { FileText, Plus, Search, ShieldAlert } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import {
@@ -16,31 +16,42 @@ import {
 import { canCreateReports, canReadReports } from "@/lib/permissions";
 import { clearanceLabel } from "@/lib/types";
 import { formatBR } from "@/lib/format";
+import { ALL_PERIOD, periodBounds, type PeriodSelection } from "@/lib/period";
 import type { ApiError } from "@/lib/api";
 import SortHeader, { type SortState } from "../shared/SortHeader";
-import Select from "../shared/Select";
+import PeriodButton from "../shared/PeriodButton";
+import FiltersModal, { FiltersButton } from "../shared/FiltersModal";
 import CreateRelatorioModal from "./CreateRelatorioModal";
 import RelatorioDrawer from "./RelatorioDrawer";
 
 const PAGE_SIZE = 25;
 
+// Recortes não temporais — modal de FILTROS. O período (data do documento)
+// tem o próprio botão; a busca fica na barra.
 type Filters = {
   status: "" | ReportStatus;
-  search: string;
-  // 0 = TODOS; default carregado é o ano atual quando há RIs no ano atual,
-  // senão TODOS (decisão tomada após o fetch de listReportYears).
-  year: number;
 };
 
-const EMPTY_FILTERS: Filters = { status: "", search: "", year: 0 };
+const EMPTY_FILTERS: Filters = { status: "" };
+
+const STATUS_OPTIONS: Array<{ value: "" | ReportStatus; label: string }> = [
+  { value: "", label: "TODOS" },
+  { value: "criado", label: "CRIADO" },
+  { value: "difundido", label: "DIFUNDIDO" },
+  { value: "arquivado", label: "ARQUIVADO" },
+];
 
 export default function RelatoriosScreen() {
   const { user: me } = useAuth();
   const [data, setData] = useState<ReportsList | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
-  const [years, setYears] = useState<number[]>([]);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  // Período inicial: ANO ATUAL quando já há RIs no ano, senão TODO O PERÍODO
+  // (decidido após listReportYears).
+  const [period, setPeriod] = useState<PeriodSelection>(ALL_PERIOD);
   const [yearsLoaded, setYearsLoaded] = useState(false);
   const [page, setPage] = useState(0);
   const [sort, setSort] = useState<SortState>({ field: "doc_date", dir: "desc" });
@@ -50,8 +61,7 @@ export default function RelatoriosScreen() {
   const canRead = canReadReports(me);
   const canCreate = canCreateReports(me);
 
-  // Carrega os anos disponíveis e seta o filtro inicial pro ano atual quando
-  // existem RIs nesse ano. Roda uma única vez por montagem.
+  // Decide o período inicial pelos anos com RI. Roda uma vez por montagem.
   useEffect(() => {
     if (!canRead) return;
     let alive = true;
@@ -59,13 +69,11 @@ export default function RelatoriosScreen() {
       try {
         const { years: ys } = await listReportYears();
         if (!alive) return;
-        setYears(ys);
-        const currentYear = new Date().getFullYear();
-        if (ys.includes(currentYear)) {
-          setFilters((f) => ({ ...f, year: currentYear }));
+        if (ys.includes(new Date().getFullYear())) {
+          setPeriod({ kind: "preset", id: "ano_atual" });
         }
       } catch {
-        // Sem fatal: dropdown fica em "TODOS" e mostra todos os anos.
+        // Sem fatal: fica em TODO O PERÍODO.
       } finally {
         if (alive) setYearsLoaded(true);
       }
@@ -75,10 +83,12 @@ export default function RelatoriosScreen() {
     };
   }, [canRead]);
 
+  const bounds = useMemo(() => periodBounds(period), [period]);
+
   const reload = useCallback(async () => {
     if (!canRead) return;
-    // Espera o fetch de anos terminar antes de listar — senão fazemos uma
-    // listagem inicial sem filtro de ano e outra logo em seguida com filtro.
+    // Espera o período inicial ser decidido — senão faríamos uma listagem
+    // sem recorte e outra logo em seguida com ele.
     if (!yearsLoaded) return;
     setLoading(true);
     setError(null);
@@ -87,8 +97,9 @@ export default function RelatoriosScreen() {
         limit: PAGE_SIZE,
         offset: page * PAGE_SIZE,
         status: filters.status || undefined,
-        search: filters.search.trim() || undefined,
-        year: filters.year || undefined,
+        search: search.trim() || undefined,
+        date_from: bounds.from || undefined,
+        date_to: bounds.to || undefined,
         sort_by: sort?.field,
         sort_dir: sort?.dir,
       });
@@ -98,7 +109,7 @@ export default function RelatoriosScreen() {
     } finally {
       setLoading(false);
     }
-  }, [canRead, yearsLoaded, filters, page, sort]);
+  }, [canRead, yearsLoaded, search, filters, bounds.from, bounds.to, page, sort]);
 
   useEffect(() => {
     reload();
@@ -126,42 +137,23 @@ export default function RelatoriosScreen() {
           <Search size={14} strokeWidth={1.6} />
           <input
             type="text"
-            value={filters.search}
+            value={search}
             onChange={(e) => {
-              setFilters({ ...filters, search: e.target.value });
+              setSearch(e.target.value);
               setPage(0);
             }}
             placeholder="buscar por assunto…"
           />
         </div>
-        <Select
-          value={filters.status}
-          onChange={(v) => {
-            setFilters({ ...filters, status: v as "" | ReportStatus });
+        <PeriodButton
+          value={period}
+          onChange={(p) => {
+            setPeriod(p);
             setPage(0);
           }}
-          className="sel--toolbar"
-          placeholder="STATUS · TODOS"
-          options={[
-            { value: "", label: "STATUS · TODOS" },
-            { value: "criado", label: "STATUS · CRIADO" },
-            { value: "difundido", label: "STATUS · DIFUNDIDO" },
-            { value: "arquivado", label: "STATUS · ARQUIVADO" },
-          ]}
+          title="PERÍODO · DATA DO DOCUMENTO"
         />
-        <Select
-          value={String(filters.year)}
-          onChange={(v) => {
-            setFilters({ ...filters, year: Number(v) || 0 });
-            setPage(0);
-          }}
-          className="sel--toolbar"
-          placeholder="ANO · TODOS"
-          options={[
-            { value: "0", label: "ANO · TODOS" },
-            ...years.map((y) => ({ value: String(y), label: `ANO · ${y}` })),
-          ]}
-        />
+        <FiltersButton count={filters.status ? 1 : 0} onClick={() => setFiltersOpen(true)} />
         <div style={{ marginLeft: "auto" }} />
         {canCreate && (
           <button
@@ -175,6 +167,39 @@ export default function RelatoriosScreen() {
       </div>
 
       {error && <div className="banner banner-error">⚠ {error}</div>}
+
+      {filtersOpen && (
+        <FiltersModal
+          title="FILTROS · RELATÓRIOS"
+          value={filters}
+          empty={EMPTY_FILTERS}
+          width={420}
+          onClose={() => setFiltersOpen(false)}
+          onApply={(f) => {
+            setFilters(f);
+            setPage(0);
+            setFiltersOpen(false);
+          }}
+        >
+          {(d, set) => (
+            <div className="form-field">
+              <span>STATUS</span>
+              <div className="seg-row">
+                {STATUS_OPTIONS.map((o) => (
+                  <button
+                    key={o.value}
+                    type="button"
+                    className={"seg-btn" + (d.status === o.value ? " seg-btn--on" : "")}
+                    onClick={() => set({ status: o.value })}
+                  >
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </FiltersModal>
+      )}
 
       <div className="panel panel--fill">
         <div className="table-scroll">
@@ -297,7 +322,7 @@ function Row({ report, onOpen }: { report: Report; onOpen: () => void }) {
           {CONFIDENTIALITY_LABEL[report.confidentiality]}
         </span>
       </td>
-      <td className="mono" style={{ fontSize: 11 }}>
+      <td className="mono" style={{ fontSize: 13 }}>
         {clearanceLabel(report.required_clearance)}
       </td>
       <td className="muted">

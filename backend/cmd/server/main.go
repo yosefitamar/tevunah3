@@ -26,15 +26,20 @@ import (
 	"github.com/belia/tevunah/backend/internal/dashboard"
 	idb "github.com/belia/tevunah/backend/internal/db"
 	"github.com/belia/tevunah/backend/internal/entities"
+	"github.com/belia/tevunah/backend/internal/geocode"
+	"github.com/belia/tevunah/backend/internal/httpx"
 	"github.com/belia/tevunah/backend/internal/incidents"
 	"github.com/belia/tevunah/backend/internal/informes"
-	"github.com/belia/tevunah/backend/internal/pdf"
-	"github.com/belia/tevunah/backend/internal/reports"
-	"github.com/belia/tevunah/backend/internal/httpx"
+	"github.com/belia/tevunah/backend/internal/intel"
 	"github.com/belia/tevunah/backend/internal/middleware"
+	"github.com/belia/tevunah/backend/internal/occurrences"
+	"github.com/belia/tevunah/backend/internal/opsreport"
+	"github.com/belia/tevunah/backend/internal/pdf"
 	"github.com/belia/tevunah/backend/internal/permissions"
+	"github.com/belia/tevunah/backend/internal/reports"
 	"github.com/belia/tevunah/backend/internal/session"
 	"github.com/belia/tevunah/backend/internal/settings"
+	"github.com/belia/tevunah/backend/internal/sipom"
 	"github.com/belia/tevunah/backend/internal/users"
 	"github.com/pquerna/otp/totp"
 )
@@ -54,9 +59,28 @@ type app struct {
 	informes    *informes.Repo
 	reports     *reports.Repo
 	incidents   *incidents.Repo
+	opsReports  *opsreport.Repo
+	occurrences *occurrences.Repo
+	intel       *intel.Repo
 	settings    *settings.Repo
 	dashboard   *dashboard.Repo
 	pdf         *pdf.Client
+	// sipom é o catálogo do SIPOM (destino do envio) em memória; nil se não
+	// carregou — a importação segue, sem a tradução.
+	sipom *sipom.Catalog
+	// sipomMap é o de-para de naturezas relatório → SIPOM.
+	sipomMap *sipom.MapRepo
+	// sipomAreas é a referência de área aprendida das escolhas dos analistas
+	// (cidade + bairro → área da unidade militar).
+	sipomAreas *sipom.AreaRuleRepo
+	// sipomTerms são os termos aprendidos (delegacia, delegado, tipos de
+	// arma, drogas, cores…) das escolhas dos analistas.
+	sipomTerms *sipom.TermRepo
+	// geocoder localiza o endereço das ocorrências no Nominatim da agência;
+	// nil = desligado (GEOCODER_URL vazio).
+	geocoder *geocode.Geocoder
+	// opsUnit é o batalhão cujas ocorrências o relatório operacional importa.
+	opsUnit string
 	// tz é o fuso da agência, usado onde carimbo de tempo vira dia civil
 	// (métricas de produção do painel).
 	tz string
@@ -93,11 +117,29 @@ func main() {
 		informes:    informes.New(appDB),
 		reports:     reports.New(appDB),
 		incidents:   incidents.New(appDB),
+		opsReports:  opsreport.New(appDB),
+		occurrences: occurrences.New(appDB),
+		intel:       intel.New(appDB),
+		opsUnit:     idb.Env("OPS_REPORT_UNIT", "2º BPRAIO"),
 		settings:    settings.New(appDB),
 		dashboard:   dashboard.New(appDB, tz),
 		pdf:         pdf.New("", photoDir()),
 		tz:          tz,
 	}
+
+	if cat, err := sipom.Load(context.Background(), appDB); err != nil {
+		log.Printf("catálogo do SIPOM não carregado: %v", err)
+	} else {
+		a.sipom = cat
+	}
+	a.sipomMap = sipom.NewMapRepo(appDB)
+	a.sipomAreas = sipom.NewAreaRuleRepo(appDB)
+	a.sipomTerms = sipom.NewTermRepo(appDB)
+
+	var geoStatus string
+	a.geocoder, geoStatus = geocode.FromEnv(appDB)
+	a.opsReports.GeoRequired = a.geocoder.Enabled()
+	log.Printf("geocodificador %s", geoStatus)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", a.handleHealth)
@@ -167,6 +209,7 @@ func main() {
 	mux.Handle("GET /api/entities/{id}/links", auth(http.HandlerFunc(a.handleEntityLinksList)))
 	mux.Handle("POST /api/entities/{id}/links", auth(http.HandlerFunc(a.handleEntityLinkCreate)))
 	mux.Handle("DELETE /api/entities/{id}/links/{lid}", auth(http.HandlerFunc(a.handleEntityLinkDelete)))
+	mux.Handle("GET /api/entities/{id}/occurrences", auth(http.HandlerFunc(a.handleEntityOccurrences)))
 	mux.Handle("GET /api/entities/{id}/graph", auth(http.HandlerFunc(a.handleEntityGraph)))
 	mux.Handle("GET /api/entities/{id}/addresses", auth(http.HandlerFunc(a.handlePersonAddressList)))
 	mux.Handle("POST /api/entities/{id}/addresses", auth(http.HandlerFunc(a.handlePersonAddressCreate)))
@@ -194,6 +237,11 @@ func main() {
 	mux.Handle("GET /api/reports/{id}/qualifications/{qid}/photo", auth(http.HandlerFunc(a.handleQualificationPhotoGet)))
 	mux.Handle("DELETE /api/reports/{id}/qualifications/{qid}/photo", auth(http.HandlerFunc(a.handleQualificationPhotoDelete)))
 
+	// Ocorrências: listagem que une o cadastro manual e o relatório operacional.
+	mux.Handle("GET /api/occurrences", auth(http.HandlerFunc(a.handleOccurrencesList)))
+	mux.Handle("GET /api/occurrences/locations", auth(http.HandlerFunc(a.handleOccurrencesLocations)))
+	mux.Handle("GET /api/occurrences/geo", auth(http.HandlerFunc(a.handleOccurrencesGeo)))
+
 	mux.Handle("GET /api/incidents", auth(http.HandlerFunc(a.handleIncidentsList)))
 	// Precede /api/incidents/{id} — padrão literal vence o wildcard no ServeMux.
 	mux.Handle("GET /api/incidents/geo", auth(http.HandlerFunc(a.handleIncidentsGeo)))
@@ -210,6 +258,41 @@ func main() {
 	mux.Handle("DELETE /api/incidents/{id}/photo", auth(http.HandlerFunc(a.handleIncidentPhotoDelete)))
 	mux.Handle("POST /api/incidents/{id}/entities", auth(http.HandlerFunc(a.handleIncidentEntityAdd)))
 	mux.Handle("DELETE /api/incidents/{id}/entities/{eid}", auth(http.HandlerFunc(a.handleIncidentEntityRemove)))
+
+	mux.Handle("GET /api/ops-reports", auth(http.HandlerFunc(a.handleOpsReportsList)))
+	mux.Handle("POST /api/ops-reports", auth(http.HandlerFunc(a.handleOpsReportImport)))
+	mux.Handle("POST /api/ops-reports/preview", auth(http.HandlerFunc(a.handleOpsReportPreview)))
+	mux.Handle("GET /api/ops-reports/{id}/file", auth(http.HandlerFunc(a.handleOpsReportFile)))
+	mux.Handle("GET /api/ops-occurrences", auth(http.HandlerFunc(a.handleOpsOccurrencesList)))
+	mux.Handle("GET /api/ops-occurrences/facets", auth(http.HandlerFunc(a.handleOpsOccurrencesFacets)))
+	mux.Handle("GET /api/ops-occurrences/{id}", auth(http.HandlerFunc(a.handleOpsOccurrenceDetail)))
+	mux.Handle("PATCH /api/ops-occurrences/{id}", auth(http.HandlerFunc(a.handleOpsOccurrenceUpdate)))
+	mux.Handle("PUT /api/ops-occurrences/{id}/people/{pid}/entity", auth(http.HandlerFunc(a.handleOpsPersonLink)))
+	mux.Handle("DELETE /api/ops-occurrences/{id}/people/{pid}/entity", auth(http.HandlerFunc(a.handleOpsPersonUnlink)))
+	mux.Handle("PUT /api/ops-occurrences/{id}/intel", auth(http.HandlerFunc(a.handleOpsOccurrenceIntel)))
+	mux.Handle("PUT /api/ops-occurrences/{id}/geo", auth(http.HandlerFunc(a.handleOpsOccurrenceGeo)))
+	mux.Handle("POST /api/ops-occurrences/{id}/photos", auth(http.HandlerFunc(a.handleOpsPhotoUpload)))
+	mux.Handle("GET /api/ops-occurrences/{id}/photos/{pid}", auth(http.HandlerFunc(a.handleOpsPhotoGet)))
+	mux.Handle("DELETE /api/ops-occurrences/{id}/photos/{pid}", auth(http.HandlerFunc(a.handleOpsPhotoDelete)))
+	mux.Handle("POST /api/ops-occurrences/sipom/recompute", auth(http.HandlerFunc(a.handleSipomRecompute)))
+	mux.Handle("PUT /api/ops-occurrences/{id}/sipom/natureza", auth(http.HandlerFunc(a.handleSipomSetNatureza)))
+	mux.Handle("PUT /api/ops-occurrences/{id}/sipom/procedimento", auth(http.HandlerFunc(a.handleSipomSetProcedimento)))
+	mux.Handle("PUT /api/ops-occurrences/{id}/sipom/materiais/{kind}/{pos}", auth(http.HandlerFunc(a.handleSipomSetMaterial)))
+	mux.Handle("PUT /api/ops-occurrences/{id}/sipom/{field}", auth(http.HandlerFunc(a.handleSipomSetField)))
+	mux.Handle("GET /api/sipom/catalogo", auth(http.HandlerFunc(a.handleSipomCatalogo)))
+	mux.Handle("GET /api/sipom/marcas-modelos", auth(http.HandlerFunc(a.handleSipomMarcasModelos)))
+	mux.Handle("GET /api/ops-occurrences/{id}/sipom/payload", auth(http.HandlerFunc(a.handleSipomPayload)))
+	mux.Handle("GET /api/ops-occurrences/sipom/queue", auth(http.HandlerFunc(a.handleSipomQueue)))
+	mux.Handle("POST /api/ops-occurrences/sipom/natureza/confirm", auth(http.HandlerFunc(a.handleSipomConfirmNaturezas)))
+	mux.Handle("GET /api/sipom/naturezas", auth(http.HandlerFunc(a.handleSipomNaturezas)))
+	mux.Handle("GET /api/admin/sipom/natureza-map", auth(http.HandlerFunc(a.handleSipomMapList)))
+	mux.Handle("PUT /api/admin/sipom/natureza-map", auth(http.HandlerFunc(a.handleSipomMapUpsert)))
+
+	mux.Handle("GET /api/admin/intel-keywords", auth(http.HandlerFunc(a.handleIntelKeywordsList)))
+	mux.Handle("POST /api/admin/intel-keywords", auth(http.HandlerFunc(a.handleIntelKeywordCreate)))
+	mux.Handle("PATCH /api/admin/intel-keywords/{id}", auth(http.HandlerFunc(a.handleIntelKeywordUpdate)))
+	mux.Handle("DELETE /api/admin/intel-keywords/{id}", auth(http.HandlerFunc(a.handleIntelKeywordDelete)))
+	mux.Handle("POST /api/admin/intel-keywords/reapply", auth(http.HandlerFunc(a.handleIntelKeywordsReapply)))
 
 	mux.Handle("GET /api/approvals", auth(http.HandlerFunc(a.handleApprovalsList)))
 	mux.Handle("GET /api/approvals/{id}", auth(http.HandlerFunc(a.handleApprovalDetail)))
@@ -309,9 +392,9 @@ func (a *app) handleHealth(w http.ResponseWriter, _ *http.Request) {
 }
 
 type loginRequest struct {
-	Email     string `json:"email"`
-	Password  string `json:"password"`
-	TOTPCode  string `json:"totp_code"`
+	Email    string `json:"email"`
+	Password string `json:"password"`
+	TOTPCode string `json:"totp_code"`
 }
 
 type publicUser struct {

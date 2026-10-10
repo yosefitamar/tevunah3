@@ -2,30 +2,19 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowDown, ArrowRight, ArrowUp, RefreshCw } from "lucide-react";
-import { getDashboard, type Dashboard as DashboardData } from "@/lib/dashboard-api";
-import {
-  INCIDENT_MEANS_COLOR,
-  INCIDENT_MEANS_LABEL,
-  INCIDENT_TYPE_LABEL,
-  type IncidentMeans,
-} from "@/lib/incidents-api";
-import { RANGE_IDS, RANGE_LABEL, resolveRange, type RangeId } from "@/lib/date-ranges";
+import { getDashboard, type Dashboard as DashboardData, type DashFacet } from "@/lib/dashboard-api";
+import { INCIDENT_MEANS_LABEL, type IncidentMeans } from "@/lib/incidents-api";
 import { formatBRDate } from "@/lib/format";
 import type { ApiError } from "@/lib/api";
-import Select from "../shared/Select";
-import DateInput from "../shared/DateInput";
 import FacetBars, { type FacetBar } from "./FacetBars";
 import IncidentSeries from "./IncidentSeries";
-import ProductionPanel from "./ProductionPanel";
+import PeriodButton from "../shared/PeriodButton";
+import { DEFAULT_PERIOD, periodQuery, type PeriodSelection } from "@/lib/period";
 
-const MONTHS_PT = ["JAN", "FEV", "MAR", "ABR", "MAI", "JUN", "JUL", "AGO", "SET", "OUT", "NOV", "DEZ"];
-
-function intelDate(d: Date) {
-  const dd = String(d.getDate()).padStart(2, "0");
-  const mmm = MONTHS_PT[d.getMonth()];
-  const yy = String(d.getFullYear()).slice(-2);
-  return `${dd}${mmm}${yy}`;
-}
+// Recorte territorial exibido no ranking. Municípios e bairros dividem o mesmo
+// painel: lado a lado, cada um ficava com metade da largura e o nome do
+// bairro não cabia.
+type Territory = "cities" | "neighborhoods";
 
 // KPI do painel. `lowerIsBetter` separa o que se quer ver caindo (crime) do
 // que se quer ver subindo (produção da agência): a seta mostra para onde o
@@ -38,24 +27,29 @@ type Kpi = {
   previous: number | null;
   lowerIsBetter: boolean;
   hint: string;
+  /** Formata valor e diferença (ex.: drogas em g/kg). Padrão: o número puro. */
+  format?: (n: number) => string;
 };
 
+// Peso de droga: grama até 1 kg, quilo daí para cima — "582 g", "1,25 kg".
+function formatWeight(g: number): string {
+  if (Math.abs(g) < 1000) return `${g.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} g`;
+  return `${(g / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 2 })} kg`;
+}
+
+// "2 ESPINGARDA · 1 CARABINA": a composição dos itens que o card soma.
+function kindsHint(kinds: DashFacet[]): string {
+  return kinds.map((k) => `${k.count} ${k.name}`).join(" · ");
+}
+
 export default function Dashboard() {
-  const [range, setRange] = useState<RangeId>("mes_atual");
-  const [customFrom, setCustomFrom] = useState("");
-  const [customTo, setCustomTo] = useState("");
+  const [period, setPeriod] = useState<PeriodSelection>(DEFAULT_PERIOD);
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [territory, setTerritory] = useState<Territory>("cities");
 
-  const query = useMemo(() => {
-    if (range === "tudo") return { all: true };
-    if (range === "custom") {
-      return { date_from: customFrom || undefined, date_to: customTo || undefined };
-    }
-    const r = resolveRange(range);
-    return { date_from: r.from, date_to: r.to };
-  }, [range, customFrom, customTo]);
+  const query = useMemo(() => periodQuery(period), [period]);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -79,16 +73,61 @@ export default function Dashboard() {
     if (!data) return [];
     const out: Kpi[] = [];
     const inc = data.incidents;
+    const ops = data.operational;
     if (inc) {
+      out.push({
+        key: "homicidio",
+        label: "HOMICÍDIOS · CVLI",
+        value: inc.by_type.homicidio,
+        previous: hasBaseline ? inc.prev_by_type.homicidio : null,
+        lowerIsBetter: true,
+        hint: mainMeansHint(inc.means, inc.by_type.homicidio),
+      });
+    }
+    // Produção operacional em quantidades, do relatório diário do CPRAIO.
+    if (ops) {
+      const prev = hasBaseline ? ops.previous : null;
       out.push(
         {
-          key: "homicidio",
-          label: "HOMICÍDIOS · CVLI",
-          value: inc.by_type.homicidio,
-          previous: hasBaseline ? inc.prev_by_type.homicidio : null,
-          lowerIsBetter: true,
-          hint: `${inc.geocoded} de ${inc.total} ocorrência(s) do período com coordenadas`,
+          key: "armas",
+          label: "ARMAS APREENDIDAS",
+          value: ops.current.weapons,
+          previous: prev ? prev.weapons : null,
+          lowerIsBetter: false,
+          hint: kindsHint(ops.weapon_kinds),
         },
+        {
+          key: "drogas",
+          label: "DROGAS APREENDIDAS",
+          value: ops.current.drugs_grams,
+          previous: prev ? prev.drugs_grams : null,
+          lowerIsBetter: false,
+          hint: ops.drug_kinds.map((d) => `${d.name} ${formatWeight(d.grams)}`).join(" · "),
+          format: formatWeight,
+        },
+        {
+          key: "conduzidos",
+          label: "CONDUZIDOS",
+          value: ops.current.accused,
+          previous: prev ? prev.accused : null,
+          lowerIsBetter: false,
+          hint:
+            ops.current.adolescents > 0
+              ? `${ops.current.adolescents} adolescente${ops.current.adolescents > 1 ? "s" : ""}`
+              : "",
+        },
+        {
+          key: "veiculos",
+          label: "VEÍCULOS",
+          value: ops.current.vehicles,
+          previous: prev ? prev.vehicles : null,
+          lowerIsBetter: false,
+          hint: kindsHint(ops.vehicle_kinds),
+        },
+      );
+    } else if (inc) {
+      // Sem acesso ao relatório operacional, valem os tipos do cadastro manual.
+      out.push(
         {
           key: "apreensao",
           label: "APREENSÕES",
@@ -120,27 +159,14 @@ export default function Dashboard() {
     return out;
   }, [data, hasBaseline]);
 
-  const meansBars: FacetBar[] = useMemo(() => {
-    if (!data?.incidents) return [];
-    return data.incidents.means.map((f) => {
-      const m = f.name as IncidentMeans;
-      return {
-        key: m || "ni",
-        label: INCIDENT_MEANS_LABEL[m] ?? f.name,
-        count: f.count,
-        color: INCIDENT_MEANS_COLOR[m] ?? "var(--fg-3)",
-      };
-    });
-  }, [data]);
-
   const cityBars: FacetBar[] = useMemo(
-    () => (data?.incidents?.cities ?? []).map((f) => ({ key: f.name, label: f.name, count: f.count })),
+    () => (data?.territory?.cities ?? []).map((f) => ({ key: f.name, label: f.name, count: f.count })),
     [data],
   );
 
   const neighborhoodBars: FacetBar[] = useMemo(
     () =>
-      (data?.incidents?.neighborhoods ?? []).map((f) => ({
+      (data?.territory?.neighborhoods ?? []).map((f) => ({
         key: `${f.city}/${f.name}`,
         label: f.name,
         sub: f.city,
@@ -149,64 +175,57 @@ export default function Dashboard() {
     [data],
   );
 
-  const periodLabel = useMemo(() => {
-    if (range === "custom") {
-      return `${customFrom ? formatBRDate(customFrom) : "…"} → ${customTo ? formatBRDate(customTo) : "…"}`;
-    }
-    return RANGE_LABEL[range];
-  }, [range, customFrom, customTo]);
-
   const nothingVisible =
-    data != null && !data.incidents && !data.reports && !data.informes && !data.entities;
+    data != null &&
+    !data.incidents &&
+    !data.operational &&
+    !data.reports &&
+    !data.informes &&
+    !data.entities;
 
+  const territoryBars = territory === "cities" ? cityBars : neighborhoodBars;
+
+  // Painel enxuto para caber inteiro em 1920×1080 sem rolagem: indicadores,
+  // tendência e território. Produção da agência e meio utilizado saíram —
+  // o primeiro repetia o KPI de RIs difundidos, o segundo virou a linha de
+  // apoio do KPI de homicídios.
   return (
     <div className="screen-fill">
-      <div className="section-title">
-        PAINEL OPERACIONAL · {intelDate(new Date())}
-        <span style={{ color: "var(--fg-2)" }}>· {periodLabel}</span>
-      </div>
-
       <div className="toolbar">
-        <span className="muted" style={{ fontSize: 10, letterSpacing: "0.14em" }}>
-          PERÍODO
-        </span>
-        <Select
-          value={range}
-          onChange={(v) => setRange(v as RangeId)}
-          options={RANGE_IDS.map((id) => ({ value: id, label: RANGE_LABEL[id] }))}
-          className="dash-range"
-        />
-        {range === "custom" && (
-          <>
-            <DateInput value={customFrom} onChange={setCustomFrom} />
-            <span className="muted">→</span>
-            <DateInput value={customTo} onChange={setCustomTo} />
-          </>
-        )}
+        <PeriodButton value={period} onChange={setPeriod} title="PERÍODO DO PAINEL" />
         {data?.period.from && (
           <span className="muted filter-summary">
             {formatBRDate(data.period.from)} → {formatBRDate(data.period.to)}
             {data.previous && (
               <>
                 {" "}
-                · base {formatBRDate(data.previous.from)} → {formatBRDate(data.previous.to)}
+                · comparado a {formatBRDate(data.previous.from)} → {formatBRDate(data.previous.to)}
               </>
             )}
           </span>
         )}
+        {/* Só as verificadas contam: o que ainda tem pendência fica fora dos
+            números, e a diferença aparece aqui para não ser silenciosa. */}
+        {!!data?.operational?.pending && (
+          <span
+            className="pill hold"
+            title="Ocorrências do período com pendência ou aviso. Só as verificadas entram nas estatísticas — resolva as pendências na tela de Ocorrências para elas contarem."
+          >
+            {data.operational.pending} COM PENDÊNCIA FORA DOS NÚMEROS
+          </span>
+        )}
         <div style={{ marginLeft: "auto" }} />
         <button type="button" className="btn btn-ghost" onClick={reload} disabled={loading}>
-          <RefreshCw size={13} strokeWidth={1.8} /> {loading ? "CARREGANDO…" : "ATUALIZAR"}
+          <RefreshCw size={14} strokeWidth={1.8} /> {loading ? "CARREGANDO…" : "ATUALIZAR"}
         </button>
       </div>
 
       {error && <div className="banner banner-error">⚠ {error}</div>}
 
-      {/* Cabeçalho e recorte ficam fixos; só os painéis rolam. O .content do
-          shell é overflow:hidden — no Tevunah cada tela gerencia o próprio
-          scroll, e sem esta área os cards de baixo ficavam fora de alcance. */}
-      <div className="dash-scroll">
-
+      {/* Cabeçalho fixo; o corpo se ajusta à altura e só rola se a escala da
+          interface passar do que cabe. O .content do shell é overflow:hidden —
+          no Tevunah cada tela gerencia o próprio scroll. */}
+      <div className="dash">
         {!data && loading && <div className="muted dash-loading">// LEVANTANDO NÚMEROS…</div>}
 
         {nothingVisible && (
@@ -214,7 +233,8 @@ export default function Dashboard() {
             <div className="ph-tag">// MOD-01 / DASHBOARD</div>
             <div className="ph-ttl">SEM MÓDULOS LIBERADOS</div>
             <div className="ph-sub">
-              Seu perfil não tem leitura de ocorrências, relatórios, informes ou entidades — não há
+              Seu perfil não tem leitura de ocorrências, relatório operacional, relatórios, informes ou
+              entidades — não há
               números a exibir. Contate o administrador.
             </div>
           </div>
@@ -230,8 +250,8 @@ export default function Dashboard() {
               </div>
             )}
 
-            {data.incidents && (
-              <div className="grid-main">
+            {(data.incidents || data.operational) && (
+              <div className="dash-main">
                 <div className="panel">
                   <div className="panel-hd">
                     <span className="ttl">OCORRÊNCIAS · 12 MESES</span>
@@ -240,68 +260,51 @@ export default function Dashboard() {
                       {data.series_period.to.slice(0, 7).replace("-", "/")}
                     </span>
                   </div>
-                  <div className="panel-bd">
-                    <IncidentSeries series={data.incidents.series} />
+                  <div className="panel-bd dash-series">
+                    <IncidentSeries
+                      series={data.incidents?.series}
+                      operational={data.operational?.series}
+                    />
                   </div>
                 </div>
 
                 <div className="panel">
                   <div className="panel-hd">
-                    <span className="ttl">MEIO UTILIZADO</span>
-                    <span className="meta">CVLI · PERÍODO</span>
+                    <div className="panel-tabs" role="tablist" aria-label="Recorte territorial">
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={territory === "cities"}
+                        className={"panel-tab" + (territory === "cities" ? " on" : "")}
+                        onClick={() => setTerritory("cities")}
+                      >
+                        MUNICÍPIOS
+                      </button>
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={territory === "neighborhoods"}
+                        className={"panel-tab" + (territory === "neighborhoods" ? " on" : "")}
+                        onClick={() => setTerritory("neighborhoods")}
+                      >
+                        BAIRROS
+                      </button>
+                    </div>
+                    <span className="meta">TOP 8 · PERÍODO</span>
                   </div>
                   <div className="panel-bd">
                     <FacetBars
-                      items={meansBars}
-                      empty="NENHUM HOMICÍDIO NO PERÍODO"
-                      showPercent
+                      items={territoryBars}
+                      empty={
+                        territory === "cities"
+                          ? "SEM MUNICÍPIO INFORMADO NO PERÍODO"
+                          : "SEM BAIRRO INFORMADO NO PERÍODO"
+                      }
                     />
-                    {/* Sem CVLI no recorte a lista já diz isso; a nota viraria
-                        "distribuição sobre os 0 homicídios". */}
-                    {data.incidents.by_type.homicidio > 0 && (
-                      <div className="dash-note muted">
-                        Distribuição sobre os {data.incidents.by_type.homicidio}{" "}
-                        {INCIDENT_TYPE_LABEL.homicidio.toLowerCase()}
-                        {data.incidents.by_type.homicidio === 1 ? "" : "s"} do recorte.
-                      </div>
-                    )}
                   </div>
                 </div>
               </div>
             )}
-
-            <div className="grid-bottom">
-              {data.incidents && (
-                <>
-                  <div className="panel">
-                    <div className="panel-hd">
-                      <span className="ttl">MUNICÍPIOS</span>
-                      <span className="meta">TOP 8</span>
-                    </div>
-                    <div className="panel-bd">
-                      <FacetBars items={cityBars} empty="SEM MUNICÍPIO INFORMADO NO PERÍODO" />
-                    </div>
-                  </div>
-
-                  <div className="panel">
-                    <div className="panel-hd">
-                      <span className="ttl">BAIRROS</span>
-                      <span className="meta">TOP 8</span>
-                    </div>
-                    <div className="panel-bd">
-                      <FacetBars items={neighborhoodBars} empty="SEM BAIRRO INFORMADO NO PERÍODO" />
-                    </div>
-                  </div>
-                </>
-              )}
-
-              <ProductionPanel
-                reports={data.reports}
-                informes={data.informes}
-                entities={data.entities}
-                hasBaseline={hasBaseline}
-              />
-            </div>
           </>
         )}
       </div>
@@ -309,8 +312,22 @@ export default function Dashboard() {
   );
 }
 
+// Linha de apoio do KPI de homicídios: o meio mais frequente e sua fatia.
+// "Não informado" não entra na disputa — dizer que o principal meio é
+// desconhecido não orienta ninguém.
+function mainMeansHint(means: { name: string; count: number }[], homicides: number): string {
+  if (homicides === 0) return "";
+  const top = means
+    .filter((m) => m.name !== "" && m.count > 0)
+    .reduce<{ name: string; count: number } | null>((a, m) => (a && a.count >= m.count ? a : m), null);
+  if (!top) return "";
+  const label = INCIDENT_MEANS_LABEL[top.name as IncidentMeans] ?? top.name;
+  return `${label} em ${Math.round((top.count / homicides) * 100)}% dos casos`;
+}
+
 function KpiCard({ kpi }: { kpi: Kpi }) {
   const { value, previous, lowerIsBetter } = kpi;
+  const fmt = kpi.format ?? ((n: number) => String(n));
   const diff = previous == null ? null : value - previous;
   // Sem base anterior (recorte aberto) ou base zerada, o percentual seria
   // ficção: mostra-se o absoluto.
@@ -320,24 +337,24 @@ function KpiCard({ kpi }: { kpi: Kpi }) {
   return (
     <div className="panel kpi">
       <div className="kpi-lbl">{kpi.label}</div>
-      <div className="kpi-val">{value}</div>
+      <div className="kpi-val">{fmt(value)}</div>
       <div className="kpi-trend">
         {diff == null ? (
           <span className="muted">sem base de comparação</span>
         ) : diff === 0 ? (
           <>
-            <ArrowRight size={11} strokeWidth={2} />
-            <span>estável · {previous} antes</span>
+            <ArrowRight size={13} strokeWidth={2} />
+            <span>estável · {fmt(previous!)} antes</span>
           </>
         ) : (
           <>
             <span className={favorable ? "up" : "dn"}>
-              {diff > 0 ? <ArrowUp size={11} strokeWidth={2} /> : <ArrowDown size={11} strokeWidth={2} />}
+              {diff > 0 ? <ArrowUp size={13} strokeWidth={2} /> : <ArrowDown size={13} strokeWidth={2} />}
             </span>
             <span className={favorable ? "up" : "dn"}>
-              {pct != null ? `${Math.abs(pct)}%` : `${diff > 0 ? "+" : "−"}${Math.abs(diff)}`}
+              {pct != null ? `${Math.abs(pct)}%` : `${diff > 0 ? "+" : "−"}${fmt(Math.abs(diff))}`}
             </span>
-            <span className="muted">vs. {previous}</span>
+            <span className="muted">vs. {fmt(previous!)}</span>
           </>
         )}
       </div>

@@ -90,7 +90,22 @@ var (
 	ErrInvalidType    = errors.New("tipo inválido")
 	ErrInvalidMeans   = errors.New("meio utilizado inválido")
 	ErrInvalidRole    = errors.New("papel inválido")
+	// ErrDuplicateCIOPS: a ficha CIOPS já identifica outra ocorrência do
+	// cadastro (gatilho incidents_ciops_guard).
+	ErrDuplicateCIOPS = errors.New("ficha CIOPS já cadastrada")
 )
+
+// CleanCIOPS é a forma em que a ficha CIOPS é gravada: maiúsculas e sem
+// espaços, como o relatório operacional a escreve ("M20260705888").
+func CleanCIOPS(s string) string {
+	return strings.ToUpper(strings.Join(strings.Fields(s), ""))
+}
+
+// ciopsViolation reconhece a recusa do gatilho incidents_ciops_guard.
+func ciopsViolation(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "SQLSTATE 23505") && strings.Contains(msg, "ficha CIOPS")
+}
 
 // Incident é o registro consolidado (campos base + envolvidos).
 type Incident struct {
@@ -110,6 +125,8 @@ type Incident struct {
 	// Means é o meio utilizado (relevante em homicídio); "" = não informado.
 	Means       string
 	MeansDetail string
+	// IntelParticipation marca as ocorrências em que a SAI atuou.
+	IntelParticipation bool
 
 	CreatedAt time.Time
 	CreatedBy string
@@ -148,32 +165,34 @@ type NewIncident struct {
 	Neighborhood string
 	// Description é gravada em MAIÚSCULAS, como os demais textos livres do
 	// sistema.
-	Description string
-	Means       string
-	MeansDetail string
-	CreatedBy   string
+	Description        string
+	Means              string
+	MeansDetail        string
+	IntelParticipation bool
+	CreatedBy          string
 }
 
 // UpdateOpts é o input do Update. Campos nil = não tocar.
 type UpdateOpts struct {
-	Type            *string
-	OccurredOn      *time.Time
-	OccurredTime    *string // ponteiro p/ "HH:MM"; "" limpa a hora
-	OccurredTimeSet bool    // distingue "não enviado" de "limpar"
-	CIOPSRecord     *string
-	Latitude        *float64
-	LatitudeSet     bool
-	Longitude       *float64
-	LongitudeSet    bool
-	City            *string // "" limpa
-	CitySet         bool
-	Neighborhood    *string // "" limpa
-	NeighborhoodSet bool
-	Description     *string
-	Means           *string // "" limpa (volta a "não informado")
-	MeansSet        bool
-	MeansDetail     *string
-	MeansDetailSet  bool
+	Type               *string
+	OccurredOn         *time.Time
+	OccurredTime       *string // ponteiro p/ "HH:MM"; "" limpa a hora
+	OccurredTimeSet    bool    // distingue "não enviado" de "limpar"
+	CIOPSRecord        *string
+	Latitude           *float64
+	LatitudeSet        bool
+	Longitude          *float64
+	LongitudeSet       bool
+	City               *string // "" limpa
+	CitySet            bool
+	Neighborhood       *string // "" limpa
+	NeighborhoodSet    bool
+	Description        *string
+	Means              *string // "" limpa (volta a "não informado")
+	MeansSet           bool
+	MeansDetail        *string
+	MeansDetailSet     bool
+	IntelParticipation *bool
 }
 
 // ListOpts controla a listagem.
@@ -185,11 +204,11 @@ type ListOpts struct {
 	City         string // vazio = todos (comparação exata, valor já em UPPER)
 	Neighborhood string // vazio = todos
 	Search       string // ILIKE em description/ciops_record
-	DateFrom    string // YYYY-MM-DD; vazio = ignora
-	DateTo      string // YYYY-MM-DD; vazio = ignora
-	SortBy      string // "occurred_on"|"type"|"created_at"|"updated_at"
-	SortDir     string // "asc"|"desc"; default "desc"
-	OnlyDeleted bool
+	DateFrom     string // YYYY-MM-DD; vazio = ignora
+	DateTo       string // YYYY-MM-DD; vazio = ignora
+	SortBy       string // "occurred_on"|"type"|"created_at"|"updated_at"
+	SortDir      string // "asc"|"desc"; default "desc"
+	OnlyDeleted  bool
 }
 
 // searchClause casa o termo contra a própria ocorrência (descrição, ficha
@@ -239,7 +258,7 @@ const incidentSelectFields = `
 	i.id, i.type, i.occurred_on, to_char(i.occurred_time, 'HH24:MI'),
 	i.ciops_record, i.photo_path,
 	i.latitude, i.longitude, i.city, i.neighborhood,
-	i.description, i.means, i.means_detail,
+	i.description, i.means, i.means_detail, i.intel_participation,
 	i.created_at, i.created_by, i.updated_at, i.updated_by,
 	i.deleted_at, i.deleted_by`
 
@@ -260,18 +279,22 @@ func (r *Repo) Create(ctx context.Context, in NewIncident) (*Incident, error) {
 		INSERT INTO app.incidents
 		  (type, occurred_on, occurred_time, ciops_record,
 		   latitude, longitude, city, neighborhood,
-		   description, means, means_detail,
+		   description, means, means_detail, intel_participation,
 		   created_by, updated_by)
-		VALUES ($1, $2, $3::time, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12)
+		VALUES ($1, $2, $3::time, $4, $5, $6, $7, $8, $9, $10, $11, $13, $12, $12)
 		RETURNING id`,
 		in.Type, in.OccurredOn, nilTimeStr(in.OccurredTime),
-		strings.TrimSpace(in.CIOPSRecord),
+		CleanCIOPS(in.CIOPSRecord),
 		nilFloat(in.Latitude), nilFloat(in.Longitude),
 		upperTrim(in.City), upperTrim(in.Neighborhood),
 		upperTrim(in.Description),
 		in.Means, strings.TrimSpace(in.MeansDetail), in.CreatedBy,
+		in.IntelParticipation,
 	).Scan(&id)
 	if err != nil {
+		if ciopsViolation(err) {
+			return nil, ErrDuplicateCIOPS
+		}
 		return nil, fmt.Errorf("db: %w", err)
 	}
 	return r.FindByID(ctx, id)
@@ -574,18 +597,23 @@ func (r *Repo) Update(ctx context.Context, id, updatedBy string, p UpdateOpts) (
 		  means_detail  = CASE WHEN $15 THEN $16::text ELSE means_detail END,
 		  city          = CASE WHEN $17 THEN $18::text ELSE city END,
 		  neighborhood  = CASE WHEN $19 THEN $20::text ELSE neighborhood END,
+		  intel_participation = COALESCE($21::boolean, intel_participation),
 		  updated_at    = now(),
 		  updated_by    = $11
 		WHERE id = $12 AND deleted_at IS NULL`,
 		nilStrP(p.Type), nilTimePtr(p.OccurredOn),
 		useTime, timeArg,
-		nilTrimP(p.CIOPSRecord),
+		nilCIOPSP(p.CIOPSRecord),
 		useLat, latArg, useLng, lngArg,
 		nilUpperTrimP(p.Description), updatedBy, id,
 		p.MeansSet, meansArg, p.MeansDetailSet, detailArg,
 		p.CitySet, cityArg, p.NeighborhoodSet, neighborhoodArg,
+		nilBoolP(p.IntelParticipation),
 	)
 	if err != nil {
+		if ciopsViolation(err) {
+			return nil, ErrDuplicateCIOPS
+		}
 		return nil, fmt.Errorf("db: %w", err)
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
@@ -752,7 +780,7 @@ type scanner interface {
 	Scan(dest ...any) error
 }
 
-func scanIncident(row *sql.Row) (*Incident, error) { return scanCommon(row) }
+func scanIncident(row *sql.Row) (*Incident, error)       { return scanCommon(row) }
 func scanIncidentRows(rows *sql.Rows) (*Incident, error) { return scanCommon(rows) }
 
 func scanCommon(s scanner) (*Incident, error) {
@@ -767,7 +795,7 @@ func scanCommon(s scanner) (*Incident, error) {
 		&inc.ID, &inc.Type, &inc.OccurredOn, &occurredTime,
 		&inc.CIOPSRecord, &photoPath,
 		&lat, &lng, &inc.City, &inc.Neighborhood,
-		&inc.Description, &inc.Means, &inc.MeansDetail,
+		&inc.Description, &inc.Means, &inc.MeansDetail, &inc.IntelParticipation,
 		&inc.CreatedAt, &inc.CreatedBy, &inc.UpdatedAt, &updatedBy,
 		&deletedAt, &deletedBy,
 	); err != nil {
@@ -811,18 +839,17 @@ func nilStrP(p *string) any {
 	return *p
 }
 
-// nilTrimP trata "" como NULL pra COALESCE manter o valor atual quando o
-// caller envia string vazia sem intenção de limpar (campos texto NOT NULL
-// usam DEFAULT '', então "" seria gravado; aqui preferimos manter).
-func nilTrimP(p *string) any {
+// nilCIOPSP devolve a ficha CIOPS na forma gravada (CleanCIOPS); nil = campo
+// não enviado, e o COALESCE mantém o valor atual.
+func nilCIOPSP(p *string) any {
 	if p == nil {
 		return nil
 	}
-	return strings.TrimSpace(*p)
+	return CleanCIOPS(*p)
 }
 
-// nilUpperTrimP é nilTrimP com upper: usado nos campos de texto livre que o
-// sistema grava em MAIÚSCULAS.
+// nilUpperTrimP é o equivalente para os campos de texto livre que o sistema
+// grava em MAIÚSCULAS.
 func nilUpperTrimP(p *string) any {
 	if p == nil {
 		return nil
@@ -835,6 +862,13 @@ func nilUpperTrimP(p *string) any {
 // e bairro agregáveis por comparação exata.
 func upperTrim(s string) string {
 	return strings.ToUpper(strings.TrimSpace(s))
+}
+
+func nilBoolP(p *bool) any {
+	if p == nil {
+		return nil
+	}
+	return *p
 }
 
 func nilFloat(p *float64) any {
@@ -879,4 +913,49 @@ func nullStr(s sql.NullString) *string {
 	}
 	v := s.String
 	return &v
+}
+
+// ─────────────────────────── Por entidade ────────────────────────────
+
+// EntityIncident é uma ocorrência vista a partir de um envolvido: o dossiê
+// lista onde a entidade aparece e com que papel.
+type EntityIncident struct {
+	ID           string
+	Type         string
+	OccurredOn   time.Time
+	OccurredTime *string
+	City         string
+	Neighborhood string
+	CIOPSRecord  string
+	Role         string
+}
+
+// ListByEntity devolve as ocorrências (não excluídas) em que a entidade está
+// vinculada, da mais recente para a mais antiga.
+func (r *Repo) ListByEntity(ctx context.Context, entityID string) ([]EntityIncident, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT i.id, i.type, i.occurred_on, to_char(i.occurred_time, 'HH24:MI'),
+		       i.city, i.neighborhood, i.ciops_record, ie.role
+		  FROM app.incident_entities ie
+		  JOIN app.incidents i ON i.id = ie.incident_id
+		 WHERE ie.entity_id = $1 AND i.deleted_at IS NULL
+		 ORDER BY i.occurred_on DESC, i.occurred_time DESC NULLS LAST`, entityID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []EntityIncident{}
+	for rows.Next() {
+		var e EntityIncident
+		var t sql.NullString
+		if err := rows.Scan(&e.ID, &e.Type, &e.OccurredOn, &t, &e.City, &e.Neighborhood,
+			&e.CIOPSRecord, &e.Role); err != nil {
+			return nil, err
+		}
+		if t.Valid {
+			e.OccurredTime = &t.String
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
 }

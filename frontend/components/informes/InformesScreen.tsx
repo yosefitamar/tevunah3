@@ -138,7 +138,7 @@ export default function InformesScreen() {
                       {inf.description || "—"}
                     </td>
                     <td className="muted">{inf.created_by_code}</td>
-                    <td className="mono" style={{ fontSize: 11 }}>{clearanceLabel(inf.required_clearance)}</td>
+                    <td className="mono" style={{ fontSize: 13 }}>{clearanceLabel(inf.required_clearance)}</td>
                     <td className="muted">{formatBR(inf.created_at)}</td>
                   </tr>
                 ))}

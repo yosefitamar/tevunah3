@@ -160,17 +160,17 @@ export default function InvolvedPicker({ exclude, onPick, disabled }: Props) {
 
       <div className="qual-picker-results">
         {!role && q.trim() && (
-          <div className="muted" style={{ fontSize: 11 }}>
+          <div className="muted" style={{ fontSize: 13 }}>
             // ESCOLHA O PAPEL ANTES DE VINCULAR
           </div>
         )}
         {loading && (
-          <div className="muted" style={{ fontSize: 11 }}>
+          <div className="muted" style={{ fontSize: 13 }}>
             // BUSCANDO…
           </div>
         )}
         {!loading && q.trim() && visible.length === 0 && (
-          <div className="muted" style={{ fontSize: 11 }}>
+          <div className="muted" style={{ fontSize: 13 }}>
             // NENHUM RESULTADO
           </div>
         )}

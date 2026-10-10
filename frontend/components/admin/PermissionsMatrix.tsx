@@ -14,6 +14,7 @@ import { formatBR } from "@/lib/format";
 import type { ApiError } from "@/lib/api";
 import SortHeader, { type SortState } from "../shared/SortHeader";
 import Select from "../shared/Select";
+import FiltersModal, { FiltersButton } from "../shared/FiltersModal";
 
 type RowState = "idle" | "saving" | "saved" | "error";
 
@@ -31,6 +32,7 @@ export default function PermissionsMatrix() {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState<RoleCode | "">("");
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [rowState, setRowState] = useState<Record<RowKey, RowState>>({});
   const [rowError, setRowError] = useState<Record<RowKey, string | null>>({});
   const [sort, setSort] = useState<SortState>({ field: "action", dir: "asc" });
@@ -176,19 +178,8 @@ export default function PermissionsMatrix() {
           />
         </div>
 
-        <Select
-          value={roleFilter}
-          onChange={(v) => setRoleFilter(v as RoleCode | "")}
-          className="sel--toolbar"
-          placeholder="PAPEL · TODOS"
-          options={[
-            { value: "", label: "PAPEL · TODOS" },
-            ...rolesList.map((r) => ({
-              value: r.code,
-              label: `PAPEL · ${roleLab(r.code)}`,
-            })),
-          ]}
-        />
+        <FiltersButton count={roleFilter ? 1 : 0} onClick={() => setFiltersOpen(true)} />
+        <div style={{ marginLeft: "auto" }} />
 
         <button
           type="button"
@@ -202,6 +193,34 @@ export default function PermissionsMatrix() {
       </div>
 
       {error && <div className="banner banner-error">⚠ {error}</div>}
+
+      {filtersOpen && (
+        <FiltersModal
+          title="FILTROS · MATRIZ RBAC"
+          value={{ role: roleFilter }}
+          empty={{ role: "" as RoleCode | "" }}
+          width={420}
+          onClose={() => setFiltersOpen(false)}
+          onApply={(f) => {
+            setRoleFilter(f.role);
+            setFiltersOpen(false);
+          }}
+        >
+          {(d, set) => (
+            <div className="form-field">
+              <span>PAPEL</span>
+              <Select
+                value={d.role}
+                onChange={(v) => set({ role: v as RoleCode | "" })}
+                options={[
+                  { value: "", label: "TODOS" },
+                  ...rolesList.map((r) => ({ value: r.code, label: roleLab(r.code) })),
+                ]}
+              />
+            </div>
+          )}
+        </FiltersModal>
+      )}
 
       <div className="panel panel--fill">
         <div className="table-scroll">
@@ -245,7 +264,7 @@ export default function PermissionsMatrix() {
                       </td>
                       <td title={descOf(p.action)}>
                         <span style={{ color: "var(--fg-0)" }}>{labelOf(p.action)}</span>
-                        <span className="mono muted" style={{ fontSize: 10, display: "block" }}>
+                        <span className="mono muted" style={{ fontSize: 11.5, display: "block" }}>
                           {p.action}
                         </span>
                       </td>

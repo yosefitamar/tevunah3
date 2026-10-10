@@ -102,7 +102,7 @@ export default function RelatorioPreviewModal({
             </div>
           )}
           {!err && !blobURL && (
-            <div className="muted" style={{ padding: 24, textAlign: "center", fontSize: 11 }}>
+            <div className="muted" style={{ padding: 24, textAlign: "center", fontSize: 13 }}>
               // GERANDO PDF…
             </div>
           )}

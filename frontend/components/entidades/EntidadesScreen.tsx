@@ -4,7 +4,6 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import {
   AlertOctagon,
   Car,
-  Filter,
   Plus,
   RotateCcw,
   Search,
@@ -32,6 +31,7 @@ import {
 import { formatBR, formatBRDate } from "@/lib/format";
 import SortHeader, { type SortState } from "../shared/SortHeader";
 import Select from "../shared/Select";
+import FiltersModal, { FiltersButton } from "../shared/FiltersModal";
 import CreateEntidadeModal from "./CreateEntidadeModal";
 import EntidadeDrawer from "./EntidadeDrawer";
 
@@ -133,16 +133,6 @@ export default function EntidadesScreen() {
     setSort(next);
   }
 
-  // applyQuickFilter substitui o (kind, tag) atual pelo definido no chip,
-  // ou limpa se o chip já estiver ativo (toggle). Demais dimensões da busca
-  // (search, sort, paginação) permanecem; resetamos a página pra 0 pra que
-  // o usuário sempre veja o início do resultado filtrado.
-  function applyQuickFilter(next: Filters) {
-    const same = next.kind === filters.kind && next.tag === filters.tag;
-    setPage(0);
-    setFilters(same ? EMPTY_FILTERS : next);
-  }
-
   if (!canListEntities(me)) {
     return (
       <div className="placeholder">
@@ -189,19 +179,7 @@ export default function EntidadesScreen() {
           </button>
         </form>
 
-        {/* Atalhos rápidos de filtro: aplicam (kind, tag) atômicos. Clique
-            no chip ativo desativa; clique em outro chip substitui (são
-            mutuamente exclusivos porque colidem na dimensão kind). */}
-        <QuickFilters value={filters} onApply={applyQuickFilter} />
-
-        <button
-          type="button"
-          className={"btn" + (activeCount > 0 || filtersOpen ? " btn-active" : "")}
-          onClick={() => setFiltersOpen((o) => !o)}
-        >
-          <Filter size={14} strokeWidth={1.8} /> FILTROS
-          {activeCount > 0 && <span className="btn-badge">{activeCount}</span>}
-        </button>
+        <FiltersButton count={activeCount} onClick={() => setFiltersOpen(true)} />
 
         {canRestoreEntities(me) && (
           <button
@@ -230,14 +208,19 @@ export default function EntidadesScreen() {
       </div>
 
       {filtersOpen && (
-        <FilterPanel
+        <FiltersModal
+          title="FILTROS · ENTIDADES"
           value={filters}
+          empty={EMPTY_FILTERS}
+          onClose={() => setFiltersOpen(false)}
           onApply={(f) => {
             setPage(0);
             setFilters(f);
             setFiltersOpen(false);
           }}
-        />
+        >
+          {(d, set) => <EntityFilterFields value={d} onChange={set} />}
+        </FiltersModal>
       )}
 
       {error && <div className="banner banner-error">⚠ {error}</div>}
@@ -416,59 +399,54 @@ export default function EntidadesScreen() {
   );
 }
 
-// ─────────────────────────── FilterPanel ────────────────────────────
+// ─────────────────────────── Campos do filtro ────────────────────────────
 
-type FilterPanelProps = {
+function EntityFilterFields({
+  value,
+  onChange,
+}: {
   value: Filters;
-  onApply: (f: Filters) => void;
-};
-
-function FilterPanel({ value, onApply }: FilterPanelProps) {
-  const [local, setLocal] = useState<Filters>(value);
-
+  onChange: (f: Partial<Filters>) => void;
+}) {
   return (
-    <div className="filter-panel">
-      <div className="filter-row">
-        <div className="filter-field">
+    <>
+      {/* Atalhos: aplicam (kind, tag) de uma vez no rascunho. Clique no
+          atalho ativo limpa; são mutuamente exclusivos (colidem em kind). */}
+      <div className="form-field">
+        <span>ATALHOS</span>
+        <QuickFilters
+          value={value}
+          onApply={(next) => {
+            const same = next.kind === value.kind && next.tag === value.tag;
+            onChange(same ? EMPTY_FILTERS : next);
+          }}
+        />
+      </div>
+      <div className="form-grid-2">
+        <div className="form-field">
           <span>TIPO</span>
           <Select
-            value={local.kind}
-            onChange={(v) => setLocal({ ...local, kind: v as EntityKind | "" })}
+            value={value.kind}
+            onChange={(v) => onChange({ kind: v as EntityKind | "" })}
             placeholder="TODOS"
             options={[
               { value: "", label: "TODOS" },
-              ...ENTITY_KINDS.map((k) => ({
-                value: k,
-                label: ENTITY_KIND_LABEL[k],
-              })),
+              ...ENTITY_KINDS.map((k) => ({ value: k, label: ENTITY_KIND_LABEL[k] })),
             ]}
           />
         </div>
-
-        <label className="filter-field">
+        <label className="form-field">
           <span>TAG</span>
-          <input
-            type="text"
-            value={local.tag}
-            onChange={(e) => setLocal({ ...local, tag: e.target.value })}
-          />
+          <input type="text" value={value.tag} onChange={(e) => onChange({ tag: e.target.value })} />
         </label>
       </div>
-      <div className="filter-actions">
-        <button type="button" className="btn btn-ghost" onClick={() => onApply(EMPTY_FILTERS)}>
-          LIMPAR
-        </button>
-        <button type="button" className="btn btn-primary" onClick={() => onApply(local)}>
-          APLICAR
-        </button>
-      </div>
-    </div>
+    </>
   );
 }
 
 // ─────────────────────────── QuickFilters ────────────────────────────
 //
-// Atalhos visuais ao lado da busca pros filtros mais comuns. Cada chip
+// Atalhos do modal de filtros pros recortes mais comuns. Cada chip
 // aplica uma combinação (kind, tag) específica; clique no chip ativo
 // limpa o filtro. Mutuamente exclusivos: chips colidem na dimensão kind.
 

@@ -1,16 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { Filter, RefreshCcw, Search, ShieldAlert } from "lucide-react";
+import { RefreshCcw, Search, ShieldAlert } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { listAudit, type AuditList } from "@/lib/audit-api";
 import { canReadAudit } from "@/lib/permissions";
 import { actionGroup, type AuditEntry } from "@/lib/types";
 import { formatBR } from "@/lib/format";
+import { ALL_PERIOD, periodBounds, type PeriodSelection } from "@/lib/period";
 import AuditDetail from "./AuditDetail";
 import SortHeader, { type SortState } from "../shared/SortHeader";
 import Select from "../shared/Select";
-import DateInput from "../shared/DateInput";
+import PeriodButton from "../shared/PeriodButton";
+import FiltersModal, { FiltersButton } from "../shared/FiltersModal";
 
 const PAGE_SIZE = 25;
 
@@ -31,19 +33,27 @@ const RESOURCE_TYPES: Array<{ value: string; label: string }> = [
 type Filters = {
   action: string;        // ex.: "auth.*"
   resourceType: string;
-  from: string;          // YYYY-MM-DD
-  to: string;
 };
 
-const EMPTY_FILTERS: Filters = { action: "", resourceType: "", from: "", to: "" };
+const EMPTY_FILTERS: Filters = { action: "", resourceType: "" };
 
 function activeFilterCount(f: Filters) {
   let n = 0;
   if (f.action) n++;
   if (f.resourceType) n++;
-  if (f.from) n++;
-  if (f.to) n++;
   return n;
+}
+
+// O trilho filtra por instante (ts < to), não por dia: o período vira
+// [meia-noite local do primeiro dia, meia-noite local do dia seguinte ao
+// último), em RFC3339 — assim o último dia entra inteiro e no fuso local.
+function periodInstants(p: PeriodSelection): { from?: string; to?: string } {
+  const b = periodBounds(p);
+  const at = (iso: string, plusDays = 0) => {
+    const [y, m, d] = iso.split("-").map(Number);
+    return new Date(y, m - 1, d + plusDays).toISOString();
+  };
+  return { from: b.from ? at(b.from) : undefined, to: b.to ? at(b.to, 1) : undefined };
 }
 
 function shortHash(h: string): string {
@@ -74,6 +84,7 @@ export default function AuditoriaScreen() {
   const [error, setError] = useState<string | null>(null);
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
+  const [period, setPeriod] = useState<PeriodSelection>(ALL_PERIOD);
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [page, setPage] = useState(0);
@@ -81,7 +92,7 @@ export default function AuditoriaScreen() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
 
   const reload = useCallback(
-    async (q: string, f: Filters, p: number, s: SortState) => {
+    async (q: string, f: Filters, per: PeriodSelection, p: number, s: SortState) => {
       setLoading(true);
       setError(null);
       try {
@@ -91,8 +102,7 @@ export default function AuditoriaScreen() {
           search: q || undefined,
           action: f.action || undefined,
           resource_type: f.resourceType || undefined,
-          from: f.from || undefined,
-          to: f.to || undefined,
+          ...periodInstants(per),
           sort_by: (s?.field as "id" | "ts" | "action" | "actor" | "resource") || undefined,
           sort_dir: s?.dir,
         });
@@ -107,8 +117,8 @@ export default function AuditoriaScreen() {
   );
 
   useEffect(() => {
-    if (canReadAudit(me)) reload(search, filters, page, sort);
-  }, [me, page, search, filters, sort, reload]);
+    if (canReadAudit(me)) reload(search, filters, period, page, sort);
+  }, [me, page, search, filters, period, sort, reload]);
 
   function changeSort(next: SortState) {
     setPage(0);
@@ -161,19 +171,20 @@ export default function AuditoriaScreen() {
           </button>
         </form>
 
-        <button
-          type="button"
-          className={"btn" + (activeCount > 0 || filtersOpen ? " btn-active" : "")}
-          onClick={() => setFiltersOpen((o) => !o)}
-        >
-          <Filter size={14} strokeWidth={1.8} /> FILTROS
-          {activeCount > 0 && <span className="btn-badge">{activeCount}</span>}
-        </button>
+        <PeriodButton
+          value={period}
+          onChange={(p) => {
+            setPage(0);
+            setPeriod(p);
+          }}
+        />
+        <FiltersButton count={activeCount} onClick={() => setFiltersOpen(true)} />
+        <div style={{ marginLeft: "auto" }} />
 
         <button
           type="button"
           className="btn"
-          onClick={() => reload(search, filters, page, sort)}
+          onClick={() => reload(search, filters, period, page, sort)}
           disabled={loading}
           title="Recarregar"
         >
@@ -182,14 +193,38 @@ export default function AuditoriaScreen() {
       </div>
 
       {filtersOpen && (
-        <FilterPanel
+        <FiltersModal
+          title="FILTROS · AUDITORIA"
           value={filters}
+          empty={EMPTY_FILTERS}
+          onClose={() => setFiltersOpen(false)}
           onApply={(f) => {
             setPage(0);
             setFilters(f);
             setFiltersOpen(false);
           }}
-        />
+        >
+          {(d, set) => (
+            <div className="form-grid-2">
+              <div className="form-field">
+                <span>FAMÍLIA DE AÇÃO</span>
+                <Select
+                  value={d.action}
+                  onChange={(v) => set({ action: v })}
+                  options={ACTION_PREFIXES.map((p) => ({ value: p.value, label: p.label }))}
+                />
+              </div>
+              <div className="form-field">
+                <span>TIPO DE RECURSO</span>
+                <Select
+                  value={d.resourceType}
+                  onChange={(v) => set({ resourceType: v })}
+                  options={RESOURCE_TYPES.map((p) => ({ value: p.value, label: p.label }))}
+                />
+              </div>
+            </div>
+          )}
+        </FiltersModal>
       )}
 
       {error && <div className="banner banner-error">⚠ {error}</div>}
@@ -236,7 +271,7 @@ export default function AuditoriaScreen() {
                       <span style={{ color: "var(--fg-0)", fontWeight: 600 }}>
                         {e.action}
                       </span>
-                      <span className="muted" style={{ marginLeft: 6, fontSize: 9 }}>
+                      <span className="muted" style={{ marginLeft: 6, fontSize: 11.5 }}>
                         / {actionGroup(e.action)}
                       </span>
                     </td>
@@ -294,67 +329,3 @@ export default function AuditoriaScreen() {
   );
 }
 
-// ─────────────────────────── FilterPanel ────────────────────────────
-
-type FilterPanelProps = {
-  value: Filters;
-  onApply: (f: Filters) => void;
-};
-
-function FilterPanel({ value, onApply }: FilterPanelProps) {
-  const [local, setLocal] = useState<Filters>(value);
-
-  return (
-    <div className="filter-panel">
-      <div className="filter-row">
-        <div className="filter-field">
-          <span>FAMÍLIA DE AÇÃO</span>
-          <Select
-            value={local.action}
-            onChange={(v) => setLocal({ ...local, action: v })}
-            options={ACTION_PREFIXES.map((p) => ({
-              value: p.value,
-              label: p.label,
-            }))}
-          />
-        </div>
-
-        <div className="filter-field">
-          <span>TIPO DE RECURSO</span>
-          <Select
-            value={local.resourceType}
-            onChange={(v) => setLocal({ ...local, resourceType: v })}
-            options={RESOURCE_TYPES.map((p) => ({
-              value: p.value,
-              label: p.label,
-            }))}
-          />
-        </div>
-
-        <div className="filter-field">
-          <span>DE</span>
-          <DateInput
-            value={local.from}
-            onChange={(v) => setLocal({ ...local, from: v })}
-          />
-        </div>
-
-        <div className="filter-field">
-          <span>ATÉ</span>
-          <DateInput
-            value={local.to}
-            onChange={(v) => setLocal({ ...local, to: v })}
-          />
-        </div>
-      </div>
-      <div className="filter-actions">
-        <button type="button" className="btn btn-ghost" onClick={() => onApply(EMPTY_FILTERS)}>
-          LIMPAR
-        </button>
-        <button type="button" className="btn btn-primary" onClick={() => onApply(local)}>
-          APLICAR
-        </button>
-      </div>
-    </div>
-  );
-}

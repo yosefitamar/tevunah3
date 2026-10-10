@@ -21,13 +21,21 @@ type SelectProps = {
   className?: string;
   /** Renderiza chevron interno (default true). */
   chevron?: boolean;
+  /** Campo de busca no topo da lista: filtra por trecho, sem acento nem
+   *  caixa. Para listas longas cujos itens começam igual. */
+  searchable?: boolean;
 };
+
+function fold(s: string): string {
+  return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+}
 
 /**
  * Select custom no padrão Tevunah (terminal/tactical). Substitui o <select>
  * nativo, cuja lista de opções é controlada pelo SO e não pode ser estilizada.
  * - Mesma estética do .form-field (borda, bg, foco).
  * - Setas navegam, Enter seleciona, Escape fecha, clique fora fecha.
+ * - searchable: filtro por trecho no topo da lista.
  */
 export default function Select({
   value,
@@ -38,8 +46,14 @@ export default function Select({
   id,
   className = "",
   chevron = true,
+  searchable = false,
 }: SelectProps) {
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const searchRef = useRef<HTMLInputElement | null>(null);
+  const shown = searchable && query.trim()
+    ? options.filter((o) => fold(o.label).includes(fold(query.trim())))
+    : options;
   const [hover, setHover] = useState<number>(-1);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const btnRef = useRef<HTMLButtonElement | null>(null);
@@ -61,8 +75,14 @@ export default function Select({
     if (open) {
       const idx = options.findIndex((o) => o.value === value);
       setHover(idx >= 0 ? idx : 0);
+    } else {
+      setQuery("");
     }
   }, [open, value, options]);
+
+  useEffect(() => {
+    if (open && searchable) searchRef.current?.focus();
+  }, [open, searchable]);
 
   // Mantém a opção destacada visível — seta e type-ahead podem levar o
   // destaque para fora da área rolável em listas longas.
@@ -76,8 +96,9 @@ export default function Select({
     btnRef.current?.focus();
   }
 
-  function onKey(e: React.KeyboardEvent<HTMLButtonElement>) {
+  function onKey(e: React.KeyboardEvent<HTMLElement>) {
     if (disabled) return;
+    const options = shown;
     if (!open) {
       if (e.key === "ArrowDown" || e.key === "Enter" || e.key === " ") {
         e.preventDefault();
@@ -115,7 +136,7 @@ export default function Select({
       setOpen(false);
     } else if (e.key === "Tab") {
       setOpen(false);
-    } else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    } else if (!searchable && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
       // Type-ahead: digitar salta para a opção que começa com o que foi
       // teclado (como no <select> nativo). Sem isto, listas longas — os 184
       // municípios do Ceará, por exemplo — só se navegam rolando.
@@ -182,9 +203,28 @@ export default function Select({
           />
         )}
       </button>
-      {open && !disabled && options.length > 0 && (
-        <ul className="sel-list" role="listbox">
-          {options.map((o, i) => (
+      {open && !disabled && searchable && (
+        <div className="sel-search">
+          <input
+            ref={searchRef}
+            type="text"
+            value={query}
+            placeholder="buscar…"
+            aria-label="Buscar na lista"
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setHover(0);
+            }}
+            onKeyDown={onKey}
+          />
+        </div>
+      )}
+      {open && !disabled && searchable && shown.length === 0 && (
+        <div className="sel-empty muted">nenhum item</div>
+      )}
+      {open && !disabled && shown.length > 0 && (
+        <ul className={"sel-list" + (searchable ? " sel-list--searchable" : "")} role="listbox">
+          {shown.map((o, i) => (
             <li
               key={o.value + ":" + i}
               role="option"

@@ -206,9 +206,9 @@ function CivilPicker({
         />
       </label>
       <div className="qual-picker-results">
-        {loading && <div className="muted" style={{ fontSize: 11 }}>// BUSCANDO…</div>}
+        {loading && <div className="muted" style={{ fontSize: 13 }}>// BUSCANDO…</div>}
         {!loading && q.trim() && results.length === 0 && (
-          <div className="muted" style={{ fontSize: 11 }}>
+          <div className="muted" style={{ fontSize: 13 }}>
             // NENHUM RESULTADO
           </div>
         )}
@@ -400,7 +400,7 @@ function MilitarForm({
           {photoPreview ? (
             <img src={photoPreview} alt="prévia" />
           ) : (
-            <span className="muted" style={{ fontSize: 10 }}>// SOLTE OU CLIQUE</span>
+            <span className="muted" style={{ fontSize: 11.5 }}>// SOLTE OU CLIQUE</span>
           )}
         </div>
         <div className="qual-photo-actions">
@@ -429,7 +429,7 @@ function MilitarForm({
               REMOVER
             </button>
           )}
-          <div className="muted" style={{ fontSize: 9.5, marginTop: 4 }}>
+          <div className="muted" style={{ fontSize: 11.5, marginTop: 4 }}>
             JPEG/PNG · MÁX 5 MIB
           </div>
         </div>

@@ -75,7 +75,6 @@ export default function Sidebar({ active, setActive, collapsed, setCollapsed }: 
         >
           {collapsed ? "›" : "‹"}
         </button>
-        <span className="foot-text">v1.0.4 · BUILD 8841</span>
       </div>
     </aside>
   );

@@ -15,7 +15,8 @@ import (
 //
 // Painel operacional. Não há permissão própria de dashboard: cada bloco sai
 // na resposta apenas se o solicitante tem a ação de leitura do módulo
-// correspondente (incident.read, report.read, informe.read, entity.list).
+// correspondente (incident.read, opsreport.read, report.read, informe.read,
+// entity.list).
 // Quem não tem nenhuma recebe um envelope só com o recorte — e o front
 // mostra o vazio, sem 403 (o painel em si não é recurso restrito).
 //
@@ -41,15 +42,51 @@ type dashboardMonth struct {
 }
 
 type dashboardIncidents struct {
-	ByType        map[string]int   `json:"by_type"`
-	PrevByType    map[string]int   `json:"prev_by_type"`
-	Total         int              `json:"total"`
-	PrevTotal     int              `json:"prev_total"`
-	Series        []dashboardMonth `json:"series"`
-	Means         []dashboardFacet `json:"means"`
+	ByType     map[string]int   `json:"by_type"`
+	PrevByType map[string]int   `json:"prev_by_type"`
+	Total      int              `json:"total"`
+	PrevTotal  int              `json:"prev_total"`
+	Series     []dashboardMonth `json:"series"`
+	Means      []dashboardFacet `json:"means"`
+	Geocoded   int              `json:"geocoded"`
+}
+
+// dashboardOpsTotals são as quantidades do relatório operacional num recorte.
+type dashboardOpsTotals struct {
+	Occurrences int     `json:"occurrences"`
+	Weapons     int     `json:"weapons"`
+	DrugsGrams  float64 `json:"drugs_grams"`
+	Accused     int     `json:"accused"`
+	Adolescents int     `json:"adolescents"`
+	Vehicles    int     `json:"vehicles"`
+}
+
+type dashboardDrugFacet struct {
+	Name  string  `json:"name"`
+	Grams float64 `json:"grams"`
+}
+
+type dashboardOpsMonth struct {
+	Month string `json:"month"`
+	Count int    `json:"count"`
+}
+
+type dashboardOperational struct {
+	Current      dashboardOpsTotals   `json:"current"`
+	Previous     dashboardOpsTotals   `json:"previous"`
+	WeaponKinds  []dashboardFacet     `json:"weapon_kinds"`
+	DrugKinds    []dashboardDrugFacet `json:"drug_kinds"`
+	VehicleKinds []dashboardFacet     `json:"vehicle_kinds"`
+	Series       []dashboardOpsMonth  `json:"series"`
+	// Pending: ocorrências do período fora dos números por terem pendência
+	// ou aviso — só as verificadas contam.
+	Pending int `json:"pending"`
+}
+
+// dashboardTerritory soma as fontes de ocorrência que o solicitante enxerga.
+type dashboardTerritory struct {
 	Cities        []dashboardFacet `json:"cities"`
 	Neighborhoods []dashboardFacet `json:"neighborhoods"`
-	Geocoded      int              `json:"geocoded"`
 }
 
 type dashboardReports struct {
@@ -73,13 +110,15 @@ type dashboardEntities struct {
 }
 
 type dashboardResponse struct {
-	Period       dashboardPeriod     `json:"period"`
-	Previous     *dashboardPeriod    `json:"previous,omitempty"`
-	SeriesPeriod dashboardPeriod     `json:"series_period"`
-	Incidents    *dashboardIncidents `json:"incidents,omitempty"`
-	Reports      *dashboardReports   `json:"reports,omitempty"`
-	Informes     *dashboardInformes  `json:"informes,omitempty"`
-	Entities     *dashboardEntities  `json:"entities,omitempty"`
+	Period       dashboardPeriod       `json:"period"`
+	Previous     *dashboardPeriod      `json:"previous,omitempty"`
+	SeriesPeriod dashboardPeriod       `json:"series_period"`
+	Incidents    *dashboardIncidents   `json:"incidents,omitempty"`
+	Operational  *dashboardOperational `json:"operational,omitempty"`
+	Territory    *dashboardTerritory   `json:"territory,omitempty"`
+	Reports      *dashboardReports     `json:"reports,omitempty"`
+	Informes     *dashboardInformes    `json:"informes,omitempty"`
+	Entities     *dashboardEntities    `json:"entities,omitempty"`
 }
 
 // incidentTypes fixa a ordem e garante que os três tipos apareçam no JSON
@@ -139,6 +178,26 @@ func (a *app) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		res.Incidents = toDashboardIncidents(st)
 	}
 
+	if allowed["opsreport.read"] {
+		st, err := a.dashboard.Operational(ctx, win, allowed["incident.read"])
+		if err != nil {
+			log.Printf("dashboard: operational: %v", err)
+			httpx.Error(w, http.StatusInternalServerError, "erro ao montar o painel")
+			return
+		}
+		res.Operational = toDashboardOperational(st)
+	}
+
+	if allowed["incident.read"] || allowed["opsreport.read"] {
+		cities, hoods, err := a.dashboard.Territory(ctx, win.Current, allowed["incident.read"], allowed["opsreport.read"])
+		if err != nil {
+			log.Printf("dashboard: territory: %v", err)
+			httpx.Error(w, http.StatusInternalServerError, "erro ao montar o painel")
+			return
+		}
+		res.Territory = &dashboardTerritory{Cities: toDashboardFacets(cities), Neighborhoods: toDashboardFacets(hoods)}
+	}
+
 	if allowed["report.read"] {
 		st, err := a.dashboard.Reports(ctx, win, access)
 		if err != nil {
@@ -184,13 +243,11 @@ func (a *app) handleDashboard(w http.ResponseWriter, r *http.Request) {
 
 func toDashboardIncidents(st *dashboard.IncidentStats) *dashboardIncidents {
 	out := &dashboardIncidents{
-		ByType:        fillKeys(st.ByType, incidentTypes...),
-		PrevByType:    fillKeys(st.PrevByType, incidentTypes...),
-		Series:        make([]dashboardMonth, 0, len(st.Series)),
-		Means:         toDashboardFacets(st.Means),
-		Cities:        toDashboardFacets(st.Cities),
-		Neighborhoods: toDashboardFacets(st.Neighborhoods),
-		Geocoded:      st.Geocoded,
+		ByType:     fillKeys(st.ByType, incidentTypes...),
+		PrevByType: fillKeys(st.PrevByType, incidentTypes...),
+		Series:     make([]dashboardMonth, 0, len(st.Series)),
+		Means:      toDashboardFacets(st.Means),
+		Geocoded:   st.Geocoded,
 	}
 	for _, t := range incidentTypes {
 		out.Total += out.ByType[t]
@@ -203,6 +260,31 @@ func toDashboardIncidents(st *dashboard.IncidentStats) *dashboardIncidents {
 			Apreensao: m.Apreensao,
 			Prisao:    m.Prisao,
 		})
+	}
+	return out
+}
+
+func toDashboardOperational(st *dashboard.OperationalStats) *dashboardOperational {
+	totals := func(t dashboard.OperationalTotals) dashboardOpsTotals {
+		return dashboardOpsTotals{
+			Occurrences: t.Occurrences, Weapons: t.Weapons, DrugsGrams: t.DrugsGrams,
+			Accused: t.Accused, Adolescents: t.Adolescents, Vehicles: t.Vehicles,
+		}
+	}
+	out := &dashboardOperational{
+		Current:      totals(st.Current),
+		Previous:     totals(st.Previous),
+		WeaponKinds:  toDashboardFacets(st.WeaponKinds),
+		DrugKinds:    make([]dashboardDrugFacet, 0, len(st.DrugKinds)),
+		VehicleKinds: toDashboardFacets(st.VehicleKinds),
+		Series:       make([]dashboardOpsMonth, 0, len(st.Series)),
+		Pending:      st.Pending,
+	}
+	for _, d := range st.DrugKinds {
+		out.DrugKinds = append(out.DrugKinds, dashboardDrugFacet{Name: d.Name, Grams: d.Grams})
+	}
+	for _, m := range st.Series {
+		out.Series = append(out.Series, dashboardOpsMonth{Month: m.Month, Count: m.Count})
 	}
 	return out
 }

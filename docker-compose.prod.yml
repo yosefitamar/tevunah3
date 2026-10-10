@@ -74,6 +74,10 @@ services:
       # Resolução do link curto do Google Maps na importação de relatório de
       # ocorrência. "off" impede qualquer requisição do servidor ao Google.
       INCIDENT_MAPS_RESOLVER:  "${INCIDENT_MAPS_RESOLVER:-on}"
+      # Geocodificador: Nominatim da própria agência (ex.: uma CT dedicada).
+      # Vazio = desligado.
+      GEOCODER_URL:            "${GEOCODER_URL:-}"
+      GEOCODER_STATE:          "${GEOCODER_STATE:-Ceará}"
     volumes:
       - tevunah-photos:/var/lib/tevunah/photos
     depends_on:

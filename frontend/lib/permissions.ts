@@ -73,3 +73,15 @@ export const canReadIncidents = (u: User | null) => can(u, "incident.read");
 export const canCreateIncidents = (u: User | null) => can(u, "incident.create");
 export const canEditIncidents = (u: User | null) => can(u, "incident.update");
 export const canDeleteIncidents = (u: User | null) => can(u, "incident.delete");
+
+// Relatório Operacional (PDF diário do CPRAIO) — matriz semeada na migration
+// 00049_ops_reports.
+export const canReadOpsReports = (u: User | null) => can(u, "opsreport.read");
+export const canImportOpsReports = (u: User | null) => can(u, "opsreport.import");
+export const canLinkOpsPeople = (u: User | null) => can(u, "opsreport.update");
+// Mesma ação do vínculo: editar a ocorrência importada.
+export const canSetOpsIntel = (u: User | null) => can(u, "opsreport.update");
+// Termos de inteligência — só administrador (migration 00050).
+export const canManageIntelKeywords = (u: User | null) => can(u, "intel.keywords.manage");
+// De-para de naturezas relatório → SIPOM — só administrador (migration 00054).
+export const canManageSipomMapping = (u: User | null) => can(u, "sipom.mapping.manage");

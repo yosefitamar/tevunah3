@@ -59,6 +59,10 @@ type parsedReportJSON struct {
 	Longitude    *float64           `json:"longitude,omitempty"`
 	People       []parsedPersonJSON `json:"people"`
 	Warnings     []string           `json:"warnings"`
+	// Participação da inteligência pelos termos configurados — só sugestão:
+	// o analista confirma no formulário.
+	Intel        bool     `json:"intel_participation"`
+	IntelMatched []string `json:"intel_matched"`
 }
 
 // POST /api/incidents/parse
@@ -121,7 +125,7 @@ func (a *app) handleIncidentParseReport(w http.ResponseWriter, r *http.Request) 
 		Type: p.Type, Means: p.Means, MeansDetail: p.MeansDetail,
 		OccurredOn: p.OccurredOn, OccurredTime: p.OccurredTime,
 		CIOPSRecord: p.CIOPSRecord,
-		City: p.City, Neighborhood: p.Neighborhood,
+		City:        p.City, Neighborhood: p.Neighborhood,
 		Description: p.Description, MapsURL: p.MapsURL,
 		Latitude: p.Latitude, Longitude: p.Longitude,
 		People:   make([]parsedPersonJSON, 0, len(p.People)),
@@ -129,6 +133,12 @@ func (a *app) handleIncidentParseReport(w http.ResponseWriter, r *http.Request) 
 	}
 	if out.Warnings == nil {
 		out.Warnings = []string{}
+	}
+	out.IntelMatched = []string{}
+	if m, err := a.intel.Matcher(r.Context()); err != nil {
+		log.Printf("incidents parse: intel keywords: %v", err)
+	} else if matched := m.Match(text); len(matched) > 0 {
+		out.Intel, out.IntelMatched = true, matched
 	}
 	// Candidatos de dossiê por pessoa citada: é o passo que o analista faria
 	// à mão, uma busca por vez, e o que evita cadastrar em duplicidade

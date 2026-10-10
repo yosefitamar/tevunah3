@@ -836,7 +836,7 @@ function buildFlow(
       label: RELATION_LABEL[e.relation_type],
       labelStyle: {
         fontSize: isParental ? 10 : isSibling ? 9.5 : 9.5,
-        letterSpacing: "0.16em",
+        letterSpacing: "0.08em",
         fill: labelFill,
         fontFamily: "inherit",
         fontWeight: isParental || isSibling ? 600 : 400,

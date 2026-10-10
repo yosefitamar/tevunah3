@@ -70,6 +70,7 @@ import {
 import DeceasedPhoto from "../shared/DeceasedPhoto";
 import { useNavigation } from "@/contexts/NavigationContext";
 import PrimaryPhotoPicker from "./PrimaryPhotoPicker";
+import OccurrencesSection from "./OccurrencesSection";
 import CreateEntidadeModal from "./CreateEntidadeModal";
 import { PersistedGalleryEditor } from "./GalleryEditor";
 import { canDeleteEntities, canEditEntities } from "@/lib/permissions";
@@ -358,6 +359,8 @@ function ViewMode({
       {/* No dossiê (modo consulta) os vínculos e endereços são read-only.
           Adição/remoção fica disponível apenas no modo EDITAR. */}
       <LinksSection entityID={data.id} entityKind={data.kind} canManage={false} />
+
+      <OccurrencesSection entityID={data.id} />
 
       {isPerson(data) && (
         <AddressesSection
@@ -1005,7 +1008,7 @@ function EditMode({
                 placeholder="ABC1D23"
               />
               {vPlate.length > 0 && !isValidPlate(vPlate) && (
-                <span style={{ fontSize: 9.5, color: "var(--crit)" }}>
+                <span style={{ fontSize: 11.5, color: "var(--crit)" }}>
                   ⚠ formato inválido — use o padrão antigo (ABC1234) ou Mercosul (ABC1D23)
                 </span>
               )}
@@ -1259,7 +1262,7 @@ function LinksSection({
           <button
             type="button"
             className="btn btn-ghost"
-            style={{ height: 24, fontSize: 9.5, padding: "0 8px" }}
+            style={{ height: 24, fontSize: 11.5, padding: "0 8px" }}
             onClick={() => setAdding(true)}
             title="Adicionar vínculo"
           >
@@ -1270,7 +1273,7 @@ function LinksSection({
 
       {loading && <div className="muted">// CARREGANDO…</div>}
       {!loading && (!links || links.length === 0) && (
-        <div className="muted" style={{ fontSize: 11 }}>
+        <div className="muted" style={{ fontSize: 13 }}>
           // sem vínculos cadastrados
         </div>
       )}
@@ -1507,9 +1510,9 @@ function AddLinkModal({
 
           {!picked && query.trim().length >= 2 && (
             <div className="link-search-results">
-              {searching && <div className="muted" style={{ fontSize: 11 }}>// buscando…</div>}
+              {searching && <div className="muted" style={{ fontSize: 13 }}>// buscando…</div>}
               {!searching && results.length === 0 && (
-                <div className="muted" style={{ fontSize: 11 }}>// nenhum resultado</div>
+                <div className="muted" style={{ fontSize: 13 }}>// nenhum resultado</div>
               )}
               {!searching &&
                 results.map((e) => (
@@ -1733,7 +1736,7 @@ function AddressesSection({
           <button
             type="button"
             className="btn btn-ghost"
-            style={{ height: 24, fontSize: 9.5, padding: "0 8px" }}
+            style={{ height: 24, fontSize: 11.5, padding: "0 8px" }}
             onClick={() => setAdding(true)}
           >
             <Plus size={11} strokeWidth={2} /> ADICIONAR
@@ -1742,7 +1745,7 @@ function AddressesSection({
       </div>
 
       {list.length === 0 && !adding && (
-        <div className="muted" style={{ fontSize: 11 }}>
+        <div className="muted" style={{ fontSize: 13 }}>
           // sem endereços cadastrados
         </div>
       )}
@@ -1893,8 +1896,8 @@ function AddressEditor({
             maxLength={9}
             placeholder="00000-000"
           />
-          {cepLoading && <span className="muted" style={{ fontSize: 9.5 }}>// consultando…</span>}
-          {cepError && <span style={{ fontSize: 9.5, color: "var(--warn)" }}>⚠ CEP não encontrado</span>}
+          {cepLoading && <span className="muted" style={{ fontSize: 11.5 }}>// consultando…</span>}
+          {cepError && <span style={{ fontSize: 11.5, color: "var(--warn)" }}>⚠ CEP não encontrado</span>}
         </label>
         <label className="form-field">
           <span>NÚMERO</span>

@@ -128,7 +128,7 @@ export default function AuditDetail({ entryId, onClose }: Props) {
                     <DLRow label="USER-AGENT">
                       <span
                         className="mono mono-wrap"
-                        style={{ fontSize: 9.5 }}
+                        style={{ fontSize: 11.5 }}
                         title={data.actor_user_agent}
                       >
                         {data.actor_user_agent}
@@ -204,7 +204,7 @@ export default function AuditDetail({ entryId, onClose }: Props) {
                     </button>
                   </DLRow>
                 </dl>
-                <div className="muted" style={{ fontSize: 9, marginTop: 6 }}>
+                <div className="muted" style={{ fontSize: 11.5, marginTop: 6 }}>
                   // hash = sha256(prev_hash ∥ payload-canônico). Adulteração
                   desta linha ou de qualquer anterior quebra a cadeia.
                 </div>

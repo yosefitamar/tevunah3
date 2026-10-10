@@ -187,7 +187,7 @@ export default function VisibilityFieldset({ report, meID, canManage, canEdit, o
       )}
 
       <div className="visibility-toggle" style={{ marginTop: 10 }}>
-        <span style={{ fontSize: 9, letterSpacing: "0.16em", color: "var(--fg-3)" }}>
+        <span style={{ fontSize: 11.5, letterSpacing: "0.08em", color: "var(--fg-3)" }}>
           NÍVEL DE ACESSO
         </span>
         {lockedByStatus ? (
@@ -227,11 +227,11 @@ export default function VisibilityFieldset({ report, meID, canManage, canEdit, o
             )}
           </div>
           {!loaded ? (
-            <div className="muted" style={{ fontSize: 11, padding: "6px 0" }}>
+            <div className="muted" style={{ fontSize: 13, padding: "6px 0" }}>
               // CARREGANDO…
             </div>
           ) : viewers.length === 0 ? (
-            <div className="muted" style={{ fontSize: 11, padding: "6px 0" }}>
+            <div className="muted" style={{ fontSize: 13, padding: "6px 0" }}>
               // SOMENTE O AUTOR E ADMINS PODEM VER ESTE RELATÓRIO
             </div>
           ) : (
@@ -340,12 +340,12 @@ function UserPickerModal({
           </div>
           <ul className="picker-results">
             {loading && (
-              <li className="muted" style={{ fontSize: 11, padding: 10 }}>
+              <li className="muted" style={{ fontSize: 13, padding: 10 }}>
                 // BUSCANDO…
               </li>
             )}
             {!loading && filtered.length === 0 && (
-              <li className="muted" style={{ fontSize: 11, padding: 10 }}>
+              <li className="muted" style={{ fontSize: 13, padding: 10 }}>
                 // NENHUM USUÁRIO ENCONTRADO
               </li>
             )}

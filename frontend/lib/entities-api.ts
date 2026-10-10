@@ -356,3 +356,27 @@ export function findPersonDuplicates(q: DuplicatesQuery) {
   if (q.exclude_id) p.set("exclude_id", q.exclude_id);
   return api<DuplicatesResult>(`/api/entities/persons/duplicates?${p.toString()}`);
 }
+
+// ─── Ocorrências em que a entidade aparece ───
+
+/** Linha do dossiê: CVLI (cadastro manual) ou relatório operacional. */
+export type EntityOccurrence = {
+  source: "cvli" | "operacional";
+  id: string;
+  occurred_on: string;
+  time: string;
+  /** Só CVLI. */
+  type?: "homicidio" | "apreensao" | "prisao";
+  /** Só operacional. */
+  natures: string[];
+  /** CIA/PEL, só operacional. */
+  unit?: string;
+  city: string;
+  neighborhood: string;
+  ciops_record: string;
+  role: string;
+};
+
+export function listEntityOccurrences(id: string) {
+  return api<{ items: EntityOccurrence[] }>(`/api/entities/${encodeURIComponent(id)}/occurrences`);
+}

@@ -11,6 +11,7 @@ import {
   type Incident,
   type IncidentMeans,
 } from "@/lib/incidents-api";
+import { occurrenceTitle, type OccurrenceRow } from "@/lib/occurrences-api";
 import { photoURL } from "@/lib/entities-api";
 import DeceasedPhoto from "../shared/DeceasedPhoto";
 import { formatBRDate } from "@/lib/format";
@@ -41,7 +42,20 @@ type Props = {
   /** Ocorrência a centralizar (chegada pelo link da ficha de uma vítima). */
   focusId?: string | null;
   onOpen: (id: string) => void;
+  /**
+   * Camada de produtividade: as ocorrências que não são homicídio (prisões,
+   * apreensões e o que veio do relatório operacional), já com coordenada.
+   */
+  productivity?: OccurrenceRow[];
+  /** Cor resolvida dos pontos da camada de produtividade. */
+  productivityColor?: string;
+  onOpenProductivity?: (row: OccurrenceRow) => void;
 };
+
+// Ponto plotável, de qualquer camada — o que o enquadramento precisa saber.
+type Plotted = { id: string; lat: number; lng: number };
+
+const rowKey = (r: OccurrenceRow) => (r.incident_id ?? "") + ":" + (r.ops_id ?? "");
 
 /**
  * Mapa do crime — pontos das ocorrências georreferenciadas do recorte.
@@ -53,7 +67,27 @@ type Props = {
  * Este componente toca `window` no import do Leaflet — só é carregado via
  * dynamic(ssr:false) pelo MapaScreen.
  */
-export default function CrimeMap({ items, colorFor, dark, focusId, onOpen }: Props) {
+export default function CrimeMap({
+  items,
+  colorFor,
+  dark,
+  focusId,
+  onOpen,
+  productivity,
+  productivityColor = "#888888",
+  onOpenProductivity,
+}: Props) {
+  const extra = useMemo(
+    () =>
+      (productivity ?? []).filter(
+        (r) =>
+          typeof r.latitude === "number" &&
+          typeof r.longitude === "number" &&
+          Number.isFinite(r.latitude) &&
+          Number.isFinite(r.longitude),
+      ),
+    [productivity],
+  );
   const points = useMemo(
     () =>
       items.filter(
@@ -83,8 +117,43 @@ export default function CrimeMap({ items, colorFor, dark, focusId, onOpen }: Pro
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           maxZoom={19}
         />
-        <FitToPoints points={points} focusId={focusId} />
+        <FitToPoints
+          points={[
+            ...points.map((p) => ({ id: p.id, lat: p.latitude as number, lng: p.longitude as number })),
+            // Com cadastro manual o id é o dele: é por ele que o foco chega.
+            ...extra.map((r) => ({
+              id: r.incident_id ?? rowKey(r),
+              lat: r.latitude as number,
+              lng: r.longitude as number,
+            })),
+          ]}
+          focusId={focusId}
+        />
         <KeepSized />
+        {/* Produtividade por baixo: desenhada antes, o homicídio fica por cima
+            quando os dois caem no mesmo lugar. Ponto aproximado (só o bairro
+            foi localizado) vem tracejado e mais apagado. */}
+        {extra.map((r) => {
+          const approx = r.geo_precision === "bairro";
+          return (
+            <CircleMarker
+              key={rowKey(r)}
+              center={[r.latitude as number, r.longitude as number]}
+              radius={5}
+              pathOptions={{
+                color: productivityColor,
+                fillColor: productivityColor,
+                fillOpacity: approx ? 0.15 : 0.45,
+                weight: 1.5,
+                dashArray: approx ? "3 3" : undefined,
+              }}
+            >
+              <Popup maxWidth={320} minWidth={260}>
+                <ProductivityPopup row={r} onOpen={onOpenProductivity} />
+              </Popup>
+            </CircleMarker>
+          );
+        })}
         {points.map((inc) => (
           <CircleMarker
             key={inc.id}
@@ -115,7 +184,7 @@ function FitToPoints({
   points,
   focusId,
 }: {
-  points: Incident[];
+  points: Plotted[];
   focusId?: string | null;
 }) {
   const map = useMap();
@@ -127,16 +196,14 @@ function FitToPoints({
     // veio da ficha da vítima quer ver aquele fato, não a distribuição.
     const focus = focusId ? points.find((p) => p.id === focusId) : undefined;
     if (focus) {
-      map.setView([focus.latitude as number, focus.longitude as number], 17);
+      map.setView([focus.lat, focus.lng], 17);
       return;
     }
     if (points.length === 0) {
       map.setView(FALLBACK_CENTER, FALLBACK_ZOOM);
       return;
     }
-    const bounds: LatLngBoundsExpression = points.map(
-      (p) => [p.latitude as number, p.longitude as number] as [number, number],
-    );
+    const bounds: LatLngBoundsExpression = points.map((p) => [p.lat, p.lng] as [number, number]);
     map.fitBounds(bounds, { padding: [40, 40], maxZoom: 16 });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signature, map, focusId]);
@@ -167,6 +234,50 @@ function KeepSized() {
 }
 
 // ─── Popup ────────────────────────────────────────────────────────────
+
+/** Popup da camada de produtividade: o resumo da linha e o atalho à ficha. */
+function ProductivityPopup({ row, onOpen }: { row: OccurrenceRow; onOpen?: (row: OccurrenceRow) => void }) {
+  const desc = row.description.trim();
+  return (
+    <div className="map-popup">
+      <div className="map-popup-hd">
+        <span className="map-popup-type">{occurrenceTitle(row)}</span>
+        <span className="map-popup-when">
+          {formatBRDate(row.occurred_on)}
+          {row.time ? ` · ${row.time}` : ""}
+        </span>
+      </div>
+      <dl className="map-popup-dl">
+        <div>
+          <dt>FICHA CIOPS</dt>
+          <dd>{row.ciops_record || "—"}</dd>
+        </div>
+        <div>
+          <dt>MUNICÍPIO</dt>
+          <dd>{row.city || "—"}</dd>
+        </div>
+        <div>
+          <dt>BAIRRO</dt>
+          <dd>{row.neighborhood || "—"}</dd>
+        </div>
+        <div>
+          <dt>COORDENADAS</dt>
+          <dd>
+            {row.latitude?.toFixed(6)}, {row.longitude?.toFixed(6)}
+            {row.geo_precision === "bairro" && " · APROXIMADA (CENTRO DO BAIRRO)"}
+            {row.geo_precision === "rua" && " · RUA, SEM O NÚMERO"}
+          </dd>
+        </div>
+      </dl>
+      {desc && <div className="map-popup-desc">{desc.length > 280 ? desc.slice(0, 280) + "…" : desc}</div>}
+      {onOpen && (
+        <button type="button" className="btn btn-primary map-popup-btn" onClick={() => onOpen(row)}>
+          ABRIR OCORRÊNCIA
+        </button>
+      )}
+    </div>
+  );
+}
 
 function IncidentPopup({
   incident,
@@ -298,7 +409,7 @@ function InvolvedLine({
       )}
       <span className="map-popup-inv-name">{entity.name.toUpperCase()}</span>
       {entity.role && (
-        <span className={"pill " + tone} style={{ fontSize: 8.5 }}>
+        <span className={"pill " + tone} style={{ fontSize: 11.5 }}>
           {entity.role.toUpperCase()}
         </span>
       )}

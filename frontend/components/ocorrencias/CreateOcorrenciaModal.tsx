@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import { ClipboardPaste, Plus, Trash2, UserPlus, X } from "lucide-react";
 import {
@@ -15,6 +15,11 @@ import {
   type ParsedPersonMatch,
   type ParsedReport,
 } from "@/lib/incidents-api";
+import {
+  duplicateConflictOf,
+  type DuplicateCandidate,
+  type DuplicateConflict,
+} from "@/lib/occurrences-api";
 import { getEntity } from "@/lib/entities-api";
 import type { PersonAttrs } from "@/lib/entities-types";
 import type { ApiError } from "@/lib/api";
@@ -27,10 +32,16 @@ import GeoField from "./GeoField";
 import ImportReportModal from "./ImportReportModal";
 import InvolvedPicker from "./InvolvedPicker";
 import MeansField from "./MeansField";
+import IntelField from "./IntelField";
 import PlaceField from "./PlaceField";
 import ConfirmVitimaModal, { type VictimCandidate } from "./ConfirmVitimaModal";
+import DuplicateCandidates from "./DuplicateCandidates";
+import OcorrenciaDrawer from "./OcorrenciaDrawer";
+import OpsOccurrenceDrawer from "../operacional/OpsOccurrenceDrawer";
 
 type Props = {
+  /** Tipo com que o formulário abre — o da aba de onde foi chamado. */
+  initialType?: IncidentType;
   onClose: () => void;
   onCreated: (id: string) => void;
 };
@@ -44,9 +55,9 @@ const MATCH_FIELD_LABEL: Record<string, string> = {
   date_of_birth: "NASCIMENTO",
 };
 
-export default function CreateOcorrenciaModal({ onClose, onCreated }: Props) {
+export default function CreateOcorrenciaModal({ initialType = "homicidio", onClose, onCreated }: Props) {
   const today = new Date().toISOString().slice(0, 10);
-  const [type, setType] = useState<IncidentType>("homicidio");
+  const [type, setType] = useState<IncidentType>(initialType);
   const [occurredOn, setOccurredOn] = useState(today);
   const [occurredTime, setOccurredTime] = useState("");
   const [ciops, setCiops] = useState("");
@@ -57,6 +68,8 @@ export default function CreateOcorrenciaModal({ onClose, onCreated }: Props) {
   const [description, setDescription] = useState("");
   const [means, setMeans] = useState<IncidentMeans>("");
   const [meansDetail, setMeansDetail] = useState("");
+  const [intel, setIntel] = useState(false);
+  const [intelMatched, setIntelMatched] = useState<string[]>([]);
   const [involved, setInvolved] = useState<PendingInvolved[]>([]);
   const [pendingVictim, setPendingVictim] = useState<{
     candidate: VictimCandidate;
@@ -65,7 +78,19 @@ export default function CreateOcorrenciaModal({ onClose, onCreated }: Props) {
   } | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // Duplicidade apontada pelo servidor na última tentativa de gravar: ficha
+  // já cadastrada (bloqueia) ou ocorrências parecidas (pede confirmação).
+  const [conflict, setConflict] = useState<DuplicateConflict | null>(null);
+  // Ocorrência apontada que o analista abriu para conferir.
+  const [peek, setPeek] = useState<DuplicateCandidate | null>(null);
   const { neighborhoodsOf } = useIncidentLocations();
+
+  // O aviso vale para o que foi enviado. Mudou ficha, data, hora ou lugar, a
+  // comparação é outra: o aviso some e a próxima gravação consulta de novo —
+  // a confirmação nunca cobre ocorrências que o analista não viu.
+  useEffect(() => {
+    setConflict(null);
+  }, [ciops, occurredOn, occurredTime, city, neighborhood]);
 
   // ── Importação de relatório ──
   const [importOpen, setImportOpen] = useState(false);
@@ -122,6 +147,10 @@ export default function CreateOcorrenciaModal({ onClose, onCreated }: Props) {
     if (p.city) setCity(p.city);
     if (p.neighborhood) setNeighborhood(p.neighborhood);
     if (p.description) setDescription(p.description);
+    // Os termos só ligam o campo — relatório sem termo não desfaz uma
+    // marcação que o analista já tenha feito.
+    setIntelMatched(p.intel_matched ?? []);
+    if (p.intel_participation) setIntel(true);
     if (p.latitude !== undefined && p.longitude !== undefined) {
       setLat(String(p.latitude));
       setLng(String(p.longitude));
@@ -175,8 +204,16 @@ export default function CreateOcorrenciaModal({ onClose, onCreated }: Props) {
     }
   }
 
-  async function onSubmit(e: FormEvent) {
+  function onSubmit(e: FormEvent) {
     e.preventDefault();
+    submit(false);
+  }
+
+  /**
+   * Grava a ocorrência. `confirmDuplicates` só vai true pelo botão REGISTRAR
+   * MESMO ASSIM, depois de o servidor ter mostrado as ocorrências parecidas.
+   */
+  async function submit(confirmDuplicates: boolean) {
     setErr(null);
     if (occurredTime.trim() && !/^\d{1,2}:\d{2}$/.test(occurredTime.trim())) {
       setErr("Hora inválida — use HH:MM");
@@ -197,11 +234,15 @@ export default function CreateOcorrenciaModal({ onClose, onCreated }: Props) {
         // Meio utilizado é campo de CVLI — não vai junto nos demais tipos.
         means: type === "homicidio" ? means : "",
         means_detail: type === "homicidio" && means === "outros" ? meansDetail.trim() : "",
+        intel_participation: intel,
         involved: involved.map((i) => ({ entity_id: i.entity_id, role: i.role })),
+        confirm_duplicates: confirmDuplicates,
       });
       onCreated(r.incident.id);
     } catch (e) {
-      setErr((e as ApiError).message || "Falha ao registrar ocorrência");
+      const dup = duplicateConflictOf(e);
+      setConflict(dup);
+      if (!dup) setErr((e as ApiError).message || "Falha ao registrar ocorrência");
     } finally {
       setBusy(false);
     }
@@ -313,6 +354,8 @@ export default function CreateOcorrenciaModal({ onClose, onCreated }: Props) {
               />
             </label>
 
+            <IntelField value={intel} onChange={setIntel} matched={intelMatched} />
+
             {cited.length > 0 && (
               <div className="form-field">
                 <span>CITADOS NO RELATÓRIO</span>
@@ -345,7 +388,7 @@ export default function CreateOcorrenciaModal({ onClose, onCreated }: Props) {
                             <Trash2 size={11} />
                           </button>
                         </div>
-                        <div className="muted" style={{ fontSize: 10.5 }}>
+                        <div className="muted" style={{ fontSize: 12 }}>
                           {qualif || "// SEM QUALIFICAÇÃO NO TEXTO"}
                         </div>
 
@@ -389,7 +432,7 @@ export default function CreateOcorrenciaModal({ onClose, onCreated }: Props) {
                             ))}
                           </div>
                         ) : (
-                          <div className="muted" style={{ fontSize: 10.5 }}>
+                          <div className="muted" style={{ fontSize: 12 }}>
                             // NENHUM DOSSIÊ PARECIDO NO ACERVO
                           </div>
                         )}
@@ -441,6 +484,23 @@ export default function CreateOcorrenciaModal({ onClose, onCreated }: Props) {
 
             {err && <div className="banner banner-error">⚠ {err}</div>}
 
+            {conflict && (
+              <div className="form-field">
+                {conflict.code === "ciops_duplicate" ? (
+                  <div className="banner banner-error">
+                    ⚠ FICHA CIOPS JÁ CADASTRADA — A OCORRÊNCIA ABAIXO JÁ USA ESTA FICHA. CONFIRA O NÚMERO OU ABRA O
+                    CADASTRO EXISTENTE.
+                  </div>
+                ) : (
+                  <div className="banner banner-warn">
+                    ⚠ POSSÍVEL DUPLICIDADE — JÁ EXISTE OCORRÊNCIA COM A MESMA DATA, HORA E LOCAL, MAS COM OUTRA FICHA.
+                    CONFIRA SE A FICHA FOI DIGITADA CORRETAMENTE ANTES DE REGISTRAR.
+                  </div>
+                )}
+                <DuplicateCandidates candidates={conflict.candidates} onOpen={setPeek} />
+              </div>
+            )}
+
             {importOpen && (
               <ImportReportModal onClose={() => setImportOpen(false)} onApply={applyParsed} />
             )}
@@ -462,9 +522,22 @@ export default function CreateOcorrenciaModal({ onClose, onCreated }: Props) {
             <button type="button" className="btn btn-ghost" onClick={onClose} disabled={busy}>
               CANCELAR
             </button>
-            <button type="submit" className="btn btn-primary" disabled={busy}>
-              {busy ? "REGISTRANDO…" : "REGISTRAR OCORRÊNCIA"}
-            </button>
+            {conflict?.code === "possible_duplicates" ? (
+              // A suspeita já foi mostrada: daqui em diante gravar é decisão
+              // explícita do analista, e vai para o trilho de auditoria.
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={busy}
+                onClick={() => submit(true)}
+              >
+                {busy ? "REGISTRANDO…" : "É OUTRA OCORRÊNCIA — REGISTRAR MESMO ASSIM"}
+              </button>
+            ) : (
+              <button type="submit" className="btn btn-primary" disabled={busy}>
+                {busy ? "REGISTRANDO…" : "REGISTRAR OCORRÊNCIA"}
+              </button>
+            )}
           </div>
         </form>
 
@@ -485,6 +558,23 @@ export default function CreateOcorrenciaModal({ onClose, onCreated }: Props) {
               onClose={() => setCreatingPerson(null)}
               onCreated={(id) => linkNewPerson(id, creatingPerson)}
             />,
+            document.body,
+          )}
+
+        {/* Ocorrência apontada como repetição, aberta para conferência por
+            cima do formulário (fora do <form>, pelo mesmo motivo acima). */}
+        {peek &&
+          typeof document !== "undefined" &&
+          createPortal(
+            // Contexto de empilhamento próprio: o drawer nasce abaixo dos
+            // modais (1200 × 2000) e aqui precisa ficar por cima deste.
+            <div style={{ position: "relative", zIndex: 2100 }}>
+              {peek.source === "manual" ? (
+                <OcorrenciaDrawer incidentId={peek.id} onClose={() => setPeek(null)} onChanged={() => undefined} />
+              ) : (
+                <OpsOccurrenceDrawer occurrenceId={peek.id} onClose={() => setPeek(null)} onChanged={() => undefined} />
+              )}
+            </div>,
             document.body,
           )}
       </div>

@@ -66,4 +66,36 @@ func TestSmoke_Blocos(t *testing.T) {
 			}
 		}
 	}
+
+	// Relatório operacional e território, nas combinações de leitura.
+	for _, w := range []Window{win, open} {
+		for _, withIncidents := range []bool{true, false} {
+			if _, err := repo.Operational(ctx, w, withIncidents); err != nil {
+				t.Fatalf("Operational (withIncidents=%v): %v", withIncidents, err)
+			}
+			for _, withOps := range []bool{true, false} {
+				if _, _, err := repo.Territory(ctx, w.Current, withIncidents, withOps); err != nil {
+					t.Fatalf("Territory (%v, %v): %v", withIncidents, withOps, err)
+				}
+			}
+		}
+	}
+
+	// Só a ocorrência verificada (sem pendência nem aviso) entra nos números;
+	// as demais aparecem em Pending.
+	var verified, pending int
+	if err := db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FILTER (WHERE cardinality(sipom_pendencias) = 0),
+		       COUNT(*) FILTER (WHERE cardinality(sipom_pendencias) > 0)
+		  FROM app.ops_occurrences WHERE deleted_at IS NULL`).Scan(&verified, &pending); err != nil {
+		t.Fatalf("contar ocorrências: %v", err)
+	}
+	ops, err := repo.Operational(ctx, open, false)
+	if err != nil {
+		t.Fatalf("Operational: %v", err)
+	}
+	if ops.Current.Occurrences != verified || ops.Pending != pending {
+		t.Errorf("operacional: %d contadas e %d pendentes; quero %d verificadas e %d pendentes",
+			ops.Current.Occurrences, ops.Pending, verified, pending)
+	}
 }

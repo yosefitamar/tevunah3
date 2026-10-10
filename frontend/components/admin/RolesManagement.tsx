@@ -84,7 +84,7 @@ export default function RolesManagement() {
                 const isConfirming = confirmDelete === r.code;
                 return (
                   <tr key={r.code}>
-                    <td className="mono" style={{ fontSize: 11 }}>{r.code}</td>
+                    <td className="mono" style={{ fontSize: 13 }}>{r.code}</td>
                     <td style={{ color: "var(--fg-0)", fontWeight: 600 }}>
                       {isEditing ? (
                         <input
@@ -130,7 +130,7 @@ export default function RolesManagement() {
                         </span>
                       ) : isConfirming ? (
                         <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
-                          <span className="muted" style={{ fontSize: 11 }}>Excluir?</span>
+                          <span className="muted" style={{ fontSize: 13 }}>Excluir?</span>
                           <button
                             type="button"
                             className="btn btn-danger"
@@ -258,7 +258,7 @@ function CreateRoleModal({
               required
             />
           </label>
-          <div className="muted" style={{ fontSize: 11 }}>
+          <div className="muted" style={{ fontSize: 13 }}>
             O papel nasce sem permissões. Conceda-as na aba MATRIZ RBAC.
           </div>
 

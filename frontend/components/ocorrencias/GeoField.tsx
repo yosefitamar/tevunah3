@@ -88,7 +88,7 @@ export default function GeoField({ lat, lng, onChange, disabled }: Props) {
         )}
       </div>
       {err && (
-        <div className="muted" style={{ fontSize: 10, marginTop: 4, color: "var(--danger)" }}>
+        <div className="muted" style={{ fontSize: 11.5, marginTop: 4, color: "var(--danger)" }}>
           ⚠ {err}
         </div>
       )}

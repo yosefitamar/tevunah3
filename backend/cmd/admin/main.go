@@ -5,6 +5,10 @@
 //	admin create     — cria um administrador interativamente (prompts no terminal)
 //	admin seed-dev   — em APP_ENV=development, cria o admin de desenvolvimento
 //	                  (idempotente: não faz nada se já existir admin ativo)
+//	admin sipom-recompute — refaz a tradução das ocorrências do relatório
+//	                  operacional para os códigos do SIPOM
+//	admin ops-geocode — localiza no geocodificador da agência (GEOCODER_URL)
+//	                  as ocorrências do relatório operacional sem coordenada
 //
 // O comando conecta como o role tevunah_app (APP_DATABASE_URL).
 package main
@@ -22,6 +26,9 @@ import (
 	"github.com/belia/tevunah/backend/internal/audit"
 	"github.com/belia/tevunah/backend/internal/crypt"
 	idb "github.com/belia/tevunah/backend/internal/db"
+	"github.com/belia/tevunah/backend/internal/geocode"
+	"github.com/belia/tevunah/backend/internal/opsreport"
+	"github.com/belia/tevunah/backend/internal/sipom"
 	"github.com/belia/tevunah/backend/internal/users"
 	"golang.org/x/term"
 )
@@ -36,6 +43,10 @@ func main() {
 		runCreate(os.Args[2:])
 	case "seed-dev":
 		runSeedDev(os.Args[2:])
+	case "sipom-recompute":
+		runSipomRecompute()
+	case "ops-geocode":
+		runOpsGeocode()
 	default:
 		usage()
 		os.Exit(2)
@@ -43,7 +54,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "uso: admin <create|seed-dev>")
+	fmt.Fprintln(os.Stderr, "uso: admin <create|seed-dev|sipom-recompute|ops-geocode>")
 }
 
 func openDB() *sql.DB {
@@ -231,4 +242,86 @@ func runSeedDev(_ []string) {
 
 Use em DEV apenas. Em produção, rode: ./tevunah admin:create
 `, u.ID, email, pass, secret)
+}
+
+// runSipomRecompute refaz a tradução para o SIPOM de todas as ocorrências do
+// relatório operacional (ex.: depois de uma migração do catálogo).
+func runSipomRecompute() {
+	ctx := context.Background()
+	db := openDB()
+	defer db.Close()
+	cat, err := sipom.Load(ctx, db)
+	if err != nil {
+		log.Fatalf("catálogo do SIPOM: %v", err)
+	}
+	repo := opsreport.New(db)
+	// Com o geocodificador configurado, ocorrência sem coordenada é pendência.
+	repo.GeoRequired = newGeocoder(db).Enabled()
+	ready, pending, err := repo.RecomputeSipom(ctx, cat, "")
+	if err != nil {
+		log.Fatalf("recálculo: %v", err)
+	}
+	fmt.Printf("SIPOM: %d ocorrência(s) prontas para envio, %d com pendência\n", ready, pending)
+}
+
+func newGeocoder(db *sql.DB) *geocode.Geocoder {
+	g, _ := geocode.FromEnv(db)
+	return g
+}
+
+// runOpsGeocode localiza as ocorrências do relatório operacional que estão
+// sem coordenada — o que foi importado antes de o geocodificador existir, ou
+// enquanto ele estava fora do ar — e refaz a tradução, que carrega a
+// pendência de coordenada. O ponto informado pelo analista nunca é tocado
+// (só entram as sem coordenada).
+func runOpsGeocode() {
+	ctx := context.Background()
+	db := openDB()
+	defer db.Close()
+	geo := newGeocoder(db)
+	if !geo.Enabled() {
+		log.Fatal("GEOCODER_URL não definido — configure o Nominatim da agência antes")
+	}
+	repo := opsreport.New(db)
+	repo.GeoRequired = true
+	pendentes, err := repo.Unlocated(ctx)
+	if err != nil {
+		log.Fatalf("ocorrências sem coordenada: %v", err)
+	}
+	byPrecision := map[string]int{}
+	missed := 0
+	for i := range pendentes {
+		so := &pendentes[i]
+		in := opsreport.SipomInput(&so.Occurrence)
+		street, number := sipom.SplitAddress(in.Address)
+		res, err := geo.Locate(ctx, geocode.Query{
+			Street: street, Number: number, Neighborhood: in.Neighborhood, City: in.City,
+		})
+		if err != nil {
+			log.Fatalf("geocodificador: %v (após %d ocorrência(s))", err, i)
+		}
+		if res == nil {
+			missed++
+			continue
+		}
+		if err := repo.SetGeo(ctx, so.ID, opsreport.Geo{
+			Lat: &res.Lat, Lng: &res.Lng, Precision: res.Precision, Source: opsreport.GeoAuto,
+		}); err != nil {
+			log.Fatalf("gravar coordenada: %v", err)
+		}
+		byPrecision[res.Precision]++
+	}
+	fmt.Printf("Coordenada: %d sem coordenada → %d pela porta, %d pela rua, %d pelo bairro (aproximada), %d não localizada(s)\n",
+		len(pendentes), byPrecision[geocode.PrecisionDoor], byPrecision[geocode.PrecisionStreet],
+		byPrecision[geocode.PrecisionNeighborhood], missed)
+
+	cat, err := sipom.Load(ctx, db)
+	if err != nil {
+		log.Fatalf("catálogo do SIPOM: %v", err)
+	}
+	ready, pending, err := repo.RecomputeSipom(ctx, cat, "")
+	if err != nil {
+		log.Fatalf("recálculo: %v", err)
+	}
+	fmt.Printf("SIPOM: %d ocorrência(s) prontas para envio, %d com pendência\n", ready, pending)
 }

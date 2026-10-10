@@ -22,7 +22,8 @@ FROM alpine:3.20
 RUN apk add --no-cache \
         ca-certificates tzdata \
         libstdc++ libx11 libxrender libxext libssl3 \
-        fontconfig freetype ttf-dejavu ttf-liberation
+        fontconfig freetype ttf-dejavu ttf-liberation \
+        poppler-utils
 
 COPY --from=wkhtmltopdf /bin/wkhtmltopdf /usr/local/bin/wkhtmltopdf
 COPY --from=wkhtmltopdf /bin/libwkhtmltox* /usr/lib/

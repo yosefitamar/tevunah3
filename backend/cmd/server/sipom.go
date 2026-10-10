@@ -795,6 +795,25 @@ func (a *app) sipomPhotoLoader(r *http.Request, clearance int, withData bool) op
 	}
 }
 
+// sipomOccPhotoLoader lê uma foto da ocorrência para o payload. Sem
+// withData, devolve só o tipo (prévia).
+func sipomOccPhotoLoader(withData bool) opsreport.OccPhotoLoader {
+	return func(p opsreport.Photo) *sipom.PayloadFoto {
+		if !withData {
+			return &sipom.PayloadFoto{Mime: p.MIME}
+		}
+		abs, err := filepath.Abs(filepath.Join(photoDir(), p.Path))
+		if err != nil || !strings.HasPrefix(abs, photoDir()) {
+			return nil
+		}
+		data, err := os.ReadFile(abs)
+		if err != nil || len(data) > sipomPhotoMaxBytes {
+			return nil
+		}
+		return &sipom.PayloadFoto{Mime: p.MIME, Base64: base64.StdEncoding.EncodeToString(data)}
+	}
+}
+
 // GET /api/ops-occurrences/{id}/sipom/payload[?fotos=1]
 //
 // Prévia do corpo do POST ao SIPOM para a ocorrência: exatamente o que seria
@@ -815,8 +834,9 @@ func (a *app) handleSipomPayload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	unidade := "SAI/" + a.opsUnit
+	withData := r.URL.Query().Get("fotos") == "1"
 	payload, err := opsreport.BuildSipomPayload(a.sipom, so, unidade,
-		a.sipomPhotoLoader(r, me.ClearanceLevel, r.URL.Query().Get("fotos") == "1"))
+		a.sipomPhotoLoader(r, me.ClearanceLevel, withData), sipomOccPhotoLoader(withData))
 	var nr *opsreport.NotReadyError
 	switch {
 	case errors.As(err, &nr):

@@ -374,6 +374,9 @@ type StoredOccurrence struct {
 	UpdatedAt     *time.Time
 	UpdatedByName string
 
+	// Photos são as fotos que o analista anexou à ficha (só no detalhe).
+	Photos []Photo
+
 	// Contagens (preenchidas na listagem; no detalhe, os slices valem).
 	PeopleCount, WeaponCount, DrugCount, VehicleCount int
 	// AccusedNames lista os acusados na listagem (busca rápida na tabela).
@@ -676,6 +679,9 @@ func (r *Repo) FindByID(ctx context.Context, id string) (*StoredOccurrence, erro
 		so.Officers = append(so.Officers, f)
 		return nil
 	}); err != nil {
+		return nil, err
+	}
+	if so.Photos, err = r.ListPhotos(ctx, id); err != nil {
 		return nil, err
 	}
 	return &so, nil
@@ -1721,4 +1727,107 @@ func (r *Repo) ListByEntity(ctx context.Context, entityID string) ([]EntityOccur
 		out = append(out, e)
 	}
 	return out, rows.Err()
+}
+
+// ─────────────────────────── Fotos ────────────────────────────
+
+// MaxPhotos é o teto de fotos por ocorrência: todas vão em base64 no corpo
+// do envio ao SIPOM, e o corpo precisa continuar de tamanho razoável.
+const MaxPhotos = 6
+
+// ErrPhotoLimit: a ocorrência já tem MaxPhotos fotos.
+var ErrPhotoLimit = errors.New("limite de fotos da ocorrência atingido")
+
+// Photo é uma foto anexada à ocorrência (apreensão, prisão, local). O
+// arquivo fica em PHOTO_DIR, sob Path.
+type Photo struct {
+	ID        string
+	Path      string
+	MIME      string
+	Size      int
+	CreatedAt time.Time
+}
+
+// ListPhotos devolve as fotos ativas da ocorrência, na ordem em que entraram.
+func (r *Repo) ListPhotos(ctx context.Context, occID string) ([]Photo, error) {
+	var out []Photo
+	err := r.each(ctx, `SELECT id, photo_path, mime, size_bytes, created_at
+		  FROM app.ops_occurrence_photos
+		 WHERE occurrence_id = $1 AND deleted_at IS NULL
+		 ORDER BY created_at, id`, occID, func(rows *sql.Rows) error {
+		var p Photo
+		if err := rows.Scan(&p.ID, &p.Path, &p.MIME, &p.Size, &p.CreatedAt); err != nil {
+			return err
+		}
+		out = append(out, p)
+		return nil
+	})
+	return out, err
+}
+
+// AddPhoto registra uma foto já gravada em disco. Devolve ErrNotFound se a
+// ocorrência não existe e ErrPhotoLimit se ela já tem MaxPhotos.
+func (r *Repo) AddPhoto(ctx context.Context, occID, path, mime string, size int, actor string) (*Photo, error) {
+	p := Photo{Path: path, MIME: mime, Size: size}
+	// A contagem entra no próprio INSERT: dois uploads simultâneos não
+	// passam os dois pelo teto.
+	err := r.db.QueryRowContext(ctx, `
+		INSERT INTO app.ops_occurrence_photos (occurrence_id, photo_path, mime, size_bytes, created_by)
+		SELECT o.id, $2, $3, $4, $5
+		  FROM app.ops_occurrences o
+		 WHERE o.id = $1 AND o.deleted_at IS NULL
+		   AND (SELECT count(*) FROM app.ops_occurrence_photos f
+		         WHERE f.occurrence_id = o.id AND f.deleted_at IS NULL) < $6
+		RETURNING id, created_at`,
+		occID, path, mime, size, actor, MaxPhotos).Scan(&p.ID, &p.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		var exists bool
+		if e := r.db.QueryRowContext(ctx,
+			`SELECT EXISTS (SELECT 1 FROM app.ops_occurrences WHERE id = $1 AND deleted_at IS NULL)`,
+			occID).Scan(&exists); e != nil {
+			return nil, e
+		}
+		if !exists {
+			return nil, ErrNotFound
+		}
+		return nil, ErrPhotoLimit
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
+// FindPhoto devolve uma foto ativa da ocorrência.
+func (r *Repo) FindPhoto(ctx context.Context, occID, photoID string) (*Photo, error) {
+	var p Photo
+	err := r.db.QueryRowContext(ctx, `SELECT id, photo_path, mime, size_bytes, created_at
+		  FROM app.ops_occurrence_photos
+		 WHERE id = $2 AND occurrence_id = $1 AND deleted_at IS NULL`, occID, photoID,
+	).Scan(&p.ID, &p.Path, &p.MIME, &p.Size, &p.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
+// DeletePhoto remove a foto (exclusão lógica) e devolve o registro, para o
+// chamador apagar o arquivo.
+func (r *Repo) DeletePhoto(ctx context.Context, occID, photoID, actor string) (*Photo, error) {
+	var p Photo
+	err := r.db.QueryRowContext(ctx, `UPDATE app.ops_occurrence_photos
+		   SET deleted_at = now(), deleted_by = $3
+		 WHERE id = $2 AND occurrence_id = $1 AND deleted_at IS NULL
+		RETURNING id, photo_path, mime, size_bytes, created_at`, occID, photoID, actor,
+	).Scan(&p.ID, &p.Path, &p.MIME, &p.Size, &p.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &p, nil
 }

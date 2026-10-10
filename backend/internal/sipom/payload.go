@@ -6,8 +6,9 @@ package sipom
 // postos_graduacoes); textos acompanham os ids só para conferência.
 //
 // Versão do contrato: muda quando um campo muda de sentido ou sai. A "2"
-// acrescenta procedimento e materiais (fase 2, docs/sipom-materiais.md).
-const PayloadVersion = "2"
+// acrescenta procedimento e materiais (fase 2, docs/sipom-materiais.md); a
+// "3", as fotos da ocorrência.
+const PayloadVersion = "3"
 
 // Payload é uma ocorrência completa: cabeçalho, históricos, envolvidos e
 // composição, num POST só (o SIPOM grava tudo ou nada).
@@ -24,6 +25,9 @@ type Payload struct {
 	// (aba Materiais). Procedimento null = o relatório não trouxe.
 	Procedimento *PayloadProcedimento `json:"procedimento"`
 	Materiais    []PayloadMaterial    `json:"materiais"`
+	// Fotos da ocorrência (aba Fotos): apreensão, prisão, local — anexadas
+	// pelo analista na ficha. Lista vazia = sem foto.
+	Fotos []PayloadFoto `json:"fotos"`
 }
 
 // PayloadProcedimento são os campos do modal "Procedimento Ocorrência",
@@ -161,7 +165,8 @@ type PayloadEnvolvido struct {
 	Foto       *PayloadFoto `json:"foto"`
 }
 
-// PayloadFoto é a foto principal do dossiê, em base64.
+// PayloadFoto é uma imagem em base64: a foto principal do dossiê (em
+// envolvidos[].foto) ou uma foto da ocorrência (em fotos[]).
 type PayloadFoto struct {
 	Mime   string `json:"mime"` // image/jpeg | image/png
 	Base64 string `json:"base64"`

@@ -144,6 +144,10 @@ type opsOccurrenceJSON struct {
 	// Tradução para o SIPOM (destino do envio); nil sem catálogo.
 	Sipom *sipomOccurrenceJSON `json:"sipom"`
 
+	// Fotos anexadas pelo analista (só na ficha gravada); o binário sai por
+	// GET /api/ops-occurrences/{id}/photos/{pid}.
+	Photos []opsPhotoJSON `json:"photos"`
+
 	// Só na prévia: "new" (será gravada) ou "duplicate" (ficha CIOPS já no
 	// acervo), e o id existente no segundo caso.
 	Status     string   `json:"status,omitempty"`
@@ -232,6 +236,7 @@ func (a *app) toOpsOccurrenceJSON(o *opsreport.Occurrence) opsOccurrenceJSON {
 		Vehicles: make([]opsVehicleJSON, 0, len(o.Vehicles)),
 		Officers: make([]opsOfficerJSON, 0, len(o.Officers)),
 		Warnings: nonNil(o.Warnings),
+		Photos:   []opsPhotoJSON{},
 
 		IntelParticipation: len(o.IntelMatched) > 0,
 		IntelMode:          opsreport.IntelAuto,
@@ -842,6 +847,7 @@ func (a *app) respondOpsOccurrence(w http.ResponseWriter, r *http.Request, id st
 	}
 	out.Sipom = a.sipomJSON(&so.Occurrence, opsreport.SipomPeople(so))
 	a.markAreaLearned(r.Context(), &so.Occurrence, out.Sipom)
+	out.Photos = toOpsPhotosJSON(so.Photos)
 	httpx.OK(w, map[string]any{"occurrence": out})
 }
 

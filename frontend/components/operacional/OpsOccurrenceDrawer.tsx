@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { FileText, Link2, Pencil, Search, Unlink, X } from "lucide-react";
+import { FileText, Link2, Search, Unlink, X } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   getOpsOccurrence,
@@ -15,12 +15,12 @@ import {
 import { listEntities } from "@/lib/entities-api";
 import type { Entity, PersonAttrs } from "@/lib/entities-types";
 import { canLinkOpsPeople, canSetOpsIntel } from "@/lib/permissions";
-import { formatBR, formatBRDate } from "@/lib/format";
 import type { ApiError } from "@/lib/api";
 import EntidadeDrawer from "../entidades/EntidadeDrawer";
 import EditOpsOccurrenceModal from "./EditOpsOccurrenceModal";
-import OpsOccurrenceBody from "./OpsOccurrenceBody";
+import OpsOccurrenceBody, { type OpsEditTab } from "./OpsOccurrenceBody";
 import { IntelPill, IntelSummary } from "./IntelStatus";
+import { SipomReadyPill } from "./SipomSection";
 
 type Props = {
   occurrenceId: string;
@@ -47,7 +47,7 @@ export default function OpsOccurrenceDrawer({ occurrenceId, onClose, onChanged }
   const [busyPerson, setBusyPerson] = useState<string | null>(null);
   const [searchFor, setSearchFor] = useState<string | null>(null);
   const [entityOverlayId, setEntityOverlayId] = useState<string | null>(null);
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState<OpsEditTab | null>(null);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -186,13 +186,13 @@ export default function OpsOccurrenceDrawer({ occurrenceId, onClose, onChanged }
             </button>
           </div>
 
-          <div className="drawer-bd">
+          <div className="drawer-bd ops-drawer-bd">
             {loading && !data && <div className="muted">// CARREGANDO…</div>}
             {error && <div className="banner banner-error">⚠ {error}</div>}
 
             {data && (
               <>
-                <div className="dossier-head dossier-head--actions">
+                <div className="ops-head">
                   <div className="ops-natures">
                     {data.intel_participation && <IntelPill />}
                     {data.natures.map((n) => (
@@ -201,14 +201,10 @@ export default function OpsOccurrenceDrawer({ occurrenceId, onClose, onChanged }
                       </span>
                     ))}
                   </div>
-                  <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-                    {canLink && data.id && (
-                      <button type="button" className="btn ops-nowrap" onClick={() => setEditing(true)}>
-                        <Pencil size={13} strokeWidth={1.8} /> CORRIGIR
-                      </button>
-                    )}
+                  <div className="ops-head-side">
+                    {data.sipom && <SipomReadyPill s={data.sipom} />}
                     {data.report_id && (
-                      <a className="btn ops-nowrap" href={opsReportFileURL(data.report_id)} target="_blank" rel="noreferrer">
+                      <a className="btn btn-sm ops-nowrap" href={opsReportFileURL(data.report_id)} target="_blank" rel="noreferrer">
                         <FileText size={13} strokeWidth={1.8} /> PDF ORIGINAL · PÁG. {data.page}
                       </a>
                     )}
@@ -217,11 +213,21 @@ export default function OpsOccurrenceDrawer({ occurrenceId, onClose, onChanged }
 
                 <OpsOccurrenceBody
                   occ={data}
+                  steps
+                  onEdit={canLink && data.id ? setEditing : undefined}
                   renderPerson={renderPerson}
                   onSipomChange={
                     canIntel
                       ? (sipom, officers) => {
                           setData({ ...data, sipom, officers: officers ?? data.officers });
+                          onChanged();
+                        }
+                      : undefined
+                  }
+                  onPhotosChange={
+                    canLink
+                      ? (photos) => {
+                          setData({ ...data, photos });
                           onChanged();
                         }
                       : undefined
@@ -262,27 +268,6 @@ export default function OpsOccurrenceDrawer({ occurrenceId, onClose, onChanged }
                   }
                 />
 
-                <dl className="dossier-list" style={{ marginTop: 14 }}>
-                  <div>
-                    <dt>DATA DO FATO</dt>
-                    <dd>{formatBRDate(data.occurred_on)}</dd>
-                  </div>
-                  {data.created_at && (
-                    <div>
-                      <dt>IMPORTADO EM</dt>
-                      <dd>{formatBR(data.created_at)}</dd>
-                    </div>
-                  )}
-                  {data.updated_at && (
-                    <div>
-                      <dt>CORRIGIDO EM</dt>
-                      <dd>
-                        {formatBR(data.updated_at)}
-                        {data.updated_by_name && ` · ${data.updated_by_name.toUpperCase()}`}
-                      </dd>
-                    </div>
-                  )}
-                </dl>
               </>
             )}
           </div>
@@ -300,9 +285,10 @@ export default function OpsOccurrenceDrawer({ occurrenceId, onClose, onChanged }
       {editing && data && (
         <EditOpsOccurrenceModal
           occ={data}
-          onClose={() => setEditing(false)}
+          initialTab={editing}
+          onClose={() => setEditing(null)}
           onSaved={(occ) => {
-            setEditing(false);
+            setEditing(null);
             setData(occ);
             onChanged();
           }}

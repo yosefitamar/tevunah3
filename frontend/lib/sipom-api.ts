@@ -182,9 +182,13 @@ export function confirmSipomNaturezas(ids: string[]) {
   });
 }
 
-/** Prévia do corpo do POST ao SIPOM (contrato em docs/sipom-integracao.md). */
-export function getSipomPayload(occId: string) {
+/**
+ * Corpo do POST ao SIPOM (contrato em docs/sipom-integracao.md). Sem
+ * `withPhotos` as fotos vêm só com o tipo, sem o base64 — a leitura do
+ * conteúdo das fotos de dossiê é auditada, por isso é pedida à parte.
+ */
+export function getSipomPayload(occId: string, withPhotos = false) {
   return api<{ ready: boolean; pendencias: SipomPending[]; payload: unknown | null }>(
-    `/api/ops-occurrences/${encodeURIComponent(occId)}/sipom/payload`,
+    `/api/ops-occurrences/${encodeURIComponent(occId)}/sipom/payload${withPhotos ? "?fotos=1" : ""}`,
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Check, RotateCcw, Search } from "lucide-react";
+import { Check, Search } from "lucide-react";
 import type { OpsOccurrence, SipomArma, SipomDroga, SipomRef, SipomVeiculo } from "@/lib/ops-reports-api";
 import { formatGrams } from "@/lib/ops-reports-api";
 import {
@@ -14,53 +14,59 @@ import {
   type SipomProcedimentoInput,
 } from "@/lib/sipom-api";
 import Select from "../shared/Select";
+import { OpsActions, OpsField, OpsFields } from "./OpsField";
+import { AutoButton, type SipomEdit } from "./SipomSection";
 
-type Result = Awaited<ReturnType<typeof setOpsSipomProcedimento>>;
+// Listas do SIPOM (procedimentos, delegacias, delegados, armas, drogas,
+// veículos): não mudam durante a sessão — uma busca serve às duas etapas e a
+// todas as fichas.
+let catalogoCache: Promise<SipomCatalogo> | null = null;
+function loadCatalogo(): Promise<SipomCatalogo> {
+  catalogoCache ??= getSipomCatalogo().catch((e) => {
+    catalogoCache = null;
+    throw e;
+  });
+  return catalogoCache;
+}
 
-type Props = {
-  occ: OpsOccurrence;
-  editable: boolean;
-  busy: boolean;
-  /** Executa a gravação pelo controle de busy/erro da seção. */
-  run: (fn: () => Promise<Result>) => Promise<boolean>;
-};
-
-/**
- * Fase 2 do envio: o procedimento (tipo, delegacia, delegado) e os materiais
- * (armas, drogas, veículos) nos códigos do SIPOM. O que o relatório trouxe em
- * texto fica ao lado da escolha; o que o analista fixa vira termo aprendido e
- * vale para as próximas ocorrências com o mesmo texto.
- */
-export default function SipomPhase2({ occ, editable, busy, run }: Props) {
-  const s = occ.sipom!;
+function useCatalogo(editable: boolean) {
   const [cat, setCat] = useState<SipomCatalogo | null>(null);
-  const [catError, setCatError] = useState<string | null>(null);
-
+  const [error, setError] = useState(false);
   useEffect(() => {
     if (!editable) return;
-    getSipomCatalogo()
+    loadCatalogo()
       .then(setCat)
-      .catch(() => setCatError("Não foi possível carregar as listas do SIPOM"));
+      .catch(() => setError(true));
   }, [editable]);
+  return { cat, error };
+}
 
-  const pending = new Set(s.pendencias.map((p) => p.code));
-  const manual = new Set(s.manual);
+const CAT_ERROR = <div className="banner banner-error">⚠ NÃO FOI POSSÍVEL CARREGAR AS LISTAS DO SIPOM</div>;
+
+type PartProps = { occ: OpsOccurrence; ed: SipomEdit };
+
+/**
+ * Fase 2 do envio, parte 1: o procedimento (tipo, número, delegacia, delegado)
+ * nos códigos do SIPOM. O que o analista fixa vira termo aprendido e vale
+ * para as próximas ocorrências com o mesmo texto.
+ */
+export function SipomProcedimento({ occ, ed }: PartProps) {
+  const s = occ.sipom!;
+  const { editable, busy, pending, manual } = ed;
+  const { cat, error } = useCatalogo(editable);
   const p = s.procedimento;
-  const setProc = (input: SipomProcedimentoInput) => occ.id && run(() => setOpsSipomProcedimento(occ.id!, input));
-  const setMat = (index: number, input: SipomMaterialInput) =>
-    occ.id && run(() => setOpsSipomMaterial(occ.id!, index, input));
+  const setProc = (input: SipomProcedimentoInput) =>
+    !!occ.id && ed.run(() => setOpsSipomProcedimento(occ.id!, input));
   const procManual = manual.has("procedimento") || manual.has("delegacia") || manual.has("delegado");
-  const opts = (list: SipomRef[] | undefined) => (list ?? []).map((x) => ({ value: String(x.id), label: x.nome }));
 
   return (
     <>
-      <div className="sipom-sub">PROCEDIMENTO</div>
-      {catError && <div className="banner banner-error">⚠ {catError}</div>}
-      <dl className="ops-kv sipom-kv">
-        <Field
+      {error && CAT_ERROR}
+      <OpsFields edit={editable}>
+        <OpsField
           label="TIPO"
-          value={p.procedimento?.nome ?? ""}
-          hint={p.tipo_texto}
+          span={2}
+          value={p.procedimento?.nome}
           missing={pending.has("procedimento") || pending.has("procedimento_tipo")}
           tag={manual.has("procedimento") ? "ANALISTA" : undefined}
         >
@@ -70,20 +76,21 @@ export default function SipomPhase2({ occ, editable, busy, run }: Props) {
               placeholder="ESCOLHA O TIPO"
               disabled={busy || !cat}
               onChange={(v) => setProc({ procedimento_id: Number(v) })}
-              options={opts(cat?.procedimentos)}
+              options={opts(cat?.procedimentos, p.procedimento)}
             />
           )}
-        </Field>
-        <Field
+        </OpsField>
+        <OpsField
           label="NÚMERO / ANO"
+          span={2}
+          mono
           value={p.numero ? `${p.numero} / ${p.ano}` : ""}
-          hint={p.numero_texto}
           missing={pending.has("procedimento_numero")}
         />
-        <Field
+        <OpsField
           label="DELEGACIA"
-          value={p.delegacia?.nome ?? ""}
-          hint={p.delegacia_texto}
+          span={2}
+          value={p.delegacia?.nome}
           missing={pending.has("delegacia")}
           tag={manual.has("delegacia") ? "ANALISTA" : undefined}
         >
@@ -94,91 +101,78 @@ export default function SipomPhase2({ occ, editable, busy, run }: Props) {
               placeholder="ESCOLHA A DELEGACIA"
               disabled={busy || !cat}
               onChange={(v) => setProc({ delegacia_id: Number(v) })}
-              options={opts(cat?.delegacias)}
+              options={opts(cat?.delegacias, p.delegacia)}
             />
           )}
-        </Field>
-        <Field
+        </OpsField>
+        <OpsField
           label="DELEGADO (OPCIONAL)"
-          value={p.delegado?.nome ?? ""}
-          hint={p.delegado_texto}
+          span={2}
+          value={p.delegado?.nome}
           missing={pending.has("delegado")}
           tag={manual.has("delegado") ? "ANALISTA" : undefined}
         >
           {editable && (
-            <div className="sipom-inline" style={{ flexDirection: "column", alignItems: "stretch", gap: 6 }}>
-              {p.delegado_candidates.length > 0 && !p.delegado && (
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                  {p.delegado_candidates.map((c) => (
-                    <button
-                      key={c.id}
-                      type="button"
-                      className="btn btn-sm"
-                      disabled={busy}
-                      onClick={() => setProc({ delegado_id: c.id })}
-                      title="Casa com o nome abreviado do relatório"
-                    >
-                      <Check size={12} strokeWidth={2} /> {c.nome}
-                    </button>
-                  ))}
-                </div>
-              )}
-              <Select
-                searchable
-                value={p.delegado ? String(p.delegado.id) : ""}
-                placeholder="BUSCAR DELEGADO NO CATÁLOGO"
-                disabled={busy || !cat}
-                onChange={(v) => setProc({ delegado_id: Number(v) })}
-                options={opts(cat?.delegados)}
-              />
-            </div>
+            <Select
+              searchable
+              value={p.delegado ? String(p.delegado.id) : ""}
+              placeholder="BUSCAR DELEGADO NO CATÁLOGO"
+              disabled={busy || !cat}
+              onChange={(v) => setProc({ delegado_id: Number(v) })}
+              options={opts(cat?.delegados, p.delegado)}
+            />
           )}
-        </Field>
-      </dl>
-      {editable && procManual && (
-        <div style={{ marginTop: 4 }}>
-          <AutoButton busy={busy} onClick={() => setProc({ reset: true })} label="PROCEDIMENTO AUTOMÁTICO" />
-        </div>
-      )}
-
-      {(s.materiais.armas.length > 0 || s.materiais.drogas.length > 0 || s.materiais.veiculos.length > 0) && (
+        </OpsField>
+      </OpsFields>
+      {editable && p.delegado_candidates.length > 0 && !p.delegado && (
         <>
-          <div className="sipom-sub">MATERIAIS</div>
-          {s.materiais.armas.map((a) => (
-            <ArmaRow
-              key={"a" + a.index}
-              a={a}
-              raw={occ.weapons[a.index]}
-              cat={cat}
-              editable={editable}
-              busy={busy}
-              onSave={(input) => setMat(a.index, input)}
-            />
-          ))}
-          {s.materiais.drogas.map((d) => (
-            <DrogaRow
-              key={"d" + d.index}
-              d={d}
-              raw={occ.drugs[d.index]}
-              cat={cat}
-              editable={editable}
-              busy={busy}
-              onSave={(input) => setMat(d.index, input)}
-            />
-          ))}
-          {s.materiais.veiculos.map((v) => (
-            <VeiculoRow
-              key={"v" + v.index}
-              v={v}
-              raw={occ.vehicles[v.index]}
-              cat={cat}
-              editable={editable}
-              busy={busy}
-              onSave={(input) => setMat(v.index, input)}
-            />
-          ))}
+          <div className="ops-sub">DELEGADOS QUE CASAM COM O NOME DO RELATÓRIO</div>
+          <div className="ops-chips">
+            {p.delegado_candidates.map((c) => (
+              <button key={c.id} type="button" className="btn btn-sm" disabled={busy} onClick={() => setProc({ delegado_id: c.id })}>
+                <Check size={12} strokeWidth={2} /> {c.nome}
+              </button>
+            ))}
+          </div>
         </>
       )}
+      {editable && procManual && (
+        <OpsActions>
+          <AutoButton busy={busy} onClick={() => setProc({ reset: true })} label="VOLTAR O PROCEDIMENTO AO AUTOMÁTICO" />
+        </OpsActions>
+      )}
+    </>
+  );
+}
+
+/**
+ * Fase 2 do envio, parte 2: os materiais (armas, drogas, veículos). Cada item
+ * mostra o que o relatório trouxe em texto e, embaixo, a tradução para os
+ * códigos do SIPOM.
+ */
+export function SipomMateriais({ occ, ed }: PartProps) {
+  const s = occ.sipom!;
+  const { editable, busy } = ed;
+  const { cat, error } = useCatalogo(editable);
+  const setMat = (index: number, input: SipomMaterialInput) =>
+    !!occ.id && ed.run(() => setOpsSipomMaterial(occ.id!, index, input));
+  const { armas, drogas, veiculos } = s.materiais;
+
+  return (
+    <>
+      {error && CAT_ERROR}
+      {armas.length > 0 && <div className="ops-sub">ARMAS ({armas.length})</div>}
+      {armas.map((a) => (
+        <ArmaRow key={"a" + a.index} a={a} raw={occ.weapons[a.index]} cat={cat} editable={editable} busy={busy} onSave={(input) => setMat(a.index, input)} />
+      ))}
+      {drogas.length > 0 && <div className="ops-sub">DROGAS ({drogas.length})</div>}
+      {drogas.map((d) => (
+        <DrogaRow key={"d" + d.index} d={d} raw={occ.drugs[d.index]} cat={cat} editable={editable} busy={busy} onSave={(input) => setMat(d.index, input)} />
+      ))}
+      {veiculos.length > 0 && <div className="ops-sub">VEÍCULOS ({veiculos.length})</div>}
+      {veiculos.map((v) => (
+        <VeiculoRow key={"v" + v.index} v={v} raw={occ.vehicles[v.index]} cat={cat} editable={editable} busy={busy} onSave={(input) => setMat(v.index, input)} />
+      ))}
     </>
   );
 }
@@ -189,15 +183,29 @@ type RowProps<T> = {
   cat: SipomCatalogo | null;
   editable: boolean;
   busy: boolean;
-  onSave: (input: SipomMaterialInput) => Promise<boolean> | false | "" | undefined;
+  onSave: (input: SipomMaterialInput) => unknown;
 } & T;
 
-function status(ok: boolean, manual: boolean) {
+/** Cabeçalho do item: o texto do relatório e a situação da tradução. */
+function MaterialHead({ raw, ok, manual }: { raw: string; ok: boolean; manual: boolean }) {
   return (
-    <span className={"pill " + (ok ? "active" : "hold")} title={manual ? "Definido pelo analista" : undefined}>
-      {ok ? "OK" : "PENDENTE"}
-      {manual ? " · ANALISTA" : ""}
-    </span>
+    <div className="sipom-material-hd">
+      <span className="sipom-material-lbl">RELATÓRIO</span>
+      <span className="sipom-material-raw">{raw || "—"}</span>
+      {manual && <span className="sipom-tag">ANALISTA</span>}
+      <span className={"pill " + (ok ? "active" : "hold")}>{ok ? "OK" : "PENDENTE"}</span>
+    </div>
+  );
+}
+
+/** Tradução só de leitura (prévia da importação ou sem permissão). */
+function MaterialRead({ fields }: { fields: [string, string | undefined][] }) {
+  return (
+    <OpsFields>
+      {fields.map(([label, value]) => (
+        <OpsField key={label} label={label} value={value} missing={!value} />
+      ))}
+    </OpsFields>
   );
 }
 
@@ -211,31 +219,46 @@ function ArmaRow({ a, raw, cat, editable, busy, onSave }: RowProps<{ a: SipomArm
     setCalibre(a.calibre ? String(a.calibre.id) : "");
   }, [a.tipo, a.marca, a.calibre]);
   const rawText = raw ? [raw.kind, raw.brand, raw.model, raw.caliber, raw.serial].filter(Boolean).join(" · ") : "";
-  const dirty = tipo !== (a.tipo ? String(a.tipo.id) : "") || marca !== (a.marca ? String(a.marca.id) : "") || calibre !== (a.calibre ? String(a.calibre.id) : "");
+  const dirty =
+    tipo !== (a.tipo ? String(a.tipo.id) : "") ||
+    marca !== (a.marca ? String(a.marca.id) : "") ||
+    calibre !== (a.calibre ? String(a.calibre.id) : "");
   return (
     <div className="sipom-material">
-      <div className="sipom-material-hd">
-        <span className="sipom-material-kind">ARMA</span>
-        <span className="muted">{rawText || "—"}</span>
-        {status(a.ok, a.manual)}
-      </div>
+      <MaterialHead raw={rawText} ok={a.ok} manual={a.manual} />
       {editable ? (
-        <div className="sipom-material-edit">
-          <Select value={tipo} placeholder="TIPO" disabled={busy || !cat} onChange={setTipo} options={opts(cat?.arma_tipos)} />
-          <Select searchable value={marca} placeholder="MARCA" disabled={busy || !cat} onChange={setMarca} options={opts(cat?.arma_marcas)} />
-          <Select value={calibre} placeholder="CALIBRE" disabled={busy || !cat} onChange={setCalibre} options={opts(cat?.arma_calibres)} />
-          <button
-            type="button"
-            className="btn btn-primary btn-sm"
-            disabled={busy || !tipo || !marca || !calibre || (!dirty && a.manual)}
-            onClick={() => onSave({ kind: "armas", tipo_id: Number(tipo), marca_id: Number(marca), calibre_id: Number(calibre) })}
-          >
-            <Check size={12} strokeWidth={2} /> GRAVAR
-          </button>
-          {a.manual && <AutoButton busy={busy} onClick={() => onSave({ kind: "armas", reset: true })} />}
-        </div>
+        <>
+          <OpsFields edit>
+            <OpsField label="TIPO" missing={!tipo}>
+              <Select value={tipo} placeholder="TIPO" disabled={busy || !cat} onChange={setTipo} options={opts(cat?.arma_tipos, a.tipo)} />
+            </OpsField>
+            <OpsField label="MARCA" span={2} missing={!marca}>
+              <Select searchable value={marca} placeholder="MARCA" disabled={busy || !cat} onChange={setMarca} options={opts(cat?.arma_marcas, a.marca)} />
+            </OpsField>
+            <OpsField label="CALIBRE" missing={!calibre}>
+              <Select value={calibre} placeholder="CALIBRE" disabled={busy || !cat} onChange={setCalibre} options={opts(cat?.arma_calibres, a.calibre)} />
+            </OpsField>
+          </OpsFields>
+          <OpsActions>
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              disabled={busy || !tipo || !marca || !calibre || (!dirty && a.manual)}
+              onClick={() => onSave({ kind: "armas", tipo_id: Number(tipo), marca_id: Number(marca), calibre_id: Number(calibre) })}
+            >
+              <Check size={12} strokeWidth={2} /> GRAVAR
+            </button>
+            {a.manual && <AutoButton busy={busy} onClick={() => onSave({ kind: "armas", reset: true })} />}
+          </OpsActions>
+        </>
       ) : (
-        <div className="muted">{[a.tipo?.nome, a.marca?.nome, a.calibre?.nome].filter(Boolean).join(" · ") || "SEM TRADUÇÃO"}</div>
+        <MaterialRead
+          fields={[
+            ["TIPO", a.tipo?.nome],
+            ["MARCA", a.marca?.nome],
+            ["CALIBRE", a.calibre?.nome],
+          ]}
+        />
       )}
     </div>
   );
@@ -249,45 +272,62 @@ function DrogaRow({ d, raw, cat, editable, busy, onSave }: RowProps<{ d: SipomDr
     setQtd(d.quantidade != null ? String(d.quantidade) : "");
   }, [d.droga, d.quantidade]);
   const unidade = cat?.drogas.find((x) => String(x.id) === droga)?.unidade ?? d.unidade;
-  const rawText = raw ? [raw.description, raw.grams != null ? formatGrams(raw.grams) : "", raw.packages != null ? `${raw.packages} pacote(s)` : ""].filter(Boolean).join(" · ") : "";
+  const rawText = raw
+    ? [raw.description, raw.grams != null ? formatGrams(raw.grams) : "", raw.packages != null ? `${raw.packages} pacote(s)` : ""]
+        .filter(Boolean)
+        .join(" · ")
+    : "";
   const q = Number(qtd.replace(",", "."));
   return (
     <div className="sipom-material">
-      <div className="sipom-material-hd">
-        <span className="sipom-material-kind">DROGA</span>
-        <span className="muted">{rawText || "—"}</span>
-        {status(d.ok, d.manual)}
-      </div>
+      <MaterialHead raw={rawText} ok={d.ok} manual={d.manual} />
       {editable ? (
-        <div className="sipom-material-edit">
-          <Select
-            value={droga}
-            placeholder="DROGA"
-            disabled={busy || !cat}
-            onChange={setDroga}
-            options={(cat?.drogas ?? []).map((x) => ({ value: String(x.id), label: `${x.nome} — ${x.unidade}` }))}
-          />
-          <input
-            type="text"
-            inputMode="decimal"
-            value={qtd}
-            onChange={(e) => setQtd(e.target.value)}
-            placeholder={unidade ? `QUANTIDADE EM ${unidade.toUpperCase()}` : "QUANTIDADE"}
-            disabled={busy}
-            style={{ width: 200 }}
-          />
-          <button
-            type="button"
-            className="btn btn-primary btn-sm"
-            disabled={busy || !droga || !(q > 0)}
-            onClick={() => onSave({ kind: "drogas", droga_id: Number(droga), quantidade: q })}
-          >
-            <Check size={12} strokeWidth={2} /> GRAVAR
-          </button>
-          {d.manual && <AutoButton busy={busy} onClick={() => onSave({ kind: "drogas", reset: true })} />}
-        </div>
+        <>
+          <OpsFields edit>
+            <OpsField label="DROGA" span={2} missing={!droga}>
+              <Select
+                value={droga}
+                placeholder="DROGA"
+                disabled={busy || !cat}
+                onChange={setDroga}
+                options={
+                  cat
+                    ? cat.drogas.map((x) => ({ value: String(x.id), label: `${x.nome} — ${x.unidade}` }))
+                    : opts(undefined, d.droga)
+                }
+              />
+            </OpsField>
+            <OpsField label={unidade ? `QUANTIDADE EM ${unidade}` : "QUANTIDADE"} span={2} missing={!(q > 0)}>
+              <input
+                className="ops-input"
+                type="text"
+                inputMode="decimal"
+                value={qtd}
+                onChange={(e) => setQtd(e.target.value)}
+                placeholder="0"
+                disabled={busy}
+              />
+            </OpsField>
+          </OpsFields>
+          <OpsActions>
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              disabled={busy || !droga || !(q > 0)}
+              onClick={() => onSave({ kind: "drogas", droga_id: Number(droga), quantidade: q })}
+            >
+              <Check size={12} strokeWidth={2} /> GRAVAR
+            </button>
+            {d.manual && <AutoButton busy={busy} onClick={() => onSave({ kind: "drogas", reset: true })} />}
+          </OpsActions>
+        </>
       ) : (
-        <div className="muted">{d.droga ? `${d.droga.nome} · ${d.quantidade ?? "?"} ${d.unidade}` : "SEM TRADUÇÃO"}</div>
+        <MaterialRead
+          fields={[
+            ["DROGA", d.droga?.nome],
+            ["QUANTIDADE", d.quantidade != null ? `${d.quantidade} ${d.unidade}` : undefined],
+          ]}
+        />
       )}
     </div>
   );
@@ -324,54 +364,43 @@ function VeiculoRow({ v, raw, cat, editable, busy, onSave }: RowProps<{ v: Sipom
   const choices = found.length > 0 ? found : v.marca_modelo_candidates;
   return (
     <div className="sipom-material">
-      <div className="sipom-material-hd">
-        <span className="sipom-material-kind">VEÍCULO</span>
-        <span className="muted">{rawText || "—"}</span>
-        {status(v.ok, v.manual)}
-      </div>
+      <MaterialHead raw={rawText} ok={v.ok} manual={v.manual} />
       {editable ? (
         <>
-          <div className="sipom-material-edit">
-            <Select value={tipo} placeholder="TIPO" disabled={busy || !cat} onChange={setTipo} options={opts(cat?.veiculo_tipos)} />
-            <Select value={cor} placeholder="COR" disabled={busy || !cat} onChange={setCor} options={opts(cat?.veiculo_cores)} />
-            <div className="seg-row" role="radiogroup" aria-label="Situação do veículo">
-              {([1, 2] as const).map((x) => (
-                <button
-                  key={x}
-                  type="button"
-                  role="radio"
-                  aria-checked={situacao === x}
-                  className={"seg-btn" + (situacao === x ? " seg-btn--on" : "")}
-                  disabled={busy}
-                  onClick={() => setSituacao(x)}
-                >
-                  {x === 1 ? "APREENDIDO" : "RECUPERADO"}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="sipom-material-edit">
-            <span className={"pill " + (mm ? "active" : "hold")} title="Marca/modelo na tabela DENATRAN">
-              {mm ? mm.nome : "SEM MARCA/MODELO"}
-            </span>
-            <div className="toolbar-search" style={{ maxWidth: 320 }}>
-              <Search size={13} strokeWidth={1.6} />
-              <input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder="buscar marca/modelo…" disabled={busy} />
-            </div>
-            <button
-              type="button"
-              className="btn btn-primary btn-sm"
-              disabled={busy || !tipo || !cor || !mm}
-              onClick={() =>
-                mm && onSave({ kind: "veiculos", tipo_codigo: Number(tipo), cor_codigo: Number(cor), marca_modelo_codigo: mm.id, situacao })
-              }
-            >
-              <Check size={12} strokeWidth={2} /> GRAVAR
-            </button>
-            {v.manual && <AutoButton busy={busy} onClick={() => onSave({ kind: "veiculos", reset: true })} />}
-          </div>
+          <OpsFields edit>
+            <OpsField label="TIPO" missing={!tipo}>
+              <Select value={tipo} placeholder="TIPO" disabled={busy || !cat} onChange={setTipo} options={opts(cat?.veiculo_tipos, v.tipo)} />
+            </OpsField>
+            <OpsField label="COR" missing={!cor}>
+              <Select value={cor} placeholder="COR" disabled={busy || !cat} onChange={setCor} options={opts(cat?.veiculo_cores, v.cor)} />
+            </OpsField>
+            <OpsField label="SITUAÇÃO" span={2}>
+              <div className="seg-row ops-seg" role="radiogroup" aria-label="Situação do veículo">
+                {([1, 2] as const).map((x) => (
+                  <button
+                    key={x}
+                    type="button"
+                    role="radio"
+                    aria-checked={situacao === x}
+                    className={"seg-btn" + (situacao === x ? " seg-btn--on" : "")}
+                    disabled={busy}
+                    onClick={() => setSituacao(x)}
+                  >
+                    {x === 1 ? "APREENDIDO" : "RECUPERADO"}
+                  </button>
+                ))}
+              </div>
+            </OpsField>
+            <OpsField label="MARCA / MODELO (TABELA DENATRAN)" span={2} missing={!mm} value={mm?.nome ?? "NÃO ESCOLHIDO"} />
+            <OpsField label="BUSCAR MARCA / MODELO" span={2}>
+              <div className="toolbar-search ops-search">
+                <Search size={13} strokeWidth={1.6} />
+                <input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder="DIGITE PARA BUSCAR…" disabled={busy} />
+              </div>
+            </OpsField>
+          </OpsFields>
           {choices.length > 0 && (
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
+            <div className="ops-chips">
               {choices.map((c) => (
                 <button
                   key={c.id}
@@ -385,63 +414,40 @@ function VeiculoRow({ v, raw, cat, editable, busy, onSave }: RowProps<{ v: Sipom
               ))}
             </div>
           )}
+          <OpsActions>
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              disabled={busy || !tipo || !cor || !mm}
+              onClick={() =>
+                mm && onSave({ kind: "veiculos", tipo_codigo: Number(tipo), cor_codigo: Number(cor), marca_modelo_codigo: mm.id, situacao })
+              }
+            >
+              <Check size={12} strokeWidth={2} /> GRAVAR
+            </button>
+            {v.manual && <AutoButton busy={busy} onClick={() => onSave({ kind: "veiculos", reset: true })} />}
+          </OpsActions>
         </>
       ) : (
-        <div className="muted">
-          {[v.tipo?.nome, v.marca_modelo?.nome, v.cor?.nome, v.situacao === 2 ? "RECUPERADO" : v.situacao === 1 ? "APREENDIDO" : ""]
-            .filter(Boolean)
-            .join(" · ") || "SEM TRADUÇÃO"}
-        </div>
+        <MaterialRead
+          fields={[
+            ["TIPO", v.tipo?.nome],
+            ["MARCA / MODELO", v.marca_modelo?.nome],
+            ["COR", v.cor?.nome],
+            ["SITUAÇÃO", v.situacao === 2 ? "RECUPERADO" : v.situacao === 1 ? "APREENDIDO" : undefined],
+          ]}
+        />
       )}
     </div>
   );
 }
 
-// ─── Peças ───
-
-function opts(list: SipomRef[] | undefined) {
-  return (list ?? []).map((x) => ({ value: String(x.id), label: x.nome }));
-}
-
-function Field({
-  label,
-  value,
-  hint,
-  missing,
-  tag,
-  children,
-}: {
-  label: string;
-  value: string;
-  /** Como o relatório escreveu. */
-  hint?: string;
-  missing?: boolean;
-  tag?: string;
-  children?: React.ReactNode;
-}) {
-  return (
-    <div className={missing ? "sipom-missing" : undefined}>
-      <dt>
-        {label}
-        {tag && <span className="sipom-tag">{tag}</span>}
-      </dt>
-      <dd>
-        {value || "—"}
-        {hint && (
-          <span className="muted" style={{ display: "block", fontSize: 11.5 }}>
-            RELATÓRIO: {hint}
-          </span>
-        )}
-      </dd>
-      {children}
-    </div>
-  );
-}
-
-function AutoButton({ busy, onClick, label = "AUTOMÁTICO" }: { busy: boolean; onClick: () => void; label?: string }) {
-  return (
-    <button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={onClick} title="Voltar ao cálculo automático">
-      <RotateCcw size={12} strokeWidth={2} /> {label}
-    </button>
-  );
+// `current`: o valor já gravado entra na lista mesmo antes de o catálogo
+// carregar (ou se ele falhar) — o campo nunca aparece vazio tendo valor.
+function opts(list: SipomRef[] | undefined, current?: SipomRef | null) {
+  const out = (list ?? []).map((x) => ({ value: String(x.id), label: x.nome }));
+  if (current && !out.some((o) => o.value === String(current.id))) {
+    out.unshift({ value: String(current.id), label: current.nome });
+  }
+  return out;
 }

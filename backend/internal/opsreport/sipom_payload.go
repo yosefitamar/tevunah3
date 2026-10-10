@@ -20,13 +20,17 @@ func (e *NotReadyError) Error() string {
 // couber no envio).
 type PhotoLoader func(entityID string) *sipom.PayloadFoto
 
+// OccPhotoLoader devolve uma foto da ocorrência pronta para o envio (nil se
+// o arquivo sumiu ou não cabe).
+type OccPhotoLoader func(p Photo) *sipom.PayloadFoto
+
 // Fuso do Ceará: -03:00 o ano todo (sem horário de verão desde 2003).
 const ceOffset = "-03:00"
 
 // BuildSipomPayload monta o corpo do POST ao SIPOM a partir da ocorrência
 // gravada e da tradução já resolvida. Só monta ocorrência pronta: com
 // pendência bloqueante devolve *NotReadyError.
-func BuildSipomPayload(cat *sipom.Catalog, so *StoredOccurrence, unidade string, photo PhotoLoader) (*sipom.Payload, error) {
+func BuildSipomPayload(cat *sipom.Catalog, so *StoredOccurrence, unidade string, photo PhotoLoader, occPhoto OccPhotoLoader) (*sipom.Payload, error) {
 	f := so.Sipom
 	var blocking []string
 	for _, p := range f.Pending {
@@ -78,6 +82,14 @@ func BuildSipomPayload(cat *sipom.Catalog, so *StoredOccurrence, unidade string,
 		Envolvidos: []sipom.PayloadEnvolvido{},
 		Composicao: []sipom.PayloadComposicao{},
 		Materiais:  []sipom.PayloadMaterial{},
+		Fotos:      []sipom.PayloadFoto{},
+	}
+	if occPhoto != nil {
+		for _, ph := range so.Photos {
+			if f := occPhoto(ph); f != nil {
+				p.Fotos = append(p.Fotos, *f)
+			}
+		}
 	}
 	if so.Report != nil && !so.Report.IsZero() {
 		d := so.Report.Format("2006-01-02")

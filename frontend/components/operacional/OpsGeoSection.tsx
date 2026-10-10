@@ -5,6 +5,7 @@ import { Crosshair, MapPin, Save } from "lucide-react";
 import { setOpsGeo, type OpsOccurrence } from "@/lib/ops-reports-api";
 import { googleMapsURL } from "@/lib/incidents-api";
 import type { ApiError } from "@/lib/api";
+import { OpsActions, OpsField, OpsFields } from "./OpsField";
 
 type Props = {
   occ: OpsOccurrence;
@@ -84,82 +85,91 @@ export default function OpsGeoSection({ occ, editable = false, onChange }: Props
   const pill = located ? precisionPill(occ) : null;
 
   return (
-    <section className="ops-section">
-      <div className="ops-section-title">LOCALIZAÇÃO</div>
-
-      {located ? (
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <span className="mono">
-            {occ.latitude!.toFixed(6)}, {occ.longitude!.toFixed(6)}
-          </span>
-          {pill && (
-            <span className={"pill " + pill.cls} title={pill.title}>
-              {pill.label}
-            </span>
-          )}
-          <a
-            className="btn btn-ghost btn-sm"
-            href={googleMapsURL(occ.latitude!, occ.longitude!)}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <MapPin size={12} strokeWidth={1.8} /> ABRIR NO GOOGLE MAPS
-          </a>
-        </div>
-      ) : (
+    <>
+      {!located && (
         <div className="banner banner-warn">
           ⚠ SEM COORDENADA — O ENDEREÇO NÃO FOI LOCALIZADO NO MAPA.
           {editable && " INFORME O PONTO ABAIXO, OU CORRIJA O ENDEREÇO E MANDE LOCALIZAR DE NOVO."}
         </div>
       )}
-
-      {editable && (
-        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
-          <input
-            type="text"
-            inputMode="decimal"
-            value={lat}
-            onChange={(e) => setLat(e.target.value)}
-            placeholder="LATITUDE  -3.731000"
-            aria-label="Latitude"
-            style={{ width: 170 }}
-            disabled={busy}
-          />
-          <input
-            type="text"
-            inputMode="decimal"
-            value={lng}
-            onChange={(e) => setLng(e.target.value)}
-            placeholder="LONGITUDE  -38.526000"
-            aria-label="Longitude"
-            style={{ width: 170 }}
-            disabled={busy}
-          />
-          <button
-            type="button"
-            className="btn btn-primary btn-sm"
-            disabled={busy || !valid || !dirty}
-            onClick={() => run({ latitude: latN, longitude: lngN })}
-            title="Grava o ponto informado; ele passa a valer sobre o automático"
-          >
-            <Save size={12} strokeWidth={2} /> GRAVAR PONTO
-          </button>
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm"
-            disabled={busy}
-            onClick={() => run({ reset: true })}
-            title="Procura o endereço da ficha no mapa da agência e substitui o ponto atual"
-          >
-            <Crosshair size={12} strokeWidth={2} /> {busy ? "LOCALIZANDO…" : "LOCALIZAR PELO ENDEREÇO"}
-          </button>
-        </div>
+      <OpsFields edit={editable}>
+        <OpsField label="LATITUDE" mono missing={!located} value={located ? occ.latitude!.toFixed(6) : undefined}>
+          {editable && (
+            <input
+              className="ops-input mono"
+              type="text"
+              inputMode="decimal"
+              value={lat}
+              onChange={(e) => setLat(e.target.value)}
+              placeholder="-3.731000"
+              aria-label="Latitude"
+              disabled={busy}
+            />
+          )}
+        </OpsField>
+        <OpsField label="LONGITUDE" mono missing={!located} value={located ? occ.longitude!.toFixed(6) : undefined}>
+          {editable && (
+            <input
+              className="ops-input mono"
+              type="text"
+              inputMode="decimal"
+              value={lng}
+              onChange={(e) => setLng(e.target.value)}
+              placeholder="-38.526000"
+              aria-label="Longitude"
+              disabled={busy}
+            />
+          )}
+        </OpsField>
+        <OpsField
+          label="PRECISÃO DO PONTO"
+          span={2}
+          value={
+            pill && (
+              <span className={"pill " + pill.cls} title={pill.title}>
+                {pill.label}
+              </span>
+            )
+          }
+        />
+      </OpsFields>
+      {(editable || located) && (
+        <OpsActions>
+          {editable && (
+            <>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                disabled={busy || !valid || !dirty}
+                onClick={() => run({ latitude: latN, longitude: lngN })}
+                title="Grava o ponto informado; ele passa a valer sobre o automático"
+              >
+                <Save size={12} strokeWidth={2} /> GRAVAR PONTO
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm"
+                disabled={busy}
+                onClick={() => run({ reset: true })}
+                title="Procura o endereço da ficha no mapa da agência e substitui o ponto atual"
+              >
+                <Crosshair size={12} strokeWidth={2} /> {busy ? "LOCALIZANDO…" : "LOCALIZAR PELO ENDEREÇO"}
+              </button>
+            </>
+          )}
+          {located && (
+            <a
+              className="btn btn-ghost btn-sm"
+              href={googleMapsURL(occ.latitude!, occ.longitude!)}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <MapPin size={12} strokeWidth={1.8} /> ABRIR NO GOOGLE MAPS
+            </a>
+          )}
+        </OpsActions>
       )}
-      {error && (
-        <div className="banner banner-error" style={{ marginTop: 8 }}>
-          ⚠ {error}
-        </div>
-      )}
-    </section>
+      {error && <div className="banner banner-error">⚠ {error}</div>}
+    </>
   );
 }

@@ -491,11 +491,11 @@ func TestSmoke_PayloadPhase2(t *testing.T) {
 		t.Skip("CAUCAIA fora do catálogo de cidades")
 	}
 	so.Sipom.Pending = nil
-	p, err := BuildSipomPayload(cat, so, "SAI/2º BPRAIO", nil)
+	p, err := BuildSipomPayload(cat, so, "SAI/2º BPRAIO", nil, nil)
 	if err != nil {
 		t.Fatalf("payload: %v", err)
 	}
-	if p.Origem.Versao != "2" {
+	if p.Origem.Versao != "3" {
 		t.Errorf("versão do contrato: %s", p.Origem.Versao)
 	}
 	if p.Procedimento == nil || p.Procedimento.ProcedimentoID != sipom.ProcIP || p.Procedimento.Numero != "7653" ||

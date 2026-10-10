@@ -5367,33 +5367,7 @@ body.session-locked > *:not(.session-overlay-root) {
   border-top: 1px dashed var(--line);
 }
 
-.ops-body { font-size: 13px; }
-.ops-kv {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px 16px;
-  margin: 12px 0 0;
-}
-.ops-kv > div { min-width: 0; }
-.ops-kv-wide { grid-column: span 2; }
-.ops-kv dt {
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  color: var(--fg-3);
-  text-transform: uppercase;
-  margin-bottom: 2px;
-}
-.ops-kv dd { margin: 0; color: var(--fg-0); overflow-wrap: anywhere; }
 
-.ops-section { margin-top: 16px; }
-.ops-section-title {
-  font-size: 11px;
-  letter-spacing: 0.1em;
-  color: var(--fg-2);
-  border-bottom: 1px solid var(--line);
-  padding-bottom: 4px;
-  margin-bottom: 8px;
-}
 .ops-text { margin: 0; color: var(--fg-1); line-height: 1.55; }
 .ops-text--narrative { white-space: pre-line; }
 
@@ -5448,13 +5422,6 @@ body.session-locked > *:not(.session-overlay-root) {
 .ops-subtbl { margin-bottom: 8px; }
 .ops-subtbl th, .ops-subtbl td { padding: 5px 8px; font-size: 12px; }
 
-.ops-officers { display: flex; flex-wrap: wrap; gap: 6px; }
-.ops-officer {
-  border: 1px solid var(--line);
-  padding: 3px 8px;
-  font-size: 12px;
-  color: var(--fg-0);
-}
 
 .ops-natures { display: flex; flex-wrap: wrap; gap: 6px; }
 .ops-natures-cell { font-size: 12.5px; line-height: 1.35; }
@@ -5521,44 +5488,9 @@ body.session-locked > *:not(.session-overlay-root) {
 
 /* ───────── Envio ao SIPOM (ficha do relatório operacional) ─────────
    Campo que ainda impede o envio fica marcado em âmbar. */
-.sipom-title { display: flex; align-items: center; gap: 6px; }
-.sipom-title .pill { margin-left: auto; gap: 4px; }
-.sipom-title .pill::before { display: none; }
-.sipom-kv .sipom-missing dt,
-.sipom-kv .sipom-missing dd { color: var(--warn); }
-.sipom-note { margin-top: 6px; font-size: 12px; }
-.sipom-pending { margin: 8px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 3px; }
-.sipom-pending li { font-size: 12.5px; padding-left: 14px; position: relative; }
-.sipom-pending li::before { content: "▸"; position: absolute; left: 0; }
-.sipom-pending--block { color: var(--warn); }
-.sipom-pending--note { color: var(--fg-2); }
-.ops-officer-fn {
-  margin-left: 6px;
-  padding-left: 6px;
-  border-left: 1px solid var(--line-2);
-  color: var(--accent);
-  font-size: 11px;
-  letter-spacing: 0.06em;
-}
-.sipom-natureza {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 8px 10px;
-  margin-bottom: 10px;
-  border: 1px solid var(--line);
-  background: var(--bg-0);
-}
-.sipom-natureza.sipom-missing { border-color: var(--warn); }
-.sipom-natureza-lbl { font-size: 11px; letter-spacing: 0.1em; color: var(--fg-2); }
-.sipom-natureza.sipom-missing .sipom-natureza-lbl { color: var(--warn); }
-.sipom-natureza-val { color: var(--fg-0); }
-.sipom-natureza-edit { display: flex; gap: 8px; align-items: center; }
-.sipom-natureza-edit .sel { flex: 1; min-width: 0; }
 /* Admin › SIPOM (de-para de naturezas) */
 .sipom-map-panel { max-width: 1400px; }
 .sipom-prio { width: 70px; height: 30px; }
-.sipom-sub { margin: 12px 0 6px; font-size: 11px; letter-spacing: 0.1em; color: var(--fg-2); }
 .sipom-people td, .sipom-people th { white-space: nowrap; }
 .sipom-people .pill::before { display: none; }
 .sipom-tag {
@@ -5569,12 +5501,6 @@ body.session-locked > *:not(.session-overlay-root) {
   color: var(--accent);
   border: 1px solid var(--accent-dim);
 }
-.sipom-kv dt .action-btn { margin-left: 6px; padding: 0; vertical-align: middle; }
-.sipom-inline { display: flex; gap: 6px; align-items: center; margin-top: 2px; }
-.sipom-inline .sel { flex: 1; min-width: 0; }
-.sipom-addr-edit { display: grid; grid-template-columns: 1fr 160px; gap: 8px; align-items: end; }
-.sipom-addr-edit .sipom-inline { grid-column: 1 / -1; }
-.sipom-teams { margin-top: 10px; }
 /* Abas de visão no topo de uma tela (ex.: Relatório Operacional ›
    Ocorrências | Envio ao SIPOM). Reaproveitam o .modal-tab. */
 .screen-tabs { display: flex; border-bottom: 1px solid var(--line); margin-bottom: 12px; flex: none; }
@@ -5583,9 +5509,9 @@ body.session-locked > *:not(.session-overlay-root) {
 .sipom-badges { display: flex; flex-wrap: wrap; gap: 4px; }
 .sipom-badges .pill { font-size: 10.5px; }
 .tbl .pill::before { flex: none; }
-.sipom-title .sipom-payload-btn { margin-left: auto; }
-.sipom-title .sipom-payload-btn + .pill { margin-left: 0; }
-.modal.sipom-payload { max-width: 820px; }
+/* O JSON aparece como é: a prévia abre de dentro da ficha, e não pode herdar
+   a caixa alta dela (chaves e valores do contrato diferenciam maiúsculas). */
+.modal.sipom-payload { max-width: 820px; text-transform: none; }
 .sipom-json {
   margin: 0;
   max-height: 60vh;
@@ -5600,14 +5526,318 @@ body.session-locked > *:not(.session-overlay-root) {
 }
 
 /* ───────── SIPOM · fase 2: materiais ───────── */
-.sipom-material {
+
+/* ───────── Ficha da ocorrência do relatório operacional ─────────
+   Organizada em etapas por tema (fato, local, efetivo, pessoas, procedimento,
+   apreensões, envio). Em cada etapa, blocos: o que o PDF trouxe (RELATÓRIO) e
+   como vai ao SIPOM. Tudo cai na mesma grade de 4 colunas — rótulo em cima,
+   valor ou controle embaixo — e aparece em CAIXA ALTA (convenção do projeto:
+   text-transform é visual, o dado gravado fica como veio). */
+.ops-body { font-size: 13px; text-transform: uppercase; }
+.ops-body input,
+.ops-body textarea,
+.ops-body button,
+.ops-body input::placeholder { text-transform: uppercase; }
+.ops-body .banner { margin: 0; flex-wrap: wrap; }
+.ops-body .pill::before { display: none; }
+
+/* Cabeçalho do drawer: naturezas à esquerda, situação e PDF à direita. */
+.ops-drawer-bd { gap: 14px; padding-top: 14px; }
+.ops-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.ops-head-side { display: flex; align-items: center; gap: 8px; flex: none; }
+.ops-head .pill.sipom-ready { gap: 4px; padding: 3px 8px; }
+.ops-head .pill.sipom-ready::before { display: none; }
+.ops-head .btn-sm { height: auto; padding: 4px 9px; }
+
+/* Etapas */
+.ops-body--steps { display: flex; flex-direction: column; gap: 14px; }
+.ops-steps {
+  display: flex;
   border: 1px solid var(--line);
   background: var(--bg-2);
-  padding: 8px 10px;
-  margin-top: 6px;
+  position: sticky;
+  top: -14px;
+  z-index: 5;
+  overflow-x: auto;
 }
-.sipom-material-hd { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; }
-.sipom-material-hd .pill { margin-left: auto; }
-.sipom-material-kind { font-size: 11px; letter-spacing: 0.1em; color: var(--fg-2); font-weight: 700; }
-.sipom-material-edit { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
-.sipom-material-edit .sel { min-width: 160px; flex: 1; }
+.ops-step {
+  flex: 1 0 auto;
+  appearance: none;
+  background: none;
+  border: 0;
+  border-right: 1px solid var(--line);
+  border-bottom: 2px solid transparent;
+  color: var(--fg-2);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 8px 6px 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.ops-step:last-child { border-right: 0; }
+.ops-step:hover { color: var(--fg-0); background: var(--bg-3); }
+.ops-step-num {
+  width: 17px;
+  height: 17px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line-2);
+  font-size: 10.5px;
+  letter-spacing: 0;
+}
+/* Etapa com pendência para o SIPOM: rótulo e número em âmbar. */
+.ops-step--pending { color: var(--warn); }
+.ops-step--pending .ops-step-num { border-color: var(--warn); }
+.ops-step--on { color: var(--accent); border-bottom-color: var(--accent); background: var(--bg-0); }
+.ops-step--on .ops-step-num { border-color: var(--accent); background: var(--accent); color: var(--bg-0); }
+.ops-step--on.ops-step--pending { color: var(--warn); border-bottom-color: var(--warn); }
+.ops-step--on.ops-step--pending .ops-step-num { border-color: var(--warn); background: var(--warn); }
+.ops-step-body { display: flex; flex-direction: column; gap: 14px; }
+.ops-step-body[hidden] { display: none; }
+.ops-step-ft {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  font-size: 11.5px;
+  letter-spacing: 0.08em;
+}
+
+/* Empilhado (prévia da importação): uma seção por etapa. */
+.ops-section { margin-top: 18px; display: flex; flex-direction: column; gap: 10px; }
+.ops-section-title {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--accent);
+  border-bottom: 1px solid var(--line-2);
+  padding-bottom: 5px;
+}
+
+/* Bloco */
+.ops-block {
+  border: 1px solid var(--line);
+  background: var(--bg-0);
+  padding: 10px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.ops-block-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 20px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--line);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--fg-2);
+}
+.ops-sub { font-size: 11px; letter-spacing: 0.1em; color: var(--fg-2); margin-top: 2px; }
+.ops-empty { font-size: 12px; letter-spacing: 0.06em; color: var(--fg-3); }
+.ops-text { margin: 0; color: var(--fg-1); line-height: 1.55; overflow-wrap: anywhere; }
+.ops-text--narrative { white-space: pre-line; }
+.ops-strong { color: var(--fg-0) !important; font-weight: 600; }
+.ops-tbl-scroll { overflow-x: auto; }
+.ops-body .ops-subtbl { margin: 0; }
+.ops-body .ops-subtbl th { position: static; }
+
+/* Grade de campos */
+.ops-fields {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px 14px;
+  margin: 0;
+  align-items: start;
+}
+.ops-field { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.ops-field--s2 { grid-column: span 2; }
+.ops-field--s3 { grid-column: span 3; }
+.ops-field--s4 { grid-column: 1 / -1; }
+.ops-field dt {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 16px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--fg-3);
+}
+.ops-field-lbl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ops-field dd { margin: 0; color: var(--fg-0); overflow-wrap: anywhere; line-height: 1.4; min-width: 0; }
+/* Grade com controles: o valor só de leitura ganha a altura do controle. */
+.ops-fields--edit .ops-field dd { min-height: 32px; display: flex; align-items: center; }
+.ops-fields--edit .ops-field dd > * { min-width: 0; }
+.ops-field--missing dt,
+.ops-field--missing dd { color: var(--warn); }
+.ops-field--missing .sel-trigger,
+.ops-field--missing .ops-input { border-color: var(--warn); }
+.ops-field .sipom-tag { margin-left: 0; flex: none; }
+.ops-field-btn {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font: inherit;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+  cursor: pointer;
+  flex: none;
+}
+.ops-field-btn:hover { text-decoration: underline; }
+.ops-block-title .ops-field-btn { margin-left: 0; }
+
+/* Controles dentro da ficha: mesma altura (32px) para tudo. */
+.ops-body .sel { flex: 1; min-width: 0; }
+.ops-body .sel-trigger { font-size: 13px; padding: 0 9px; height: 32px; }
+.ops-body .sel-item { font-size: 13px; }
+.ops-input {
+  width: 100%;
+  height: 32px;
+  background: var(--bg-2);
+  border: 1px solid var(--line-2);
+  color: var(--fg-0);
+  font: inherit;
+  font-size: 13px;
+  padding: 0 9px;
+  outline: none;
+}
+.ops-input:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-glow); }
+.ops-input:disabled { opacity: 0.55; }
+.ops-control-row { display: flex; align-items: center; gap: 6px; width: 100%; }
+.ops-control-row .btn-sm,
+.ops-actions .btn-sm { height: 32px; padding: 0 10px; flex: none; }
+.ops-actions { grid-column: 1 / -1; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.ops-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.ops-chips .btn-sm { height: auto; }
+.ops-seg { margin-top: 0; width: 100%; }
+.ops-seg .seg-btn { height: 32px; padding: 0 10px; font-size: 11.5px; }
+.ops-search { height: 32px; width: 100%; background: var(--bg-2); border-color: var(--line-2); }
+.ops-search input { font-size: 13px; min-width: 0; }
+
+/* Materiais: um cartão por item — o texto do relatório e, embaixo, a tradução. */
+.sipom-material {
+  border: 1px solid var(--line);
+  background: var(--bg-1);
+  padding: 8px 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.sipom-material-hd {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px dashed var(--line);
+}
+.sipom-material-lbl { font-size: 10.5px; letter-spacing: 0.1em; color: var(--fg-3); flex: none; }
+.sipom-material-raw { color: var(--fg-0); flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.sipom-material-hd .pill { flex: none; }
+.sipom-teams { display: flex; flex-direction: column; gap: 8px; }
+.sipom-teams .sel-trigger { height: 28px; }
+
+/* Fotos da ocorrência */
+.ops-photo-drop {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  border: 1px dashed var(--line-2);
+  background: var(--bg-1);
+  font-size: 11.5px;
+  letter-spacing: 0.06em;
+}
+.ops-photo-drop--over { border-color: var(--accent); background: var(--accent-glow); }
+.ops-photo-drop .btn-sm { height: 32px; padding: 0 10px; flex: none; }
+.ops-photos { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.ops-photo { margin: 0; border: 1px solid var(--line); background: var(--bg-1); min-width: 0; }
+.ops-photo a { display: block; aspect-ratio: 4 / 3; background: var(--bg-0); }
+.ops-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ops-photo figcaption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border-top: 1px solid var(--line);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--fg-1);
+}
+.ops-photo figcaption > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ops-photo-confirm { display: inline-flex; gap: 8px; flex: none; }
+.ops-photo .ops-field-btn { margin-left: 0; }
+.ops-field-btn--danger { color: var(--crit); }
+.ops-field-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Envio */
+.sipom-status { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.sipom-status .pill { gap: 5px; padding: 4px 10px; font-size: 12px; }
+.sipom-status .btn-sm { height: auto; padding: 4px 9px; }
+.sipom-pending { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; }
+.sipom-pending li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12.5px;
+  padding: 6px 0 6px 14px;
+  position: relative;
+  border-bottom: 1px dashed var(--line);
+}
+.sipom-pending li:last-child { border-bottom: 0; }
+.sipom-pending li::before { content: "▸"; position: absolute; left: 0; }
+.sipom-pending--block { color: var(--warn); }
+.sipom-pending--note { color: var(--fg-2); }
+
+/* Estreito (prévia dentro do modal, janela pequena): a grade cai para 2 colunas. */
+@media (max-width: 900px) {
+  .ops-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ops-photos { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ops-field--s3 { grid-column: 1 / -1; }
+  .ops-step-lbl { display: none; }
+  .ops-step--on .ops-step-lbl { display: inline; }
+}
+
+/* Correção da ocorrência (modal em abas, uma por etapa da ficha). */
+.modal.ops-edit { max-width: 760px; height: calc(86 * var(--vh)); }
+.ops-edit .modal-tab { display: inline-flex; align-items: center; gap: 6px; }
+.ops-edit-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--warn); }
+.ops-edit-bd { flex: 1; gap: 14px; }
+.ops-edit input,
+.ops-edit textarea,
+.ops-edit input::placeholder { text-transform: uppercase; }
+.ops-edit-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px 10px; }
+.ops-edit-group {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--accent);
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 5px;
+}
+.ops-edit-group:not(:first-child) { margin-top: 6px; }
+.ops-edit-note { font-size: 11px; letter-spacing: 0.06em; }
+.ops-edit-ft { align-items: center; }
+.ops-edit-ft .ops-edit-note { margin-right: auto; }
+.ops-edit-ft .btn { flex: none; white-space: nowrap; }

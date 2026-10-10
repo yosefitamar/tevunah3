@@ -18,7 +18,8 @@ A proposta é um **POST único** por ocorrência, que cria no SIPOM a ocorrênci
 |---|---|
 | **1 (esta proposta)** | Cabeçalho da ocorrência, histórico, envolvidos (com foto) e composição |
 | **2 (implementada; contrato "2")** | Procedimento (delegacia e delegado do dump de 05/10/2026) e materiais apreendidos (armas, drogas, veículos) — ver `sipom-materiais.md` |
-| 3 (a combinar) | Munição, celulares, dinheiro e outros materiais; fotos da ocorrência; histórico de inteligência |
+| **Fotos da ocorrência (implementada; contrato "3")** | Bloco `fotos[]`: imagens da apreensão, da prisão ou do local, anexadas pelo analista na ficha — ver seção 4.6 |
+| 3 (a combinar) | Munição, celulares, dinheiro e outros materiais; histórico de inteligência |
 
 ---
 
@@ -54,7 +55,7 @@ As datas seguem a ISO 8601. `data_hora` vai com o fuso do Ceará (`-03:00`); `na
 | Campo | Tipo | Obrig. | Descrição |
 |---|---|---|---|
 | `sistema` | string | sim | Sempre `"TEVUNAH"` |
-| `versao` | string | sim | Versão deste contrato (`"1"`) |
+| `versao` | string | sim | Versão deste contrato (`"1"` nesta proposta; o Tevunah hoje gera `"3"`) |
 | `unidade` | string | sim | Agência que envia (`"SAI/2º BPRAIO"`) |
 | `id` | uuid | sim | Id da ocorrência no Tevunah e chave de idempotência |
 | `relatorio_data` | date \| null | não | Data do relatório do CPRAIO de onde a ocorrência veio |
@@ -127,6 +128,24 @@ As datas seguem a ISO 8601. `data_hora` vai com o fuso do Ceará (`-03:00`); `na
 | `equipe` | string | — | Equipe do relatório (`"RAIO 01"`, `"VTRA 121"`) |
 
 Regra de origem, adotada pelo batalhão: equipe **VTRA** → Motorizado (6), com PM1 Comandante, PM2 Motorista e os demais Patrulheiros. Equipe **RAIO** → Motopatrulhamento (7), com PM1 Comandante, PM2 Subcomandante, PM3 3 homem, PM4 Garupa e PM5 5 Homem.
+
+### 4.6 `fotos[]`: aba Fotos (contrato "3")
+
+Fotos da ocorrência — apreensão, prisão, local. O relatório do CPRAIO não traz imagem: o analista as anexa na ficha do Tevunah. Lista vazia quando não há foto; não é campo obrigatório.
+
+| Campo | Tipo | Obrig. | Descrição |
+|---|---|---|---|
+| `mime` | string | sim | `image/jpeg` ou `image/png` |
+| `base64` | string | sim | Conteúdo da imagem em base64 (padrão, sem prefixo `data:`) |
+
+- Até **6 fotos** por ocorrência, cada uma com até 5 MB. Vai o arquivo original anexado pelo analista, em tamanho real — não é miniatura. Só a foto que passa de 5 MB é reduzida (JPEG, até 1920 px no maior lado) para caber.
+- Mesmo formato de `envolvidos[].foto`.
+
+```json
+"fotos": [
+  { "mime": "image/jpeg", "base64": "/9j/4AAQSkZJRgABAQ…" }
+]
+```
 
 ---
 

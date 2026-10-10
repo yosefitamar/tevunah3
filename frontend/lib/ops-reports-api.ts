@@ -152,6 +152,12 @@ export type SipomMateriais = {
 
 export type OpsIntelMode = "auto" | "manual";
 
+/** Foto da ocorrência; o binário sai por opsPhotoURL. */
+export type OpsPhoto = { id: string; mime: string; size: number; created_at: string };
+
+/** Teto de fotos por ocorrência (o servidor recusa além disso). */
+export const OPS_MAX_PHOTOS = 6;
+
 export type OpsOccurrence = {
   id?: string;
   report_id?: string;
@@ -201,6 +207,8 @@ export type OpsOccurrence = {
   intel_matched: string[];
   /** null quando o catálogo do SIPOM não está carregado no servidor. */
   sipom: SipomOccurrence | null;
+  /** Fotos anexadas pelo analista (apreensão, prisão, local); vão ao SIPOM. */
+  photos: OpsPhoto[];
   status?: "new" | "duplicate";
   existing_id?: string;
   warnings: string[];
@@ -309,9 +317,9 @@ export type OpsImportResult = {
 export type OpsFacets = { cias: string[]; pels: string[]; cities: string[]; natures: string[] };
 
 // multipart não passa pelo api(): o Content-Type precisa ser o do FormData.
-async function upload<T>(path: string, file: File): Promise<T> {
+async function upload<T>(path: string, file: File, field = "file"): Promise<T> {
   const fd = new FormData();
-  fd.append("file", file);
+  fd.append(field, file);
   const res = await fetch(path, {
     method: "POST",
     credentials: "include",
@@ -398,6 +406,19 @@ export function setOpsGeo(id: string, input: { latitude: number; longitude: numb
     method: "PUT",
     body: JSON.stringify(input),
   });
+}
+
+export function opsPhotoURL(occId: string, photoId: string) {
+  return `/api/ops-occurrences/${encodeURIComponent(occId)}/photos/${encodeURIComponent(photoId)}`;
+}
+
+/** Anexa uma foto (JPEG ou PNG, até 5 MiB) e devolve a lista atualizada. */
+export function addOpsPhoto(occId: string, file: File) {
+  return upload<{ photos: OpsPhoto[] }>(`/api/ops-occurrences/${encodeURIComponent(occId)}/photos`, file, "photo");
+}
+
+export function deleteOpsPhoto(occId: string, photoId: string) {
+  return api<void>(opsPhotoURL(occId, photoId), { method: "DELETE" });
 }
 
 export function linkOpsPerson(occId: string, personId: string, entityId: string) {

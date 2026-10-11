@@ -2,13 +2,22 @@
 
 import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
+import { IS_DEV } from "@/lib/nav";
 
 /**
  * Timer regressivo da sessão. Lê `sessionExpiresAt` do AuthContext, que é
  * atualizado pelo header `X-Session-Expires-At` em cada chamada autenticada.
  * Atualiza a cada segundo. Muda de cor abaixo de 2 min (warn) e 1 min (crit).
+ *
+ * Em desenvolvimento não aparece: lá a sessão não expira por ociosidade
+ * (ver devSessionTTL no backend).
  */
 export default function SessionTimer() {
+  if (IS_DEV) return null;
+  return <Countdown />;
+}
+
+function Countdown() {
   const { sessionExpiresAt } = useAuth();
   const [now, setNow] = useState(() => Date.now());
 

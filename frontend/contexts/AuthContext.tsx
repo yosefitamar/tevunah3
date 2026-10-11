@@ -134,6 +134,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSessionExpired(true);
       return;
     }
+    // setTimeout guarda o atraso em 32 bits: acima de ~24,8 dias ele dispara
+    // na hora. Prazo assim (sessão de desenvolvimento) fica só com a
+    // verificação periódica abaixo.
+    if (ms > 2 ** 31 - 1) return;
     const id = window.setTimeout(() => setSessionExpired(true), ms);
     return () => window.clearTimeout(id);
   }, [sessionExpiresAt]);

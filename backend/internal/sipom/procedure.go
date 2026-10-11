@@ -245,37 +245,124 @@ func nameTokens(s string) []string {
 }
 
 // MatchDelegado procura o delegado pelo nome como o relatório o escreve —
-// em geral abreviado ("Ítalo Renno Alves" para ITALO RENNO ALVES FEITOSA).
-// Casa quando as palavras do nome aparecem, na ordem, entre as do nome do
-// catálogo; uma inicial ("R.") casa qualquer palavra que comece por ela. O
-// nome exato vence; senão, um único candidato é aceito; vários voltam como
-// candidatos para o analista. Só delegados ativos entram.
+// em geral abreviado ("Ítalo Renno Alves" para ITALO RENNO ALVES FEITOSA) e
+// muitas vezes com erro de digitação. Casa quando as palavras do nome
+// aparecem, na ordem, entre as do nome do catálogo; uma inicial ("R.") casa
+// qualquer palavra que comece por ela.
+//
+// A comparação afrouxa em três passos, e só passa ao seguinte quando o
+// anterior não achou ninguém: palavra igual; mesmo som ("Sousa"/"Souza",
+// "Renno"/"Reno"); som a uma letra de distância ("Rodruigues", "Galinho").
+// Em cada passo o nome completo vence; senão, um único candidato é aceito;
+// vários voltam como candidatos para o analista. Só delegados ativos entram.
 func (c *Catalog) MatchDelegado(name string) (id int, candidates []int) {
 	want := nameTokens(name)
 	if len(want) == 0 {
 		return 0, nil
 	}
-	k := strings.Join(want, " ")
-	for _, d := range c.delegadoList {
-		if strings.Join(nameTokens(d.Nome), " ") == k {
-			return d.ID, nil
-		}
-	}
-	for _, d := range c.delegadoList {
-		if tokensSubsequence(want, nameTokens(d.Nome)) {
+	for _, eq := range []func(a, b string) bool{sameWord, sameSound, nearSound} {
+		candidates = nil
+		for _, d := range c.delegadoList {
+			have := nameTokens(d.Nome)
+			if !tokensSubsequence(want, have, eq) {
+				continue
+			}
+			if len(want) == len(have) {
+				return d.ID, nil
+			}
 			candidates = append(candidates, d.ID)
 		}
+		if len(candidates) == 1 {
+			return candidates[0], nil
+		}
+		if len(candidates) > 1 {
+			return 0, candidates
+		}
 	}
-	if len(candidates) == 1 {
-		return candidates[0], nil
-	}
-	return 0, candidates
+	return 0, nil
 }
 
-// tokensSubsequence diz se want aparece, na ordem, dentro de have. O
-// primeiro nome tem que ser o primeiro: "ALVES FEITOSA" não é o Ítalo.
-func tokensSubsequence(want, have []string) bool {
-	if len(want) == 0 || len(have) == 0 || !tokenMatch(want[0], have[0]) {
+func sameWord(a, b string) bool  { return a == b }
+func sameSound(a, b string) bool { return soundKey(a) == soundKey(b) }
+
+// nearSound: o som difere em uma letra (troca, falta, sobra ou inversão).
+// Palavra curta não entra — "Lima" e "Lira" são nomes diferentes.
+func nearSound(a, b string) bool {
+	ka, kb := soundKey(a), soundKey(b)
+	if ka == kb {
+		return true
+	}
+	if len(ka) < 5 || len(kb) < 5 {
+		return false
+	}
+	return editDistance(ka, kb) <= 1
+}
+
+var soundPairs = strings.NewReplacer(
+	"ph", "f", "th", "t", "ch", "x", "sh", "x", "lh", "li", "nh", "ni",
+	"ç", "s", "ei", "e", "ou", "o", "qu", "c", "ck", "c",
+)
+
+// soundKey reduz a palavra (já sem acento e em minúsculas) ao som, na medida
+// do que o digitador costuma trocar em nome português: s/z/ss/ç, i/y, v/w,
+// c/k/q, h mudo, letra dobrada, "ei"/"e" e "ou"/"o".
+func soundKey(w string) string {
+	w = soundPairs.Replace(w)
+	var b strings.Builder
+	var last rune
+	for _, r := range w {
+		switch r {
+		case 'z':
+			r = 's'
+		case 'y':
+			r = 'i'
+		case 'w':
+			r = 'v'
+		case 'k', 'q':
+			r = 'c'
+		case 'h':
+			continue
+		}
+		if r != last {
+			b.WriteRune(r)
+		}
+		last = r
+	}
+	return b.String()
+}
+
+// editDistance é a distância de Damerau-Levenshtein (a inversão de duas
+// letras vizinhas conta um erro só).
+func editDistance(a, b string) int {
+	ra, rb := []rune(a), []rune(b)
+	d := make([][]int, len(ra)+1)
+	for i := range d {
+		d[i] = make([]int, len(rb)+1)
+		d[i][0] = i
+	}
+	for j := range d[0] {
+		d[0][j] = j
+	}
+	for i := 1; i <= len(ra); i++ {
+		for j := 1; j <= len(rb); j++ {
+			cost := 1
+			if ra[i-1] == rb[j-1] {
+				cost = 0
+			}
+			d[i][j] = min(d[i-1][j]+1, d[i][j-1]+1, d[i-1][j-1]+cost)
+			if i > 1 && j > 1 && ra[i-1] == rb[j-2] && ra[i-2] == rb[j-1] {
+				d[i][j] = min(d[i][j], d[i-2][j-2]+1)
+			}
+		}
+	}
+	return d[len(ra)][len(rb)]
+}
+
+// tokensSubsequence diz se want aparece, na ordem, dentro de have, com eq
+// decidindo se duas palavras são a mesma. O primeiro nome tem que ser o
+// primeiro: "ALVES FEITOSA" não é o Ítalo.
+func tokensSubsequence(want, have []string, eq func(a, b string) bool) bool {
+	if len(want) == 0 || len(have) == 0 || !tokenMatch(want[0], have[0], eq) {
 		return false
 	}
 	i := 1
@@ -283,16 +370,16 @@ func tokensSubsequence(want, have []string) bool {
 		if i == len(want) {
 			break
 		}
-		if tokenMatch(want[i], h) {
+		if tokenMatch(want[i], h, eq) {
 			i++
 		}
 	}
 	return i == len(want)
 }
 
-func tokenMatch(want, have string) bool {
+func tokenMatch(want, have string, eq func(a, b string) bool) bool {
 	if len(want) == 1 {
 		return strings.HasPrefix(have, want)
 	}
-	return want == have
+	return eq(want, have)
 }

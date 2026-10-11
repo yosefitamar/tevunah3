@@ -5507,6 +5507,34 @@ body.session-locked > *:not(.session-overlay-root) {
 .screen-tabs .modal-tab { display: inline-flex; align-items: center; gap: 6px; }
 .sipom-codes { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: -4px 0 10px; font-size: 11.5px; }
 .sipom-badges { display: flex; flex-wrap: wrap; gap: 4px; }
+/* Fila de envio: linha enxuta, tudo em caixa alta e centrado na vertical. */
+.tbl.sipom-queue td { text-transform: uppercase; vertical-align: middle; }
+.tbl.sipom-queue .pill { white-space: nowrap; }
+/* Trilha de etapas: a etapa que impede o envio acende em âmbar, a que só tem
+   aviso fica tracejada, as resolvidas ficam apagadas; ficha sem pendência
+   nenhuma fica toda na cor de destaque. */
+.sipom-trail { display: inline-flex; gap: 2px; }
+.sipom-trail-step {
+  width: 24px; height: 24px;
+  display: inline-grid; place-items: center;
+  border: 1px solid transparent;
+  color: var(--line-2);
+}
+.sipom-trail-step.blk {
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 55%, transparent);
+  background: color-mix(in srgb, var(--warn) 14%, transparent);
+}
+.sipom-trail-step.note { color: var(--fg-2); border-color: var(--line-2); border-style: dashed; }
+.sipom-trail--ok .sipom-trail-step { color: var(--accent); }
+.sipom-legend {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px;
+  margin: 0 0 10px;
+  font-size: 11.5px; letter-spacing: 0.05em; color: var(--fg-2);
+}
+.sipom-legend > span { display: inline-flex; align-items: center; gap: 6px; }
+.sipom-legend .sipom-trail-step { width: 14px; height: 14px; }
+.sipom-legend-sep { width: 1px; height: 14px; background: var(--line-2); }
 .sipom-badges .pill { font-size: 10.5px; }
 .tbl .pill::before { flex: none; }
 /* O JSON aparece como é: a prévia abre de dentro da ficha, e não pode herdar

@@ -318,8 +318,9 @@ func CompositionByTeam(teams []string) ([]Officer, string) {
 //	"RAIO **"  (motos)   → Motopatrulhamento: 1 Comandante, 2 Subcomandante,
 //	                       3 3º homem, 4 Garupa, 5 5º homem.
 //
-// Com mais de uma equipe na ficha não dá para saber quem estava em qual:
-// volta pendente para o analista definir.
+// Com mais de uma equipe na ficha vale a primeira citada, para todos os
+// policiais: o relatório não diz quem estava em qual, e a primeira é a que
+// atendeu. O analista ainda pode definir a equipe de cada um na ficha.
 func Composition(teams string, n int) ([]Officer, string) {
 	out := make([]Officer, n)
 	if n == 0 {
@@ -330,9 +331,6 @@ func Composition(teams string, n int) ([]Officer, string) {
 		if t = strings.TrimSpace(t); t != "" {
 			list = append(list, t)
 		}
-	}
-	if len(list) > 1 {
-		return out, PendComposicaoMulti
 	}
 	if len(list) == 0 {
 		return out, PendComposicao

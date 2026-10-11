@@ -98,7 +98,12 @@ func main() {
 	defer auditDB.Close()
 
 	idleTTL := sessionIdleTTL()
-	log.Printf("session idle timeout: %v", idleTTL)
+	if devSession() {
+		idleTTL = devSessionTTL
+		log.Printf("session idle timeout: desligado (desenvolvimento) — sessão dura %v", idleTTL)
+	} else {
+		log.Printf("session idle timeout: %v", idleTTL)
+	}
 	store, err := session.New(idb.Env("REDIS_URL", "redis://redis:6379/0"), idleTTL)
 	if err != nil {
 		log.Fatalf("session store: %v", err)
@@ -338,6 +343,17 @@ func sessionIdleTTL() time.Duration {
 	}
 	return time.Duration(n) * time.Minute
 }
+
+// devSessionTTL: em desenvolvimento a sessão não cai por ociosidade — o
+// trabalho é interrompido o tempo todo por rebuild e leitura de código. O
+// Redis exige um TTL, então é um prazo longo em vez de nenhum. Fica abaixo de
+// ~24,8 dias, o teto do setTimeout do navegador que agenda o aviso de
+// expiração.
+const devSessionTTL = 7 * 24 * time.Hour
+
+// devSession só vale com APP_ENV=development declarado: ambiente sem a
+// variável não pode herdar a sessão longa por engano.
+func devSession() bool { return os.Getenv("APP_ENV") == "development" }
 
 func mustOpen(envVar string) *sql.DB {
 	dsn := os.Getenv(envVar)

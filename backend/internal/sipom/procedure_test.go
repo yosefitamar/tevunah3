@@ -41,9 +41,45 @@ func TestTokensSubsequence(t *testing.T) {
 		{"Italo Souza", "ITALO RENNO ALVES FEITOSA", false},
 		{"", "ITALO RENNO ALVES FEITOSA", false},
 	} {
-		if got := tokensSubsequence(nameTokens(c.want), nameTokens(c.have)); got != c.ok {
+		if got := tokensSubsequence(nameTokens(c.want), nameTokens(c.have), sameWord); got != c.ok {
 			t.Errorf("%q em %q = %v, quer %v", c.want, c.have, got, c.ok)
 		}
+	}
+}
+
+func TestMatchDelegado(t *testing.T) {
+	c := &Catalog{}
+	for i, n := range []string{
+		"CAIO HENRIQUE DE SOUZA XAVIER", "CARLOS HENRIQUE DE SOUZA XAVIER", "ITALO RENNO ALVES FEITOSA",
+		"ALEXANDRE VIEIRA GALINDO", "JOSE CLEOFILO RODRIGUES MELO", "PRISCILA KARINE LOPES DE OLIVEIRA",
+		"DEBORA CAVALCANTE DE FALCONERI TEIXEIRA", "AUGUSTO SOARES FLAVIO", "MARIA LIMA", "MARIA LIRA",
+		"THIAGO REZENDE COSTA", "WAGNER MELLO",
+	} {
+		c.delegadoList = append(c.delegadoList, Delegado{ID: i + 1, Nome: n})
+	}
+	for name, want := range map[string]int{
+		"Caio Henrique de Sousa Xavier":          1, // s/z
+		"Carlos Henrique De Souza Xavier":        2,
+		"ÍTALO RENO ALVES FEITOSA":               3, // letra dobrada
+		"Italo Reno Alves":                       3, // abreviado e com outro som
+		"ALEXANDRE VIEIRA GALINHO":               4, // uma letra trocada
+		"JOSE CLEOFILO RODRUIGUES MELO":          5, // uma letra a mais
+		"Pricila Karine Lopes de Oliveira":       6, // uma letra a menos
+		"Debora Cavalcante De Falconeri Texeira": 7, // ei/e
+		"ALGUSTO SOARES FLÁVIO":                  8,
+		"Tiago Resende":                          11, // h mudo, s/z
+		"Vagner Melo":                            12, // w/v
+		"Maria Lima":                             9,  // exato vence o parecido
+		"Maria Lisa":                             0,  // palavra curta não casa por aproximação
+		"Fulano de Tal":                          0,
+	} {
+		if got, _ := c.MatchDelegado(name); got != want {
+			t.Errorf("MatchDelegado(%q) = %d, quer %d", name, got, want)
+		}
+	}
+	// Abreviado que serve a dois: não escolhe, devolve os candidatos.
+	if id, cands := c.MatchDelegado("C. Henrique Xavier"); id != 0 || len(cands) != 2 {
+		t.Errorf("ambíguo: id=%d cands=%v", id, cands)
 	}
 }
 

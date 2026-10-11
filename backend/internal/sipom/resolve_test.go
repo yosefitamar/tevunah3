@@ -51,8 +51,9 @@ func TestComposition(t *testing.T) {
 		{"RAIO 03", 4, PolicMotopatrulhamento, []int{1, 2, 3, 4}, ""},
 		{"RAIO 02", 5, PolicMotopatrulhamento, []int{1, 2, 3, 4, 13}, ""},
 		{"raio 01", 3, PolicMotopatrulhamento, []int{1, 2, 3}, ""},
-		{"RAIO 01; RAIO 02", 4, 0, nil, PendComposicaoMulti},
-		{"VTRA 108; RAIO 02", 4, 0, nil, PendComposicaoMulti},
+		// Mais de uma equipe: vale a primeira citada.
+		{"RAIO 01; RAIO 02", 4, PolicMotopatrulhamento, []int{1, 2, 3, 4}, ""},
+		{"VTRA 108, RAIO 02", 4, PolicMotorizado, []int{1, 7, 5, 5}, ""},
 		{"BASE", 2, 0, nil, PendComposicao},
 		{"", 2, 0, nil, PendComposicao},
 		{"RAIO 01", 0, 0, nil, ""},

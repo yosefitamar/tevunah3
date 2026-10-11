@@ -288,6 +288,10 @@ func runOpsGeocode() {
 	}
 	repo := opsreport.New(db)
 	repo.GeoRequired = true
+	cat, err := sipom.Load(ctx, db)
+	if err != nil {
+		log.Fatalf("catálogo do SIPOM: %v", err)
+	}
 	pendentes, err := repo.Unlocated(ctx)
 	if err != nil {
 		log.Fatalf("ocorrências sem coordenada: %v", err)
@@ -299,7 +303,9 @@ func runOpsGeocode() {
 		in := opsreport.SipomInput(&so.Occurrence)
 		street, number := sipom.SplitAddress(in.Address)
 		res, err := geo.Locate(ctx, geocode.Query{
-			Street: street, Number: number, Neighborhood: in.Neighborhood, City: in.City,
+			Street: street, Number: number, City: in.City,
+			Neighborhood:    cat.CanonNeighborhood(in.City, in.Neighborhood),
+			AltNeighborhood: in.Neighborhood,
 		})
 		if err != nil {
 			log.Fatalf("geocodificador: %v (após %d ocorrência(s))", err, i)
@@ -315,14 +321,10 @@ func runOpsGeocode() {
 		}
 		byPrecision[res.Precision]++
 	}
-	fmt.Printf("Coordenada: %d sem coordenada → %d pela porta, %d pela rua, %d pelo bairro (aproximada), %d não localizada(s)\n",
+	fmt.Printf("Coordenada: %d sem coordenada → %d pela porta, %d pela rua, %d pelo bairro (aproximada), %d pela sede do município, %d não localizada(s)\n",
 		len(pendentes), byPrecision[geocode.PrecisionDoor], byPrecision[geocode.PrecisionStreet],
-		byPrecision[geocode.PrecisionNeighborhood], missed)
+		byPrecision[geocode.PrecisionNeighborhood], byPrecision[geocode.PrecisionCity], missed)
 
-	cat, err := sipom.Load(ctx, db)
-	if err != nil {
-		log.Fatalf("catálogo do SIPOM: %v", err)
-	}
 	ready, pending, err := repo.RecomputeSipom(ctx, cat, "")
 	if err != nil {
 		log.Fatalf("recálculo: %v", err)

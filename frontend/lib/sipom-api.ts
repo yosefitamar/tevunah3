@@ -197,3 +197,14 @@ export function getSipomPayload(occId: string, withPhotos = false) {
     `/api/ops-occurrences/${encodeURIComponent(occId)}/sipom/payload${withPhotos ? "?fotos=1" : ""}`,
   );
 }
+
+/**
+ * Marca (ou desmarca) a ocorrência como enviada ao SIPOM. Enquanto o SIPOM
+ * não tem API, é o analista quem diz que já lançou por lá.
+ */
+export function setSipomSent(occId: string, sent: boolean) {
+  return api<{ sent_at: string | null }>(`/api/ops-occurrences/${encodeURIComponent(occId)}/sipom/sent`, {
+    method: "PUT",
+    body: JSON.stringify({ sent }),
+  });
+}

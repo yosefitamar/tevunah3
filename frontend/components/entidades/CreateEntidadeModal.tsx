@@ -29,7 +29,10 @@ import {
   uploadGalleryPhoto,
   type AddressPayload,
   type DuplicatesResult,
+  type OpsEntityMatch,
 } from "@/lib/entities-api";
+import { linkOpsPerson } from "@/lib/ops-reports-api";
+import { formatBRDate } from "@/lib/format";
 import {
   ENTITY_KIND_LABEL,
   FAMILY_OPTIONS,
@@ -500,6 +503,55 @@ export default function CreateEntidadeModal({
           setErr(
             "Entidade criada, mas falharam fotos da galeria: " + failures.join("; "),
           );
+        }
+      }
+      // Pessoa: o servidor procurou o nome no relatório operacional. O que
+      // casou por nome e mãe já está vinculado — o analista é avisado; o que
+      // só tem o nome igual ele decide aqui.
+      const ops = res.ops_links;
+      if (ops && ops.linked.length > 0) {
+        await modal.alert({
+          variant: "info",
+          title: "VINCULADO AO RELATÓRIO OPERACIONAL",
+          message: (
+            <>
+              <div style={{ marginBottom: 8 }}>
+                O nome e a mãe batem com {ops.linked.length === 1 ? "um envolvido" : `${ops.linked.length} envolvidos`} de
+                ocorrência já importada. O vínculo foi criado na ocorrência e na ficha da pessoa.
+              </div>
+              <OpsMatchList items={ops.linked} />
+            </>
+          ),
+        });
+      }
+      if (ops && ops.suggestions.length > 0) {
+        const ok = await modal.confirm({
+          variant: "warning",
+          title: "MESMO NOME NO RELATÓRIO OPERACIONAL",
+          message: (
+            <>
+              <div style={{ marginBottom: 8 }}>
+                Só o nome bate (sem o nome da mãe para confirmar). Vincular esta pessoa a
+                {ops.suggestions.length === 1 ? " esta ocorrência" : " estas ocorrências"}?
+              </div>
+              <OpsMatchList items={ops.suggestions} />
+            </>
+          ),
+          confirm: "VINCULAR",
+          cancel: "NÃO VINCULAR",
+        });
+        if (ok) {
+          const failures: string[] = [];
+          for (const m of ops.suggestions) {
+            try {
+              await linkOpsPerson(m.occurrence_id, m.person_id, res.entity.id);
+            } catch (e) {
+              failures.push(`${m.ciops_record || m.name}: ${(e as ApiError).message ?? "erro"}`);
+            }
+          }
+          if (failures.length > 0) {
+            setErr("Pessoa criada, mas falharam vínculos com o relatório: " + failures.join("; "));
+          }
         }
       }
       onCreated(res.entity.id);
@@ -1900,5 +1952,21 @@ function VehicleSearchPopover({
         </div>
       </div>
     </div>
+  );
+}
+
+/** Ocorrências do relatório operacional em que a pessoa aparece. */
+function OpsMatchList({ items }: { items: OpsEntityMatch[] }) {
+  return (
+    <ul style={{ margin: 0, paddingLeft: 18 }}>
+      {items.slice(0, 8).map((m) => (
+        <li key={m.person_id} style={{ fontSize: 13 }}>
+          {formatBRDate(m.occurred_on)} · FICHA {m.ciops_record || "—"} · {m.role}
+          {m.natures.length > 0 ? ` · ${m.natures[0].toUpperCase()}` : ""}
+          {m.approx ? ` · GRAFADO "${m.name.toUpperCase()}"` : ""}
+        </li>
+      ))}
+      {items.length > 8 && <li style={{ fontSize: 13 }}>e mais {items.length - 8}…</li>}
+    </ul>
   );
 }

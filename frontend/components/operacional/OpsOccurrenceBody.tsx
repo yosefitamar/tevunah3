@@ -313,6 +313,7 @@ export default function OpsOccurrenceBody({
                   return k ? { key: k, label: list.find((x) => x.key === k)!.label } : null;
                 }}
                 onGoTo={steps ? (k) => setStep(k as OpsStep) : undefined}
+                onSent={onSipomChange && occ.id ? (ns) => onSipomChange(ns) : undefined}
               />
             </OpsBlock>
           )}

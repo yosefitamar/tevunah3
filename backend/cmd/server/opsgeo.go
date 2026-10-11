@@ -25,7 +25,9 @@ func (a *app) locate(ctx context.Context, o *opsreport.Occurrence) (opsreport.Ge
 	in := opsreport.SipomInput(o)
 	street, number := sipom.SplitAddress(in.Address)
 	res, err := a.geocoder.Locate(ctx, geocode.Query{
-		Street: street, Number: number, Neighborhood: in.Neighborhood, City: in.City,
+		Street: street, Number: number, City: in.City,
+		Neighborhood:    a.sipom.CanonNeighborhood(in.City, in.Neighborhood),
+		AltNeighborhood: in.Neighborhood,
 	})
 	if err != nil || res == nil {
 		return opsreport.Geo{}, err

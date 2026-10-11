@@ -1,51 +1,85 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Plus, Search, ShieldAlert, X } from "lucide-react";
+import { CheckCheck, FileUp, History, Plus, Search, Send, ShieldAlert, X } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import {
+  INCIDENT_MEANS,
   INCIDENT_MEANS_LABEL,
   INCIDENT_MEANS_SHORT,
   INCIDENT_TYPE_LABEL,
-  INCIDENT_TYPE_PILL,
+  type IncidentMeans,
   type IncidentType,
 } from "@/lib/incidents-api";
 import {
-  OCCURRENCE_CATEGORIES,
   OCCURRENCE_CATEGORY_LABEL,
+  OCCURRENCE_TABS,
+  OCCURRENCE_SOURCE_LABEL,
   listOccurrenceLocations,
   listOccurrences,
-  type OccurrenceCategory,
+  type ListOccurrencesOpts,
   type OccurrenceRow,
+  type OccurrenceSource,
+  type OccurrenceStatus,
+  type OccurrenceTab,
   type OccurrencesList,
 } from "@/lib/occurrences-api";
-import { canCreateIncidents, canReadIncidents, canReadOpsReports } from "@/lib/permissions";
+import { getOpsFacets, type OpsFacets, type OpsReport } from "@/lib/ops-reports-api";
+import { confirmSipomNaturezas } from "@/lib/sipom-api";
+import {
+  canCreateIncidents,
+  canImportOpsReports,
+  canReadIncidents,
+  canReadOpsReports,
+  canSetOpsIntel,
+} from "@/lib/permissions";
 import { useIncidentLocations } from "@/lib/useIncidentLocations";
 import { ALL_PERIOD, periodBounds, type PeriodSelection } from "@/lib/period";
 import { formatBRDate } from "@/lib/format";
 import type { ApiError } from "@/lib/api";
 import SortHeader, { type SortState } from "../shared/SortHeader";
-import IncidentFiltersModal, {
-  incidentFilterCount,
-  incidentFilterSummary,
-  type IncidentFilters,
-} from "../shared/IncidentFiltersModal";
+import Select from "../shared/Select";
 import PeriodButton from "../shared/PeriodButton";
-import { FiltersButton } from "../shared/FiltersModal";
+import FiltersModal, { FiltersButton } from "../shared/FiltersModal";
 import OpsOccurrenceDrawer from "../operacional/OpsOccurrenceDrawer";
+import ImportOpsReportModal from "../operacional/ImportOpsReportModal";
+import OpsReportsHistoryModal from "../operacional/OpsReportsHistoryModal";
+import { BLOCKING_STEPS, PENDING_SHORT, SipomTrail, SipomTrailLegend } from "../operacional/SipomTrail";
 import CreateOcorrenciaModal from "./CreateOcorrenciaModal";
 import OcorrenciaDrawer from "./OcorrenciaDrawer";
 
 const PAGE_SIZE = 25;
 
-// A listagem é o acervo inteiro: nasce sem recorte nenhum. (O mapa parte de
-// CVLI no mês atual porque é uma leitura territorial, não um índice.)
-const DEFAULT_FILTERS: IncidentFilters = {
-  type: "",
-  means: "",
+// Recortes que vivem no modal de FILTROS. Território vale para as duas abas;
+// os demais pertencem a uma delas e zeram na troca.
+type Filters = {
+  city: string;
+  neighborhood: string;
+  // Homicídios.
+  means: IncidentMeans;
+  // Produtividade.
+  source: "" | OccurrenceSource;
+  type: "" | IncidentType;
+  step: string;
+  pendencia: string;
+  notes: "" | "1" | "0";
+  cia: string;
+  nature: string;
+  intel: "" | "1" | "0";
+};
+
+const EMPTY_FILTERS: Filters = {
   city: "",
   neighborhood: "",
+  means: "",
   source: "",
+  type: "",
+  step: "",
+  pendencia: "",
+  notes: "",
+  cia: "",
+  nature: "",
+  intel: "",
 };
 
 // Tipos do cadastro manual que caem na aba PRODUTIVIDADE (homicídio tem a
@@ -56,24 +90,37 @@ const PRODUCTIVITY_TYPES: IncidentType[] = ["apreensao", "prisao"];
 // operacional. Linha com as duas fontes abre o cadastro, que leva ao relatório.
 type OpenTarget = { kind: "incident" | "ops"; id: string };
 
+const SEG3 = [
+  ["", "TODAS"],
+  ["1", "COM"],
+  ["0", "SEM"],
+] as const;
+
 /**
- * Ocorrências: o cadastro manual (CVLI e o que o analista registra) e o que
- * foi importado do relatório operacional. A ficha CIOPS é a identidade —
- * cadastro e relatório com a mesma ficha são uma linha.
+ * Ocorrências: a única listagem do que a agência registra. Três abas:
  *
- * Duas abas, porque são duas leituras: PRODUTIVIDADE (prisões, apreensões e
- * tudo o que a tropa registrou no relatório operacional) e HOMICÍDIOS (o
- * cadastro de CVLI). Busca, período e território valem para as duas; tipo,
- * origem e meio utilizado são recortes da aba e zeram na troca.
+ *  - PRODUTIVIDADE: tudo o que veio do relatório operacional (importado aqui
+ *    mesmo, em PDF) e as prisões e apreensões do cadastro manual. A trilha de
+ *    etapas mostra o que falta em cada ocorrência, e a que já foi enviada ao
+ *    SIPOM vem sinalizada.
+ *  - FILA DO SIPOM: o trabalho a fazer — as ocorrências do relatório que
+ *    ainda não foram enviadas, pendentes ou prontas.
+ *  - HOMICÍDIOS: o cadastro de CVLI.
+ *
+ * A ficha CIOPS é a identidade — cadastro e relatório com a mesma ficha são
+ * uma linha. Busca, período e território valem para as duas abas.
  */
 export default function OcorrenciasScreen() {
   const { user: me } = useAuth();
-  const [tab, setTab] = useState<OccurrenceCategory>("produtividade");
+  const [tab, setTab] = useState<OccurrenceTab>("produtividade");
   const [data, setData] = useState<OccurrencesList | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [period, setPeriod] = useState<PeriodSelection>(ALL_PERIOD);
-  const [filters, setFilters] = useState<IncidentFilters>(DEFAULT_FILTERS);
+  const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
+  const [status, setStatus] = useState<OccurrenceStatus>("");
+  const [report, setReport] = useState<OpsReport | null>(null);
   const [showFilters, setShowFilters] = useState(false);
   // Busca livre fica fora do modal: é o gesto mais frequente ("cadê a
   // ocorrência do fulano?"), não um recorte que se configura uma vez.
@@ -82,18 +129,37 @@ export default function OcorrenciasScreen() {
   const [page, setPage] = useState(0);
   const [sort, setSort] = useState<SortState>({ field: "occurred_on", dir: "desc" });
   const [showCreate, setShowCreate] = useState(false);
+  const [showImport, setShowImport] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
   const [open, setOpen] = useState<OpenTarget | null>(null);
+  const [facets, setFacets] = useState<OpsFacets | null>(null);
+  const [busy, setBusy] = useState(false);
 
   // Cada fonte tem a sua permissão; o servidor recorta a listagem pelo que o
   // usuário lê.
-  const canRead = canReadIncidents(me) || canReadOpsReports(me);
+  const canOps = canReadOpsReports(me);
+  const canRead = canReadIncidents(me) || canOps;
   const canCreate = canCreateIncidents(me);
+  const canImport = canImportOpsReports(me);
+  const canEditOps = canSetOpsIntel(me);
   const { cities, neighborhoodsOf } = useIncidentLocations(listOccurrenceLocations);
+  const homicides = tab === "homicidios";
 
   useEffect(() => {
     const h = window.setTimeout(() => setDebouncedSearch(search.trim()), 350);
     return () => window.clearTimeout(h);
   }, [search]);
+
+  const reloadFacets = useCallback(() => {
+    if (!canOps) return;
+    getOpsFacets()
+      .then(setFacets)
+      .catch(() => setFacets(null));
+  }, [canOps]);
+
+  useEffect(() => {
+    reloadFacets();
+  }, [reloadFacets]);
 
   const bounds = useMemo(() => periodBounds(period), [period]);
 
@@ -101,62 +167,78 @@ export default function OcorrenciasScreen() {
     if (!canRead) return;
     setLoading(true);
     setError(null);
+    const opts: ListOccurrencesOpts = {
+      category: tab,
+      limit: PAGE_SIZE,
+      offset: page * PAGE_SIZE,
+      city: filters.city,
+      neighborhood: filters.neighborhood,
+      date_from: bounds.from,
+      date_to: bounds.to,
+      search: debouncedSearch,
+      sort_by: sort?.field as ListOccurrencesOpts["sort_by"],
+      sort_dir: sort?.dir,
+    };
+    if (tab === "homicidios") {
+      opts.means = filters.means;
+    } else {
+      Object.assign(opts, {
+        source: filters.source,
+        type: filters.type,
+        status,
+        step: filters.step,
+        pendencia: filters.pendencia,
+        notes: filters.notes,
+        cia: filters.cia,
+        nature: filters.nature,
+        intel: filters.intel,
+        report_id: report?.id,
+      } satisfies ListOccurrencesOpts);
+    }
     try {
-      const res = await listOccurrences({
-        category: tab,
-        limit: PAGE_SIZE,
-        offset: page * PAGE_SIZE,
-        source: filters.source || undefined,
-        type: filters.type || undefined,
-        means: filters.means || undefined,
-        city: filters.city || undefined,
-        neighborhood: filters.neighborhood || undefined,
-        date_from: bounds.from || undefined,
-        date_to: bounds.to || undefined,
-        search: debouncedSearch || undefined,
-        sort_by: (sort?.field as "occurred_on" | "type") || undefined,
-        sort_dir: sort?.dir,
-      });
-      setData(res);
+      setData(await listOccurrences(opts));
     } catch (e) {
       setError((e as ApiError).message || "Erro ao carregar");
     } finally {
       setLoading(false);
     }
-  }, [
-    canRead,
-    tab,
-    filters.source,
-    filters.type,
-    filters.means,
-    filters.city,
-    filters.neighborhood,
-    bounds.from,
-    bounds.to,
-    debouncedSearch,
-    page,
-    sort,
-  ]);
+  }, [canRead, tab, filters, status, report?.id, bounds.from, bounds.to, debouncedSearch, page, sort]);
 
   useEffect(() => {
     reload();
   }, [reload]);
 
-  const activeCount = incidentFilterCount(filters, DEFAULT_FILTERS);
-  const filterSummary = incidentFilterSummary(filters, false);
-  const homicides = tab === "homicidios";
-
-  function switchTab(next: OccurrenceCategory) {
+  function switchTab(next: OccurrenceTab) {
     if (next === tab) return;
     setTab(next);
     setPage(0);
-    // Tipo, origem e meio pertencem à aba; território fica.
-    setFilters((f) => ({ ...f, type: "", means: "", source: "" }));
-    // A aba de homicídios não tem a coluna de tipo para ordenar.
-    setSort((s) => (s?.field === "type" ? { field: "occurred_on", dir: "desc" } : s));
+    // Só o território vale para as duas abas.
+    setFilters((f) => ({ ...EMPTY_FILTERS, city: f.city, neighborhood: f.neighborhood }));
+    setStatus("");
+    setReport(null);
+    setSort({ field: "occurred_on", dir: "desc" });
     // Some com as linhas da outra aba já na troca — as colunas mudam.
     setData((d) => (d ? { ...d, items: [], total: 0 } : d));
     setLoading(true);
+  }
+
+  const items = data?.items ?? [];
+  // Naturezas que o de-para só sugeriu, entre as linhas à vista.
+  const toConfirm = items.filter((x) => x.ops_id && x.pendencias.some((p) => p.code === "natureza_confirmar"));
+
+  async function confirmAll() {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const r = await confirmSipomNaturezas(toConfirm.map((x) => x.ops_id as string));
+      setNotice(`${r.confirmed} natureza(s) confirmada(s).`);
+      await reload();
+    } catch (e) {
+      setError((e as ApiError).message || "Erro ao confirmar");
+    } finally {
+      setBusy(false);
+    }
   }
 
   if (!canRead) {
@@ -170,15 +252,34 @@ export default function OcorrenciasScreen() {
     );
   }
 
-  const items = data?.items ?? [];
   const total = data?.total ?? 0;
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const sipom = data?.sipom;
+  const codes = Object.entries(sipom?.by_code ?? {}).sort((a, b) => b[1] - a[1]);
+  const activeCount = (
+    homicides
+      ? [filters.city, filters.neighborhood, filters.means]
+      : [
+          filters.city,
+          filters.neighborhood,
+          filters.source,
+          filters.type,
+          filters.step,
+          filters.pendencia,
+          filters.notes,
+          filters.cia,
+          filters.nature,
+          filters.intel,
+        ]
+  ).filter(Boolean).length;
+  const cols = 5;
+  const resetPage = () => setPage(0);
 
   return (
     <div className="screen-fill">
       <div className="toolbar">
         <div className="tabs">
-          {OCCURRENCE_CATEGORIES.map((c) => (
+          {OCCURRENCE_TABS.filter((c) => c !== "fila" || canOps).map((c) => (
             <button
               key={c}
               type="button"
@@ -186,11 +287,31 @@ export default function OcorrenciasScreen() {
               onClick={() => switchTab(c)}
             >
               {OCCURRENCE_CATEGORY_LABEL[c]}
-              {data?.counts && <span className="muted"> {data.counts[c]}</span>}
+              {data?.counts && <span className="tab-count">{data.counts[c]}</span>}
             </button>
           ))}
         </div>
-        <div className="toolbar-search">
+        <div style={{ marginLeft: "auto" }} />
+        {!homicides && canOps && (
+          <button type="button" className="btn ops-nowrap" onClick={() => setShowHistory(true)} title="Relatórios operacionais já importados">
+            <History size={13} strokeWidth={1.8} /> IMPORTAÇÕES
+          </button>
+        )}
+        {!homicides && canImport && (
+          <button type="button" className="btn ops-nowrap" onClick={() => setShowImport(true)}>
+            <FileUp size={14} strokeWidth={2} /> IMPORTAR PDF
+          </button>
+        )}
+        {canCreate && (
+          <button type="button" className="btn btn-primary ops-nowrap" onClick={() => setShowCreate(true)}>
+            <Plus size={14} strokeWidth={2} /> NOVA OCORRÊNCIA
+          </button>
+        )}
+      </div>
+
+      {/* Segunda linha: o que recorta a lista. */}
+      <div className="toolbar">
+        <div className="toolbar-search toolbar-search--compact">
           <Search size={14} strokeWidth={1.6} />
           <input
             type="text"
@@ -199,9 +320,10 @@ export default function OcorrenciasScreen() {
               // A página 3 do recorte anterior não existe mais depois que o
               // termo muda.
               setSearch(e.target.value);
-              setPage(0);
+              resetPage();
             }}
-            placeholder="buscar por nome, CPF, natureza, descrição ou ficha CIOPS…"
+            placeholder="buscar…"
+            title="Nome, CPF, natureza, placa, nº de série, histórico ou ficha CIOPS"
           />
           {search && (
             <button
@@ -209,7 +331,7 @@ export default function OcorrenciasScreen() {
               className="action-btn"
               onClick={() => {
                 setSearch("");
-                setPage(0);
+                resetPage();
               }}
               aria-label="Limpar busca"
             >
@@ -221,50 +343,118 @@ export default function OcorrenciasScreen() {
           value={period}
           onChange={(p) => {
             setPeriod(p);
-            setPage(0);
+            resetPage();
           }}
+          title="PERÍODO · DATA DO FATO"
         />
-        <FiltersButton count={activeCount} onClick={() => setShowFilters(true)} />
-        <span className="muted filter-summary" title={filterSummary}>
-          {filterSummary}
-        </span>
-        <div style={{ marginLeft: "auto" }} />
-        {canCreate && (
-          <button type="button" className="btn btn-primary" onClick={() => setShowCreate(true)}>
-            <Plus size={14} strokeWidth={2} /> NOVA OCORRÊNCIA
-          </button>
+        {/* Situação do envio ao SIPOM: só a ocorrência do relatório tem. */}
+        {!homicides && canOps && (
+          <div className="status-select">
+            <Select
+              value={status}
+              onChange={(v) => {
+                setStatus(v as OccurrenceStatus);
+                resetPage();
+              }}
+              options={[
+                { value: "", label: "TODAS AS SITUAÇÕES" },
+                { value: "pending", label: sipom ? `PENDENTES · ${sipom.pending}` : "PENDENTES" },
+                { value: "ready", label: sipom ? `PRONTAS · ${sipom.ready}` : "PRONTAS" },
+                // Na fila só há o que não foi enviado.
+                ...(tab === "fila"
+                  ? []
+                  : [{ value: "sent", label: sipom ? `ENVIADAS · ${sipom.sent}` : "ENVIADAS" }]),
+              ]}
+              placeholder="TODAS AS SITUAÇÕES"
+            />
+          </div>
         )}
+        <FiltersButton count={activeCount} onClick={() => setShowFilters(true)} />
+        <div style={{ marginLeft: "auto" }} />
       </div>
 
+      {report && (
+        <div className="ops-filter-row">
+          <span className="muted">SÓ AS OCORRÊNCIAS DO</span>
+          <span className="chip on ops-report-chip" title={report.file_name}>
+            RELATÓRIO DE {report.report_date ? formatBRDate(report.report_date) : "—"}
+            <button
+              type="button"
+              className="action-btn"
+              onClick={() => {
+                setReport(null);
+                resetPage();
+              }}
+              aria-label="Remover filtro de relatório"
+            >
+              <X size={11} />
+            </button>
+          </span>
+        </div>
+      )}
+
+      {!homicides && canOps && (
+        <SipomTrailLegend sent={tab === "produtividade"}>
+          {canEditOps && toConfirm.length > 0 && (
+            <button
+              type="button"
+              className="btn btn-sm"
+              style={{ marginLeft: "auto" }}
+              disabled={busy}
+              onClick={confirmAll}
+              title="Fixa a natureza sugerida pelo de-para nas ocorrências desta página"
+            >
+              <CheckCheck size={13} strokeWidth={1.8} /> CONFIRMAR NATUREZAS ({toConfirm.length})
+            </button>
+          )}
+        </SipomTrailLegend>
+      )}
+
+      {notice && (
+        <div className="banner banner-info" onClick={() => setNotice(null)} role="status">
+          ✓ {notice}
+        </div>
+      )}
       {error && <div className="banner banner-error">⚠ {error}</div>}
 
       <div className="panel panel--fill">
         <div className="table-scroll">
-          <table className="tbl">
+          <table className="tbl sipom-queue">
             <thead>
               <tr>
-                {/* Só o essencial para achar a ocorrência; o resto (descrição,
-                    envolvidos, origem) está na ficha, a um clique. Em cada
-                    aba uma coluna fica sem largura fixa e absorve a sobra. */}
-                {!homicides && <SortHeader field="type" label="TIPO / NATUREZA" sort={sort} onChange={setSort} />}
-                <SortHeader field="occurred_on" label="DATA / HORA" sort={sort} onChange={setSort} width={170} />
-                {homicides && <th style={{ width: 160 }}>MEIO</th>}
-                <th style={{ width: 170 }}>FICHA CIOPS</th>
-                <th style={homicides ? undefined : { width: 320 }}>LOCAL</th>
-                <th style={{ width: 170 }}>SITUAÇÃO</th>
+                {/* Só o essencial para achar a ocorrência e saber o que falta
+                    nela; o resto está na ficha, a um clique. Em cada aba uma
+                    coluna fica sem largura fixa e absorve a sobra. */}
+                {homicides ? (
+                  <>
+                    <SortHeader field="occurred_on" label="DATA" sort={sort} onChange={setSort} width={150} />
+                    <SortHeader field="ciops_record" label="FICHA" sort={sort} onChange={setSort} width={150} />
+                    <th style={{ width: 200 }}>MEIO</th>
+                    <SortHeader field="place" label="LOCAL" sort={sort} onChange={setSort} width={260} />
+                    <th>DESCRIÇÃO</th>
+                  </>
+                ) : (
+                  <>
+                    <SortHeader field="pending" label="ETAPAS" sort={sort} onChange={setSort} width={172} />
+                    <SortHeader field="occurred_on" label="DATA" sort={sort} onChange={setSort} width={150} />
+                    <SortHeader field="ciops_record" label="FICHA" sort={sort} onChange={setSort} width={150} />
+                    <SortHeader field="nature" label="NATUREZA" sort={sort} onChange={setSort} />
+                    <SortHeader field="place" label="LOCAL" sort={sort} onChange={setSort} width={240} />
+                  </>
+                )}
               </tr>
             </thead>
             <tbody>
               {loading && (
                 <tr>
-                  <td colSpan={5} className="muted" style={{ textAlign: "center", padding: 32 }}>
+                  <td colSpan={cols} className="muted" style={{ textAlign: "center", padding: 32 }}>
                     // CARREGANDO…
                   </td>
                 </tr>
               )}
               {!loading && items.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="muted" style={{ textAlign: "center", padding: 32 }}>
+                  <td colSpan={cols} className="muted" style={{ textAlign: "center", padding: 32 }}>
                     // NENHUMA OCORRÊNCIA ENCONTRADA
                   </td>
                 </tr>
@@ -313,24 +503,151 @@ export default function OcorrenciasScreen() {
       </div>
 
       {showFilters && (
-        <IncidentFiltersModal
+        <FiltersModal
           title={"FILTROS · " + OCCURRENCE_CATEGORY_LABEL[tab]}
           value={filters}
-          defaults={DEFAULT_FILTERS}
-          cities={cities}
-          neighborhoodsOf={neighborhoodsOf}
-          // Homicídios: todo registro é do cadastro e do mesmo tipo — sobra o
-          // meio utilizado. Produtividade: origem e tipo; meio é campo de CVLI.
-          withSource={!homicides}
-          types={homicides ? [] : PRODUCTIVITY_TYPES}
-          withMeans={homicides}
+          empty={EMPTY_FILTERS}
+          width={560}
+          onClose={() => setShowFilters(false)}
           onApply={(f) => {
             setFilters(f);
-            setPage(0);
+            resetPage();
             setShowFilters(false);
           }}
-          onClose={() => setShowFilters(false)}
-        />
+        >
+          {(d, set) => (
+            <>
+              <div className="form-grid-2">
+                <div className="form-field">
+                  <span>MUNICÍPIO</span>
+                  <Select
+                    value={d.city}
+                    // Bairro pertence ao município: trocar de cidade zera o bairro.
+                    onChange={(v) => set({ city: v, neighborhood: "" })}
+                    options={[
+                      { value: "", label: "TODOS" },
+                      ...cities.map((c) => ({ value: c.city, label: `${c.city} (${c.count})` })),
+                    ]}
+                    searchable
+                  />
+                </div>
+                <div className="form-field">
+                  <span>BAIRRO</span>
+                  <Select
+                    value={d.neighborhood}
+                    onChange={(v) => set({ neighborhood: v })}
+                    options={[
+                      { value: "", label: "TODOS" },
+                      ...neighborhoodsOf(d.city).map((n) => ({ value: n, label: n })),
+                    ]}
+                    searchable
+                  />
+                </div>
+              </div>
+
+              {homicides ? (
+                <div className="form-field">
+                  <span>MEIO UTILIZADO</span>
+                  <Select
+                    value={d.means}
+                    onChange={(v) => set({ means: v as IncidentMeans })}
+                    options={[
+                      { value: "", label: "TODOS" },
+                      ...INCIDENT_MEANS.map((m) => ({ value: m, label: INCIDENT_MEANS_LABEL[m] })),
+                    ]}
+                  />
+                </div>
+              ) : (
+                <>
+                  <div className="form-grid-2">
+                    <div className="form-field">
+                      <span>ETAPA QUE IMPEDE O ENVIO AO SIPOM</span>
+                      <Select
+                        value={d.step}
+                        onChange={(v) => set({ step: v })}
+                        options={[
+                          { value: "", label: "TODAS AS ETAPAS" },
+                          ...BLOCKING_STEPS.map(([k, label]) => ({ value: k as string, label })),
+                        ]}
+                      />
+                    </div>
+                    <div className="form-field">
+                      <span>PENDÊNCIA</span>
+                      <Select
+                        value={d.pendencia}
+                        onChange={(v) => set({ pendencia: v })}
+                        options={[
+                          { value: "", label: "TODAS" },
+                          ...codes.map(([c, n]) => ({ value: c, label: `${PENDING_SHORT[c] ?? c} · ${n}` })),
+                        ]}
+                      />
+                    </div>
+                  </div>
+                  <div className="form-grid-2">
+                    <div className="form-field">
+                      <span>AVISOS (NÃO IMPEDEM O ENVIO)</span>
+                      <Seg value={d.notes} onChange={(v) => set({ notes: v })} />
+                    </div>
+                    <div className="form-field">
+                      <span>PARTICIPAÇÃO DA INTELIGÊNCIA</span>
+                      <Seg value={d.intel} onChange={(v) => set({ intel: v })} />
+                    </div>
+                  </div>
+                  <div className="form-grid-2">
+                    <div className="form-field">
+                      <span>COMPANHIA</span>
+                      <Select
+                        value={d.cia}
+                        onChange={(v) => set({ cia: v })}
+                        options={[
+                          { value: "", label: "TODAS AS CIAS" },
+                          ...(facets?.cias ?? []).map((c) => ({ value: c, label: c })),
+                        ]}
+                      />
+                    </div>
+                    <div className="form-field">
+                      <span>NATUREZA NO RELATÓRIO</span>
+                      <Select
+                        value={d.nature}
+                        onChange={(v) => set({ nature: v })}
+                        options={[
+                          { value: "", label: "TODAS AS NATUREZAS" },
+                          ...(facets?.natures ?? []).map((n) => ({ value: n, label: n })),
+                        ]}
+                        searchable
+                      />
+                    </div>
+                  </div>
+                  <div className="form-grid-2">
+                    <div className="form-field">
+                      <span>ORIGEM</span>
+                      <Select
+                        value={d.source}
+                        onChange={(v) => set({ source: v as "" | OccurrenceSource })}
+                        options={[
+                          { value: "", label: "TODAS" },
+                          { value: "manual", label: OCCURRENCE_SOURCE_LABEL.manual },
+                          { value: "operacional", label: OCCURRENCE_SOURCE_LABEL.operacional },
+                        ]}
+                      />
+                    </div>
+                    <div className="form-field">
+                      <span>TIPO DO CADASTRO MANUAL</span>
+                      <Select
+                        value={d.type}
+                        onChange={(v) => set({ type: v as "" | IncidentType })}
+                        options={[
+                          { value: "", label: "TODOS" },
+                          ...PRODUCTIVITY_TYPES.map((t) => ({ value: t, label: INCIDENT_TYPE_LABEL[t] })),
+                        ]}
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
+            </>
+          )}
+        </FiltersModal>
       )}
 
       {showCreate && (
@@ -345,6 +662,34 @@ export default function OcorrenciasScreen() {
         />
       )}
 
+      {showImport && (
+        <ImportOpsReportModal
+          onClose={() => setShowImport(false)}
+          onImported={(r) => {
+            setShowImport(false);
+            const parts = [`${r.report.imported_occurrences} ocorrência(s) gravada(s)`];
+            if (r.skipped_ciops.length) parts.push(`${r.skipped_ciops.length} já existiam`);
+            if (r.auto_linked) parts.push(`${r.auto_linked} pessoa(s) vinculada(s) a dossiês`);
+            setNotice(`Relatório de ${r.report.report_date ? formatBRDate(r.report.report_date) : "—"}: ${parts.join(" · ")}.`);
+            setReport(r.report);
+            resetPage();
+            reloadFacets();
+          }}
+        />
+      )}
+
+      {showHistory && (
+        <OpsReportsHistoryModal
+          onClose={() => setShowHistory(false)}
+          onPick={(r) => {
+            setShowHistory(false);
+            setReport(r);
+            setPeriod(ALL_PERIOD);
+            resetPage();
+          }}
+        />
+      )}
+
       {open?.kind === "incident" && (
         <OcorrenciaDrawer incidentId={open.id} onClose={() => setOpen(null)} onChanged={reload} />
       )}
@@ -355,75 +700,80 @@ export default function OcorrenciasScreen() {
   );
 }
 
-function Row({ row, homicides, onOpen }: { row: OccurrenceRow; homicides: boolean; onOpen: () => void }) {
-  const natures = row.natures.join(" · ");
+function Seg({ value, onChange }: { value: "" | "1" | "0"; onChange: (v: "" | "1" | "0") => void }) {
   return (
-    <tr onClick={onOpen} className="row-clickable">
-      {!homicides && (
-        <td>
-          {row.type ? (
-            <>
-              <span className={"pill " + INCIDENT_TYPE_PILL[row.type]}>{INCIDENT_TYPE_LABEL[row.type]}</span>
-              {natures && (
-                <div className="muted tbl-nature" title={natures}>
-                  {natures}
-                </div>
-              )}
-            </>
-          ) : (
-            <div className="tbl-nature" style={{ color: "var(--fg-0)" }} title={natures}>
-              {natures || "—"}
-            </div>
-          )}
-        </td>
-      )}
-      <td style={{ whiteSpace: "nowrap" }}>
-        {formatBRDate(row.occurred_on)}
-        {row.time ? <span className="muted"> · {row.time}</span> : null}
-      </td>
-      {homicides && (
-        <td
-          className={row.means ? undefined : "muted"}
-          title={row.means ? INCIDENT_MEANS_LABEL[row.means] : undefined}
+    <div className="seg-row">
+      {SEG3.map(([v, label]) => (
+        <button
+          key={v}
+          type="button"
+          className={"seg-btn" + (value === v ? " seg-btn--on" : "")}
+          onClick={() => onChange(v)}
         >
-          {row.means ? INCIDENT_MEANS_SHORT[row.means] : "—"}
-        </td>
-      )}
-      <td className="mono">{row.ciops_record || "—"}</td>
-      <td>
-        {row.city || row.neighborhood ? (
-          <>
-            <div style={{ color: "var(--fg-0)" }}>{row.neighborhood || "—"}</div>
-            <div className="muted" style={{ fontSize: 11.5 }}>
-              {row.city}
-            </div>
-          </>
-        ) : (
-          <span className="muted">—</span>
-        )}
-      </td>
-      <td>
-        <StatusBadge row={row} />
-      </td>
-    </tr>
+          {label}
+        </button>
+      ))}
+    </div>
   );
 }
 
-// Situação da ocorrência: quantas pendências tem para o envio ao SIPOM, como
-// na fila de envio — âmbar quando alguma impede o envio; neutro quando são só
-// avisos — ou VERIFICADA quando não há nenhuma. O detalhe de cada pendência
-// fica no title e na ficha.
-function StatusBadge({ row }: { row: OccurrenceRow }) {
-  if (row.pendencias.length === 0) return <span className="pill active">VERIFICADA</span>;
-  const blocking = row.pendencias.filter((p) => p.blocking);
-  const shown = blocking.length > 0 ? blocking : row.pendencias;
-  const noun = blocking.length > 0 ? "PENDÊNCIA" : "AVISO";
-  // As que impedem o envio primeiro.
-  const title = [...blocking, ...row.pendencias.filter((p) => !p.blocking)].map((p) => "• " + p.label).join("\n");
+function Row({ row, homicides, onOpen }: { row: OccurrenceRow; homicides: boolean; onOpen: () => void }) {
+  const date = (
+    <td style={{ whiteSpace: "nowrap" }}>
+      {formatBRDate(row.occurred_on)}
+      {row.time ? <span className="muted"> · {row.time}</span> : null}
+    </td>
+  );
+  const ficha = <td style={{ color: "var(--fg-0)", whiteSpace: "nowrap" }}>{row.ciops_record || "—"}</td>;
+  const place = (
+    <td>
+      {row.neighborhood || "—"}
+      <div className="muted" style={{ fontSize: 11.5 }}>
+        {row.city}
+      </div>
+    </td>
+  );
+
+  if (homicides) {
+    return (
+      <tr onClick={onOpen} className="row-clickable">
+        {date}
+        {ficha}
+        <td className={row.means ? undefined : "muted"} title={row.means ? INCIDENT_MEANS_LABEL[row.means] : undefined}>
+          {row.means ? INCIDENT_MEANS_SHORT[row.means] : "—"}
+        </td>
+        {place}
+        <td>
+          <div className="tbl-nature" title={row.description}>
+            {row.description || "—"}
+          </div>
+        </td>
+      </tr>
+    );
+  }
+
+  // Natureza: a do SIPOM, já resolvida; sem ela, o que o relatório escreveu.
+  // Linha do cadastro manual mostra o tipo.
+  const natures = row.natures.join(" · ");
+  const nature = row.sipom_natureza || natures || (row.type ? INCIDENT_TYPE_LABEL[row.type] : "—");
   return (
-    <span className={"pill " + (blocking.length > 0 ? "hold" : "cold")} title={title}>
-      {shown.length} {noun}
-      {shown.length > 1 ? "S" : ""}
-    </span>
+    <tr onClick={onOpen} className="row-clickable">
+      <td>
+        {row.ops_id ? (
+          <SipomTrail pendencias={row.pendencias} sentAt={row.sipom_sent_at} />
+        ) : (
+          <span className="muted" style={{ fontSize: 11.5 }} title="Ocorrência do cadastro manual: não vai ao SIPOM por aqui">
+            CADASTRO MANUAL
+          </span>
+        )}
+      </td>
+      {date}
+      {ficha}
+      <td title={natures ? "NO RELATÓRIO:\n" + row.natures.join("\n") : undefined}>
+        {nature}
+        {row.type && row.ops_id && <span className="muted"> · {INCIDENT_TYPE_LABEL[row.type]}</span>}
+      </td>
+      {place}
+    </tr>
   );
 }

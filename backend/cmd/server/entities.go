@@ -387,7 +387,13 @@ func (a *app) handleEntityCreate(w http.ResponseWriter, r *http.Request) {
 		After:                  toPublicEntity(e),
 	})
 
-	httpx.Created(w, map[string]any{"entity": toPublicEntity(e)})
+	// Pessoa nova: procura as ocorrências do relatório operacional em que
+	// ela já aparece e vincula as que casam por nome e mãe.
+	out := map[string]any{"entity": toPublicEntity(e)}
+	if links := a.linkOpsPeopleTo(r, e); links != nil {
+		out["ops_links"] = links
+	}
+	httpx.Created(w, out)
 }
 
 // ─────────────────────────── PATCH /api/entities/{id} ──────────────────

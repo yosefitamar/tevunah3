@@ -44,12 +44,16 @@ type occurrenceRowJSON struct {
 	Latitude     *float64 `json:"latitude,omitempty"`
 	Longitude    *float64 `json:"longitude,omitempty"`
 	GeoPrecision string   `json:"geo_precision,omitempty"`
+	// Natureza do SIPOM resolvida para a ocorrência do relatório ("" = sem).
+	SipomNature string `json:"sipom_natureza"`
+	// Quando foi marcada como enviada ao SIPOM (null = não foi).
+	SipomSentAt *time.Time `json:"sipom_sent_at"`
 }
 
 func toOccurrenceRowJSON(x *occurrences.Row) occurrenceRowJSON {
 	pend := make([]sipomPendingJSON, 0, len(x.Pending))
 	for _, p := range x.Pending {
-		pend = append(pend, sipomPendingJSON{Code: p, Label: sipom.PendingLabel[p], Blocking: !sipom.Notice(p)})
+		pend = append(pend, sipomPendingJSON{Code: p, Label: sipom.PendingLabel[p], Blocking: sipom.Blocking(p)})
 	}
 	return occurrenceRowJSON{
 		IncidentID: x.IncidentID, OpsID: x.OpsID, Type: x.Type, Natures: nonNil(x.Natures),
@@ -58,6 +62,7 @@ func toOccurrenceRowJSON(x *occurrences.Row) occurrenceRowJSON {
 		Description: x.Description, Means: x.Means, Intel: x.Intel, HasGeo: x.HasGeo,
 		PeopleCount: x.PeopleCount, UpdatedAt: x.UpdatedAt, Pendencias: pend,
 		Latitude: x.Latitude, Longitude: x.Longitude, GeoPrecision: x.GeoPrecision,
+		SipomNature: x.SipomNature, SipomSentAt: x.SipomSentAt,
 	}
 }
 
@@ -79,6 +84,16 @@ func occurrenceListOpts(r *http.Request) occurrences.ListOpts {
 		DateTo:       strings.TrimSpace(q.Get("date_to")),
 		SortBy:       strings.TrimSpace(q.Get("sort_by")),
 		SortDir:      strings.TrimSpace(q.Get("sort_dir")),
+
+		Status:      strings.TrimSpace(q.Get("status")),
+		StepCodes:   sipom.StepCodes(strings.TrimSpace(q.Get("step"))),
+		Code:        strings.TrimSpace(q.Get("pendencia")),
+		Notes:       strings.TrimSpace(q.Get("notes")),
+		NoticeCodes: sipom.NoticeCodes(),
+		CIA:         strings.TrimSpace(q.Get("cia")),
+		Intel:       strings.TrimSpace(q.Get("intel")),
+		Nature:      strings.TrimSpace(q.Get("nature")),
+		ReportID:    strings.TrimSpace(q.Get("report_id")),
 	}
 }
 
@@ -197,6 +212,16 @@ func (a *app) handleOccurrencesList(w http.ResponseWriter, r *http.Request) {
 		"counts": map[string]int{
 			occurrences.CategoryProductivity: res.Counts.Productivity,
 			occurrences.CategoryHomicides:    res.Counts.Homicides,
+			occurrences.CategoryQueue:        res.Counts.Queue,
+		},
+		// Ocorrências do relatório no recorte comum, por situação do envio
+		// ao SIPOM e por pendência — o que os filtros da tela mostram.
+		"sipom": map[string]any{
+			"pending": res.Summary.Pending,
+			"ready":   res.Summary.Ready,
+			"sent":    res.Summary.Sent,
+			"by_code": res.Summary.ByCode,
+			"labels":  sipom.PendingLabel,
 		},
 	})
 }

@@ -584,7 +584,7 @@ const occSelect = `
 	(SELECT r.report_date FROM app.ops_reports r WHERE r.id = o.report_id),
 	o.updated_at, COALESCE((SELECT u.display_name FROM app.users u WHERE u.id = o.updated_by), ''),
 	o.latitude, o.longitude, o.geo_precision, o.geo_source,
-	o.sipom_procedimento_id, o.sipom_delegacia_id, o.sipom_delegado_id`
+	o.sipom_procedimento_id, o.sipom_delegacia_id, o.sipom_delegado_id, o.sipom_sent_at`
 
 // occArrays recebe as colunas de array de occSelect, que chegam como JSON
 // (to_jsonb) e são decodificadas por decode.
@@ -625,7 +625,7 @@ func occDest(so *StoredOccurrence, arr *occArrays) []any {
 		&so.Report,
 		&so.UpdatedAt, &so.UpdatedByName,
 		&o.Geo.Lat, &o.Geo.Lng, &o.Geo.Precision, &o.Geo.Source,
-		&o.Sipom.ProcedimentoID, &o.Sipom.DelegaciaID, &o.Sipom.DelegadoID,
+		&o.Sipom.ProcedimentoID, &o.Sipom.DelegaciaID, &o.Sipom.DelegadoID, &o.Sipom.SentAt,
 	}
 }
 
@@ -985,6 +985,66 @@ func (r *Repo) CountPending(ctx context.Context, codes ...string) (int, error) {
 // ─────────────────────────── Vínculo com dossiê ────────────────────────────
 
 // FindPerson devolve uma pessoa da ocorrência.
+// SetSipomSent marca (ou desmarca) a ocorrência como enviada ao SIPOM.
+func (r *Repo) SetSipomSent(ctx context.Context, id string, sent bool, actor string) error {
+	q := `UPDATE app.ops_occurrences SET sipom_sent_at = NULL, sipom_sent_by = NULL
+	       WHERE id = $1 AND deleted_at IS NULL`
+	args := []any{id}
+	if sent {
+		q = `UPDATE app.ops_occurrences SET sipom_sent_at = now(), sipom_sent_by = $2
+		      WHERE id = $1 AND deleted_at IS NULL`
+		args = append(args, actor)
+	}
+	res, err := r.db.ExecContext(ctx, q, args...)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+// UnlinkedPerson é um envolvido ainda sem dossiê, com o mínimo da ocorrência
+// para dizer ao analista onde ele aparece.
+type UnlinkedPerson struct {
+	ID, OccurrenceID       string
+	Role, Name, MotherName string
+	CIOPS                  string
+	OccurredOn             time.Time
+	Natures                []string
+}
+
+// UnlinkedPeople lista os envolvidos sem dossiê das ocorrências ativas — o
+// universo em que um dossiê recém-criado procura onde a pessoa já apareceu.
+func (r *Repo) UnlinkedPeople(ctx context.Context) ([]UnlinkedPerson, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT p.id, o.id, p.role, p.name, p.mother_name, o.ciops_record, o.occurred_on,
+		       to_jsonb(o.natures)::text
+		  FROM app.ops_occurrence_people p
+		  JOIN app.ops_occurrences o ON o.id = p.occurrence_id
+		 WHERE p.entity_id IS NULL AND o.deleted_at IS NULL AND p.name <> ''
+		 ORDER BY o.occurred_on DESC, p.position`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []UnlinkedPerson{}
+	for rows.Next() {
+		var x UnlinkedPerson
+		var natures string
+		if err := rows.Scan(&x.ID, &x.OccurrenceID, &x.Role, &x.Name, &x.MotherName, &x.CIOPS,
+			&x.OccurredOn, &natures); err != nil {
+			return nil, err
+		}
+		if err := decodeStrings(natures, &x.Natures); err != nil {
+			return nil, err
+		}
+		out = append(out, x)
+	}
+	return out, rows.Err()
+}
+
 func (r *Repo) FindPerson(ctx context.Context, occID, personID string) (*StoredPerson, error) {
 	people, err := r.listPeople(ctx, occID)
 	if err != nil {

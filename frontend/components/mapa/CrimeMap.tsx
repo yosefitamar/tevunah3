@@ -134,7 +134,7 @@ export default function CrimeMap({
             quando os dois caem no mesmo lugar. Ponto aproximado (só o bairro
             foi localizado) vem tracejado e mais apagado. */}
         {extra.map((r) => {
-          const approx = r.geo_precision === "bairro";
+          const approx = r.geo_precision === "bairro" || r.geo_precision === "cidade";
           return (
             <CircleMarker
               key={rowKey(r)}
@@ -265,6 +265,7 @@ function ProductivityPopup({ row, onOpen }: { row: OccurrenceRow; onOpen?: (row:
           <dd>
             {row.latitude?.toFixed(6)}, {row.longitude?.toFixed(6)}
             {row.geo_precision === "bairro" && " · APROXIMADA (CENTRO DO BAIRRO)"}
+            {row.geo_precision === "cidade" && " · APROXIMADA (SEDE DO MUNICÍPIO)"}
             {row.geo_precision === "rua" && " · RUA, SEM O NÚMERO"}
           </dd>
         </div>

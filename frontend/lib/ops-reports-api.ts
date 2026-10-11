@@ -14,6 +14,8 @@ export type OpsMatch = {
   date_of_birth?: string;
   score: number;
   matched_fields: string[];
+  /** O nome casa pelo som (grafia diferente), não letra a letra. */
+  approx?: boolean;
 };
 
 export type OpsPerson = {
@@ -85,6 +87,8 @@ export type SipomOccurrence = {
   area_options: SipomRef[];
   opm: SipomRef | null;
   pendencias: SipomPending[];
+  /** Quando foi marcada como enviada ao SIPOM (null = ainda na fila). */
+  sent_at: string | null;
   /** Sem pendência bloqueante: pode ser enviada. */
   ready: boolean;
   manual: string[];
@@ -202,12 +206,13 @@ export type OpsOccurrence = {
   /**
    * Coordenada do local do fato; null = não localizada. `geo_precision` vale
    * para o ponto do geocodificador: "porta" (rua e número), "rua" ou "bairro"
-   * (aproximada — centro do bairro). `geo_source`: "auto" ou "manual" (o
+   * (aproximada — centro do bairro) ou "cidade" (nem rua nem bairro no mapa:
+   * sede do município). `geo_source`: "auto" ou "manual" (o
    * analista informou).
    */
   latitude: number | null;
   longitude: number | null;
-  geo_precision: "" | "porta" | "rua" | "bairro";
+  geo_precision: "" | "porta" | "rua" | "bairro" | "cidade";
   geo_source: "" | "auto" | "manual";
   people: OpsPerson[];
   weapons: OpsWeapon[];

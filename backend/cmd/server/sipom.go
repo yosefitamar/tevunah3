@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/belia/tevunah/backend/internal/audit"
 	"github.com/belia/tevunah/backend/internal/httpx"
@@ -82,8 +83,10 @@ type sipomOccurrenceJSON struct {
 	OPM         *sipomRefJSON      `json:"opm"`
 	Pendencias  []sipomPendingJSON `json:"pendencias"`
 	Ready       bool               `json:"ready"`
-	Manual      []string           `json:"manual"`
-	Pessoas     []sipomPersonJSON  `json:"pessoas"`
+	// SentAt: quando foi marcada como enviada ao SIPOM (null = na fila).
+	SentAt  *time.Time        `json:"sent_at"`
+	Manual  []string          `json:"manual"`
+	Pessoas []sipomPersonJSON `json:"pessoas"`
 	// AreaLearned: a área veio da referência aprendida (cidade + bairro),
 	// e não do catálogo nem de escolha feita nesta ficha.
 	AreaLearned bool `json:"area_learned"`
@@ -109,7 +112,7 @@ func (a *app) sipomJSON(o *opsreport.Occurrence, people []sipom.Person) *sipomOc
 		Manual: nonNil(f.Manual), Ready: !opsreport.SipomBlocked(f.Pending),
 		Pessoas:        make([]sipomPersonJSON, 0, len(people)),
 		AreaCandidates: []sipomRefJSON{}, OPMCandidates: []sipomRefJSON{},
-		Equipes: splitTeams(o.Teams),
+		Equipes: splitTeams(o.Teams), SentAt: f.SentAt,
 	}
 	if f.CidadeID != nil {
 		for _, id := range a.sipom.CityAreas(*f.CidadeID) {
@@ -216,6 +219,62 @@ func (a *app) handleSipomNaturezas(w http.ResponseWriter, r *http.Request) {
 //
 // O analista fixa a natureza (vale sobre o de-para) ou, com null, devolve a
 // decisão ao de-para.
+// ─── PUT /api/ops-occurrences/{id}/sipom/sent ───
+//
+//	{"sent": true}    a ocorrência já foi lançada no SIPOM
+//	{"sent": false}   volta para a fila de envio
+//
+// Enquanto o SIPOM não tem API, é o analista quem diz que lançou. Só marca
+// ocorrência pronta: com pendência que impede o envio não há o que ter sido
+// enviado.
+func (a *app) handleSipomSetSent(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePerm(w, r, "opsreport.update") {
+		return
+	}
+	id := r.PathValue("id")
+	var req struct {
+		Sent *bool `json:"sent"`
+	}
+	if err := httpx.Decode(r, &req); err != nil || req.Sent == nil {
+		httpx.Error(w, http.StatusBadRequest, "sent obrigatório")
+		return
+	}
+	before, err := a.opsReports.FindByID(r.Context(), id)
+	if err != nil {
+		httpx.Error(w, http.StatusNotFound, "ocorrência não encontrada")
+		return
+	}
+	if *req.Sent && opsreport.SipomBlocked(before.Sipom.Pending) {
+		httpx.Error(w, http.StatusConflict, "a ocorrência ainda tem pendência que impede o envio")
+		return
+	}
+	me := middleware.UserFrom(r.Context())
+	if err := a.opsReports.SetSipomSent(r.Context(), id, *req.Sent, me.ID); err != nil {
+		log.Printf("sipom sent: %v", err)
+		httpx.Error(w, http.StatusInternalServerError, "erro ao gravar")
+		return
+	}
+	after, err := a.opsReports.FindByID(r.Context(), id)
+	if err != nil {
+		httpx.Error(w, http.StatusInternalServerError, "erro ao ler a ocorrência")
+		return
+	}
+	aid, sid, ip, ua := a.actorInfo(r)
+	action := "opsreport.sipom.sent"
+	if !*req.Sent {
+		action = "opsreport.sipom.unsent"
+	}
+	_ = a.audit.Log(r.Context(), audit.Entry{
+		ActorUserID: aid, ActorSessionID: sid, ActorIP: ip, ActorUserAgent: ua,
+		Action:       action,
+		ResourceType: audit.Ptr("ops_occurrence"),
+		ResourceID:   &id,
+		Before:       map[string]any{"sipom_sent_at": before.Sipom.SentAt},
+		After:        map[string]any{"sipom_sent_at": after.Sipom.SentAt},
+	})
+	httpx.OK(w, map[string]any{"sent_at": after.Sipom.SentAt})
+}
+
 func (a *app) handleSipomSetNatureza(w http.ResponseWriter, r *http.Request) {
 	if !a.requirePerm(w, r, "opsreport.update") {
 		return

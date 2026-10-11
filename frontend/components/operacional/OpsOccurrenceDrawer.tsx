@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { FileText, Link2, Search, Unlink, X } from "lucide-react";
+import { FileText, Link2, Search, Unlink, UserPlus, X } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   getOpsOccurrence,
@@ -14,9 +14,10 @@ import {
 } from "@/lib/ops-reports-api";
 import { listEntities } from "@/lib/entities-api";
 import type { Entity, PersonAttrs } from "@/lib/entities-types";
-import { canLinkOpsPeople, canSetOpsIntel } from "@/lib/permissions";
+import { canCreateEntities, canLinkOpsPeople, canSetOpsIntel } from "@/lib/permissions";
 import type { ApiError } from "@/lib/api";
 import EntidadeDrawer from "../entidades/EntidadeDrawer";
+import CreateEntidadeModal from "../entidades/CreateEntidadeModal";
 import EditOpsOccurrenceModal from "./EditOpsOccurrenceModal";
 import OpsOccurrenceBody, { type OpsEditTab } from "./OpsOccurrenceBody";
 import { IntelPill, IntelSummary } from "./IntelStatus";
@@ -39,6 +40,9 @@ type Props = {
 export default function OpsOccurrenceDrawer({ occurrenceId, onClose, onChanged }: Props) {
   const { user: me } = useAuth();
   const canLink = canLinkOpsPeople(me);
+  const canCreate = canLink && canCreateEntities(me);
+  // Envolvido para o qual o analista está abrindo um dossiê novo.
+  const [creatingFor, setCreatingFor] = useState<OpsPerson | null>(null);
   const canIntel = canSetOpsIntel(me);
   const [busyIntel, setBusyIntel] = useState(false);
   const [data, setData] = useState<OpsOccurrence | null>(null);
@@ -156,10 +160,14 @@ export default function OpsOccurrenceDrawer({ occurrenceId, onClose, onChanged }
               className="btn btn-sm"
               disabled={busy}
               onClick={() => link(p, m.id)}
-              title={m.matched_fields.includes("mother_name") ? "Nome e mãe iguais" : "Só o nome é igual"}
+              title={
+                (m.matched_fields.includes("mother_name") ? "Nome e mãe batem" : "Só o nome bate") +
+                (m.approx ? " — grafia diferente da do relatório" : "")
+              }
             >
               <Link2 size={12} /> {m.name}
               {m.mother_name && <span className="muted"> · MÃE {m.mother_name}</span>}
+              {m.approx && <span className="muted"> · GRAFIA DIFERENTE</span>}
             </button>
           ))}
         {canLink &&
@@ -170,6 +178,17 @@ export default function OpsOccurrenceDrawer({ occurrenceId, onClose, onChanged }
               <Search size={12} /> BUSCAR DOSSIÊ
             </button>
           ))}
+        {canCreate && p.id && searchFor !== p.id && (
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            disabled={busy}
+            onClick={() => setCreatingFor(p)}
+            title="Abre o cadastro de pessoa já com o nome e a mãe do relatório, e vincula a esta ocorrência"
+          >
+            <UserPlus size={12} /> CRIAR DOSSIÊ
+          </button>
+        )}
         {!canLink && p.matches.length === 0 && <span className="ops-link muted">SEM DOSSIÊ</span>}
       </div>
     );
@@ -280,6 +299,29 @@ export default function OpsOccurrenceDrawer({ occurrenceId, onClose, onChanged }
           onClose={() => setEntityOverlayId(null)}
           onChanged={reload}
           onOpenEntity={(id) => setEntityOverlayId(id)}
+        />
+      )}
+      {creatingFor && (
+        <CreateEntidadeModal
+          initialKind="person"
+          initialPerson={{
+            name: creatingFor.name,
+            motherName: creatingFor.mother_name,
+            description: [
+              creatingFor.address && `Endereço no relatório operacional: ${creatingFor.address}`,
+              creatingFor.note,
+            ]
+              .filter(Boolean)
+              .join("\n"),
+          }}
+          onClose={() => setCreatingFor(null)}
+          onCreated={async (id) => {
+            const p = creatingFor;
+            setCreatingFor(null);
+            // Vincula a este envolvido mesmo que o nome tenha sido corrigido
+            // no cadastro (a busca automática do servidor não o acharia).
+            await link(p, id);
+          }}
         />
       )}
       {editing && data && (

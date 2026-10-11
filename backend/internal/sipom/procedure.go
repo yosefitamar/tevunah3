@@ -4,6 +4,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/belia/tevunah/backend/internal/intel"
 )
 
 // Procedimento (aba Procedimentos do SIPOM): tipo, número/ano, delegacia e
@@ -283,80 +285,8 @@ func (c *Catalog) MatchDelegado(name string) (id int, candidates []int) {
 }
 
 func sameWord(a, b string) bool  { return a == b }
-func sameSound(a, b string) bool { return soundKey(a) == soundKey(b) }
-
-// nearSound: o som difere em uma letra (troca, falta, sobra ou inversão).
-// Palavra curta não entra — "Lima" e "Lira" são nomes diferentes.
-func nearSound(a, b string) bool {
-	ka, kb := soundKey(a), soundKey(b)
-	if ka == kb {
-		return true
-	}
-	if len(ka) < 5 || len(kb) < 5 {
-		return false
-	}
-	return editDistance(ka, kb) <= 1
-}
-
-var soundPairs = strings.NewReplacer(
-	"ph", "f", "th", "t", "ch", "x", "sh", "x", "lh", "li", "nh", "ni",
-	"ç", "s", "ei", "e", "ou", "o", "qu", "c", "ck", "c",
-)
-
-// soundKey reduz a palavra (já sem acento e em minúsculas) ao som, na medida
-// do que o digitador costuma trocar em nome português: s/z/ss/ç, i/y, v/w,
-// c/k/q, h mudo, letra dobrada, "ei"/"e" e "ou"/"o".
-func soundKey(w string) string {
-	w = soundPairs.Replace(w)
-	var b strings.Builder
-	var last rune
-	for _, r := range w {
-		switch r {
-		case 'z':
-			r = 's'
-		case 'y':
-			r = 'i'
-		case 'w':
-			r = 'v'
-		case 'k', 'q':
-			r = 'c'
-		case 'h':
-			continue
-		}
-		if r != last {
-			b.WriteRune(r)
-		}
-		last = r
-	}
-	return b.String()
-}
-
-// editDistance é a distância de Damerau-Levenshtein (a inversão de duas
-// letras vizinhas conta um erro só).
-func editDistance(a, b string) int {
-	ra, rb := []rune(a), []rune(b)
-	d := make([][]int, len(ra)+1)
-	for i := range d {
-		d[i] = make([]int, len(rb)+1)
-		d[i][0] = i
-	}
-	for j := range d[0] {
-		d[0][j] = j
-	}
-	for i := 1; i <= len(ra); i++ {
-		for j := 1; j <= len(rb); j++ {
-			cost := 1
-			if ra[i-1] == rb[j-1] {
-				cost = 0
-			}
-			d[i][j] = min(d[i-1][j]+1, d[i][j-1]+1, d[i-1][j-1]+cost)
-			if i > 1 && j > 1 && ra[i-1] == rb[j-2] && ra[i-2] == rb[j-1] {
-				d[i][j] = min(d[i][j], d[i-2][j-2]+1)
-			}
-		}
-	}
-	return d[len(ra)][len(rb)]
-}
+func sameSound(a, b string) bool { return intel.SoundKey(a) == intel.SoundKey(b) }
+func nearSound(a, b string) bool { return intel.NearSound(a, b) }
 
 // tokensSubsequence diz se want aparece, na ordem, dentro de have, com eq
 // decidindo se duas palavras são a mesma. O primeiro nome tem que ser o

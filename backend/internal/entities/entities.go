@@ -18,8 +18,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
+
+	"github.com/belia/tevunah/backend/internal/intel"
 )
 
 // Kind enumera os tipos suportados de entidade.
@@ -854,6 +857,9 @@ type PersonDuplicate struct {
 	DateOfBirth   *time.Time
 	Score         int
 	MatchedFields []string
+	// Approx: o nome casa pelo som ou com uma letra de diferença, não pela
+	// grafia.
+	Approx bool
 }
 
 // DuplicatesQuery parametriza a busca de homônimos. Name é obrigatório
@@ -894,7 +900,6 @@ func (r *Repo) FindPersonDuplicates(ctx context.Context, q DuplicatesQuery) (*Du
 		return s
 	}
 	excludeParam := nullIfEmpty(q.ExcludeID)
-	dobParam := nullIfEmpty(q.DateOfBirth)
 
 	// 1) CPF tomado?
 	if cpfDigits := strings.TrimSpace(q.CPF); cpfDigits != "" {
@@ -925,56 +930,78 @@ func (r *Repo) FindPersonDuplicates(ctx context.Context, q DuplicatesQuery) (*Du
 		}
 	}
 
-	// 2) Homônimos por nome (insensível a caixa e a acento — "JOSÉ" e "JOSE"
-	// são o mesmo indivíduo para efeito de homônimo). Sem nome, não busca.
+	// 2) Homônimos por nome. A comparação é pelo som e tolera uma letra
+	// errada (intel.NameMatch): "Sousa"/"Souza" e "Rodrigues"/"Rodrigres"
+	// são o mesmo indivíduo para efeito de homônimo. É feita aqui, e não no
+	// SQL, para valer a mesma regra em todo o sistema; o cadastro de pessoas
+	// é pequeno o bastante para ser lido inteiro. Sem nome, não busca.
 	name := strings.TrimSpace(q.Name)
 	if name == "" {
 		return out, nil
 	}
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT e.id, e.name, p.mother_name, p.date_of_birth,
-		       (CASE WHEN app.norm_txt(e.name) = app.norm_txt($1) THEN 1 ELSE 0 END)
-		     + (CASE WHEN $2 <> '' AND app.norm_txt(coalesce(p.mother_name,'')) = app.norm_txt($2) THEN 1 ELSE 0 END)
-		     + (CASE WHEN $3::date IS NOT NULL AND p.date_of_birth = $3::date THEN 1 ELSE 0 END) AS score
+		SELECT e.id, e.name, p.mother_name, p.date_of_birth
 		  FROM app.entity_persons p
 		  JOIN app.entities e ON e.id = p.entity_id
 		 WHERE e.kind = 'person'
 		   AND e.deleted_at IS NULL
-		   AND e.classification <= $4
-		   AND app.norm_txt(e.name) = app.norm_txt($1)
-		   AND ($5::uuid IS NULL OR e.id <> $5::uuid)
-		 ORDER BY score DESC, e.name
-		 LIMIT 20`,
-		name, q.MotherName, dobParam, q.MaxClearance, excludeParam)
+		   AND e.classification <= $1
+		   AND ($2::uuid IS NULL OR e.id <> $2::uuid)`,
+		q.MaxClearance, excludeParam)
 	if err != nil {
 		return nil, fmt.Errorf("query duplicates: %w", err)
 	}
 	defer rows.Close()
+	level := map[string]int{}
 	for rows.Next() {
 		var d PersonDuplicate
 		var mn sql.NullString
 		var dob sql.NullTime
-		if err := rows.Scan(&d.ID, &d.Name, &mn, &dob, &d.Score); err != nil {
+		if err := rows.Scan(&d.ID, &d.Name, &mn, &dob); err != nil {
 			return nil, err
 		}
+		lv := intel.NameMatch(d.Name, name)
+		if lv == intel.NameNone {
+			continue
+		}
+		level[d.ID] = lv
+		d.Approx = lv != intel.NameExact
 		d.MotherName = nullStr(mn)
 		if dob.Valid {
 			t := dob.Time
 			d.DateOfBirth = &t
 		}
-		// Reconstroi quais campos casaram (para a UI explicar o score).
+		// Quais campos casaram (a UI explica o score com isso).
 		d.MatchedFields = []string{"name"}
 		if q.MotherName != "" && d.MotherName != nil &&
-			sameNormalized(*d.MotherName, q.MotherName) {
+			intel.NameMatch(*d.MotherName, q.MotherName) != intel.NameNone {
 			d.MatchedFields = append(d.MatchedFields, "mother_name")
 		}
 		if q.DateOfBirth != "" && d.DateOfBirth != nil &&
 			d.DateOfBirth.Format("2006-01-02") == q.DateOfBirth {
 			d.MatchedFields = append(d.MatchedFields, "date_of_birth")
 		}
+		d.Score = len(d.MatchedFields)
 		out.Matches = append(out.Matches, d)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	// Mais campos casados primeiro; no empate, o nome mais fiel.
+	sort.SliceStable(out.Matches, func(i, j int) bool {
+		a, b := out.Matches[i], out.Matches[j]
+		if a.Score != b.Score {
+			return a.Score > b.Score
+		}
+		if level[a.ID] != level[b.ID] {
+			return level[a.ID] > level[b.ID]
+		}
+		return a.Name < b.Name
+	})
+	if len(out.Matches) > 20 {
+		out.Matches = out.Matches[:20]
+	}
+	return out, nil
 }
 
 // ─────────────────────────── helpers internos ────────────────────────────

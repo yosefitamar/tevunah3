@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AlertTriangle, Braces, Check, CheckCircle2, Pencil, RotateCcw } from "lucide-react";
+import { AlertTriangle, Braces, Check, CheckCircle2, Pencil, RotateCcw, Send, Undo2 } from "lucide-react";
 import type { OpsOccurrence, OpsOfficer, SipomOccurrence, SipomRef } from "@/lib/ops-reports-api";
 import {
   listSipomNaturezas,
   setOpsSipomField,
   setOpsSipomNatureza,
+  setSipomSent,
   type SipomAreaRule,
   type SipomFieldInput,
   type SipomNatureza,
@@ -402,6 +403,13 @@ export function SipomEnvolvidos({ occ }: { occ: OpsOccurrence }) {
 /** Selo de situação do envio: pronta, ou quantas pendências impedem. */
 export function SipomReadyPill({ s }: { s: SipomOccurrence }) {
   const blocking = s.pendencias.filter((p) => p.blocking).length;
+  if (s.sent_at) {
+    return (
+      <span className="pill info sipom-ready" title={`Marcada como enviada em ${formatBRDate(s.sent_at.slice(0, 10))}`}>
+        <Send size={10} strokeWidth={2} /> ENVIADA AO SIPOM
+      </span>
+    );
+  }
   return s.ready ? (
     <span className="pill active sipom-ready">
       <CheckCircle2 size={10} strokeWidth={2} /> PRONTA PARA O SIPOM
@@ -421,7 +429,10 @@ export function SipomEnvio({
   occ,
   stepOf,
   onGoTo,
+  onSent,
 }: {
+  /** Quando presente, a ficha pode marcar a ocorrência como enviada. */
+  onSent?: (s: SipomOccurrence) => void;
   occ: OpsOccurrence;
   /** Etapa (rótulo) em que a pendência se resolve. */
   stepOf?: (code: string) => { key: string; label: string } | null;
@@ -429,7 +440,25 @@ export function SipomEnvio({
 }) {
   const s = occ.sipom!;
   const [showPayload, setShowPayload] = useState(false);
+  const [busySent, setBusySent] = useState(false);
+  const [sentError, setSentError] = useState<string | null>(null);
   const blocking = s.pendencias.filter((p) => p.blocking);
+
+  // Enquanto o SIPOM não tem API, quem diz que a ocorrência foi lançada lá é
+  // o analista: marcar tira a ocorrência da fila de envio.
+  async function markSent(sent: boolean) {
+    if (!occ.id || busySent) return;
+    setBusySent(true);
+    setSentError(null);
+    try {
+      const r = await setSipomSent(occ.id, sent);
+      onSent?.({ ...s, sent_at: r.sent_at });
+    } catch (e) {
+      setSentError((e as ApiError).message || "Erro ao gravar");
+    } finally {
+      setBusySent(false);
+    }
+  }
   const notes = s.pendencias.filter((p) => !p.blocking);
 
   const item = (p: (typeof s.pendencias)[number]) => {
@@ -455,7 +484,30 @@ export function SipomEnvio({
             <Braces size={12} strokeWidth={2} /> PRÉVIA DO ENVIO
           </button>
         )}
+        {onSent && occ.id && s.ready && !s.sent_at && (
+          <button
+            type="button"
+            className="btn btn-sm"
+            disabled={busySent}
+            onClick={() => markSent(true)}
+            title="Use depois de lançar a ocorrência no SIPOM: ela sai da fila de envio"
+          >
+            <Send size={12} strokeWidth={2} /> MARCAR COMO ENVIADA
+          </button>
+        )}
+        {onSent && occ.id && s.sent_at && (
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            disabled={busySent}
+            onClick={() => markSent(false)}
+            title="Devolve a ocorrência à fila de envio"
+          >
+            <Undo2 size={12} strokeWidth={2} /> DESFAZER
+          </button>
+        )}
       </div>
+      {sentError && <div className="banner banner-error">⚠ {sentError}</div>}
       {blocking.length > 0 && (
         <>
           <div className="ops-sub">IMPEDEM O ENVIO ({blocking.length})</div>

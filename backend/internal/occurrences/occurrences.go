@@ -70,6 +70,12 @@ type Row struct {
 	Latitude     *float64
 	Longitude    *float64
 	GeoPrecision string
+	// SipomNature é a natureza do SIPOM resolvida para a ocorrência do
+	// relatório; vazio se a linha é só do cadastro ou ainda não tem natureza.
+	SipomNature string
+	// SipomSentAt: quando a ocorrência do relatório foi marcada como enviada
+	// ao SIPOM; nil = ainda não (ou a linha é só do cadastro).
+	SipomSentAt *time.Time
 }
 
 // Abas da tela: o cadastro de homicídios (CVLI) de um lado; do outro, a
@@ -78,6 +84,9 @@ type Row struct {
 const (
 	CategoryHomicides    = "homicidios"
 	CategoryProductivity = "produtividade"
+	// CategoryQueue é a fila de envio ao SIPOM: as ocorrências do relatório
+	// que ainda não foram enviadas — um recorte da produtividade.
+	CategoryQueue = "fila"
 )
 
 // ListOpts controla a listagem.
@@ -92,8 +101,35 @@ type ListOpts struct {
 	Search        string
 	DateFrom      string // YYYY-MM-DD
 	DateTo        string
-	SortBy        string // occurred_on | type | updated_at
+	SortBy        string // occurred_on | type | updated_at | ciops_record | nature | place | pending
 	SortDir       string
+
+	// Recortes da ocorrência do relatório operacional (aba de produtividade).
+	// As pendências são as do envio ao SIPOM; NoticeCodes diz quais delas são
+	// só aviso — as demais impedem o envio.
+	Status      string   // "" | StatusPending (alguma impede o envio) | StatusReady | StatusSent
+	StepCodes   []string // só as que têm, entre estas, uma que impede o envio
+	Code        string   // só as que têm esta pendência
+	Notes       string   // "1" = só com aviso | "0" = só sem aviso
+	NoticeCodes []string
+	CIA         string
+	Intel       string // "1" | "0"
+	Nature      string // natureza do relatório (exata, sem acento/caixa)
+	ReportID    string // só as do relatório importado
+}
+
+// Situação da ocorrência do relatório quanto ao envio ao SIPOM.
+const (
+	StatusPending = "pending"
+	StatusReady   = "ready"
+	StatusSent    = "sent"
+)
+
+// PendingSummary conta as ocorrências do relatório no recorte comum, por
+// situação e por pendência — o que os filtros da tela mostram.
+type PendingSummary struct {
+	Pending, Ready, Sent int
+	ByCode               map[string]int
 }
 
 // Counts é o total de cada aba no recorte comum às duas (busca, período e
@@ -101,13 +137,15 @@ type ListOpts struct {
 type Counts struct {
 	Productivity int
 	Homicides    int
+	Queue        int
 }
 
 // ListResult é uma página da listagem, o total do recorte e o de cada aba.
 type ListResult struct {
-	Items  []Row
-	Total  int
-	Counts Counts
+	Items   []Row
+	Total   int
+	Counts  Counts
+	Summary PendingSummary
 }
 
 // unified é a união das duas fontes, uma linha por ocorrência. $1 e $2 são o
@@ -137,7 +175,11 @@ const unified = `
 	         CASE WHEN i.latitude IS NOT NULL AND i.longitude IS NOT NULL
 	              THEN i.longitude ELSE o.longitude END AS longitude,
 	         CASE WHEN i.latitude IS NOT NULL AND i.longitude IS NOT NULL
-	              THEN '' ELSE COALESCE(o.geo_precision, '') END AS geo_precision
+	              THEN '' ELSE COALESCE(o.geo_precision, '') END AS geo_precision,
+	         COALESCE((SELECT n.nome FROM sipom.natureza_fatos n WHERE n.id = o.sipom_natureza_id), '') AS sipom_nature,
+	         COALESCE(o.cia, '') AS cia,
+	         o.report_id AS report_id,
+	         o.sipom_sent_at AS sent_at
 	    FROM app.incidents i
 	    LEFT JOIN app.ops_occurrences o
 	      ON $2 AND o.deleted_at IS NULL
@@ -149,7 +191,9 @@ const unified = `
 	  SELECT NULL::uuid, o.id, '', o.natures, o.occurred_on, o.start_time, o.ciops_record,
 	         o.place_city, o.place_neighborhood, '', o.narrative, '',
 	         o.intel_participation, o.created_at, o.sipom_pendencias,
-	         o.latitude, o.longitude, o.geo_precision
+	         o.latitude, o.longitude, o.geo_precision,
+	         COALESCE((SELECT n.nome FROM sipom.natureza_fatos n WHERE n.id = o.sipom_natureza_id), ''),
+	         o.cia, o.report_id, o.sipom_sent_at
 	    FROM app.ops_occurrences o
 	   WHERE $2 AND o.deleted_at IS NULL
 	     AND NOT ($1 AND o.ciops_record <> '' AND app.norm_ciops(o.ciops_record) <> ''
@@ -159,10 +203,20 @@ const unified = `
 	                   AND app.norm_ciops(i.ciops_record) = app.norm_ciops(o.ciops_record)))
 	)`
 
+// blockingCount conta as pendências da linha que impedem o envio ($22 são os
+// códigos que são só aviso).
+const blockingCount = `(SELECT COUNT(*) FROM unnest(u.pending) p WHERE p <> ALL($22::text[]))`
+
 var sortable = map[string]string{
-	"occurred_on": "u.occurred_on %[1]s, u.occurred_time %[1]s NULLS LAST",
-	"type":        "u.type %[1]s, u.occurred_on DESC",
-	"updated_at":  "u.updated_at %[1]s",
+	"occurred_on":  "u.occurred_on %[1]s, u.occurred_time %[1]s NULLS LAST",
+	"type":         "u.type %[1]s, u.occurred_on DESC",
+	"updated_at":   "u.updated_at %[1]s",
+	"ciops_record": "u.ciops_record %[1]s",
+	// Natureza: a do SIPOM; sem ela, o que o relatório escreveu ou o tipo.
+	"nature": "app.norm_txt(COALESCE(NULLIF(u.sipom_nature, ''), NULLIF(array_to_string(u.natures, ' '), ''), u.type)) %[1]s, u.occurred_on DESC",
+	"place":  "app.norm_txt(u.city) %[1]s, app.norm_txt(u.neighborhood) %[1]s, u.occurred_on DESC",
+	// Pendências: quantas impedem o envio.
+	"pending": blockingCount + " %[1]s, u.occurred_on DESC",
 }
 
 // sharedWhere é o recorte comum às abas ($3–$9): território, período e a
@@ -198,19 +252,40 @@ const sharedWhere = `
 	             OR EXISTS (SELECT 1 FROM app.ops_occurrence_weapons w
 	                         WHERE w.occurrence_id = u.ops_id AND lower(w.serial) LIKE $8))))`
 
-// tabWhere é o recorte da aba ($10–$13): categoria, origem, tipo e meio.
+// tabWhere é o recorte da aba ($10–$22): categoria, origem, tipo e meio, e
+// os da ocorrência do relatório — situação e pendências do envio ao SIPOM,
+// companhia, inteligência, natureza e o relatório de origem. Situação e
+// pendência só existem na ocorrência do relatório: pedir uma delas deixa de
+// fora a linha que é só do cadastro.
 const tabWhere = `
 	  AND ($10 = '' OR ($10 = 'homicidios' AND u.type = 'homicidio')
-	                OR ($10 = 'produtividade' AND u.type <> 'homicidio'))
+	                OR ($10 = 'produtividade' AND u.type <> 'homicidio')
+	                OR ($10 = 'fila' AND u.type <> 'homicidio'
+	                    AND u.ops_id IS NOT NULL AND u.sent_at IS NULL))
 	  AND ($11 = '' OR ($11 = 'manual' AND u.incident_id IS NOT NULL)
 	                OR ($11 = 'operacional' AND u.ops_id IS NOT NULL))
 	  AND ($12 = '' OR u.type = $12)
-	  AND ($13 = '' OR u.means = $13)`
+	  AND ($13 = '' OR u.means = $13)
+	  AND ($14 = '' OR (u.ops_id IS NOT NULL AND (
+	         ($14 = 'pending' AND u.sent_at IS NULL AND ` + blockingCount + ` > 0)
+	      OR ($14 = 'ready'   AND u.sent_at IS NULL AND ` + blockingCount + ` = 0)
+	      OR ($14 = 'sent'    AND u.sent_at IS NOT NULL))))
+	  AND (cardinality($15::text[]) = 0 OR EXISTS (
+	         SELECT 1 FROM unnest(u.pending) p
+	          WHERE p = ANY($15::text[]) AND p <> ALL($22::text[])))
+	  AND ($16 = '' OR $16 = ANY(u.pending))
+	  AND ($17 = '' OR (u.ops_id IS NOT NULL
+	         AND ($17 = '1') = (u.pending && $22::text[])))
+	  AND ($18 = '' OR upper(u.cia) = $18)
+	  AND ($19 = '' OR ($19 = '1') = u.intel)
+	  AND ($20 = '' OR EXISTS (
+	         SELECT 1 FROM unnest(u.natures) n WHERE app.norm_txt(n) = app.norm_txt($20)))
+	  AND ($21::uuid IS NULL OR u.report_id = $21::uuid)`
 
 // sharedArgs é quantos dos argumentos de listArgs pertencem a sharedWhere.
 const sharedArgs = 9
 
-// listArgs monta $1–$13 para unified + sharedWhere + tabWhere.
+// listArgs monta $1–$22 para unified + sharedWhere + tabWhere.
 func listArgs(sc Scope, opts ListOpts) []any {
 	search := strings.TrimSpace(opts.Search)
 	return []any{
@@ -227,7 +302,22 @@ func listArgs(sc Scope, opts ListOpts) []any {
 		strings.TrimSpace(opts.Source),                        // $11
 		strings.TrimSpace(opts.Type),                          // $12
 		strings.TrimSpace(opts.Means),                         // $13
+		strings.TrimSpace(opts.Status),                        // $14
+		textArray(opts.StepCodes),                             // $15
+		strings.TrimSpace(opts.Code),                          // $16
+		strings.TrimSpace(opts.Notes),                         // $17
+		strings.ToUpper(strings.TrimSpace(opts.CIA)),          // $18
+		strings.TrimSpace(opts.Intel),                         // $19
+		strings.TrimSpace(opts.Nature),                        // $20
+		nilStr(strings.TrimSpace(opts.ReportID)),              // $21
+		textArray(opts.NoticeCodes),                           // $22
 	}
+}
+
+// textArray escreve a lista como literal de text[] do Postgres (os códigos
+// de pendência são identificadores simples, sem aspas nem vírgula).
+func textArray(xs []string) string {
+	return "{" + strings.Join(xs, ",") + "}"
 }
 
 const rowSelect = `
@@ -241,7 +331,7 @@ const rowSelect = `
 	            ELSE (SELECT COUNT(*) FROM app.ops_occurrence_people p WHERE p.occurrence_id = u.ops_id)
 	       END,
 	       to_jsonb(u.pending)::text,
-	       u.latitude, u.longitude, u.geo_precision
+	       u.latitude, u.longitude, u.geo_precision, u.sipom_nature, u.sent_at
 	  FROM u`
 
 func scanRow(rows *sql.Rows) (*Row, error) {
@@ -252,7 +342,7 @@ func scanRow(rows *sql.Rows) (*Row, error) {
 		&row.OccurredOn, &row.Time, &row.CIOPS, &row.City, &row.Neighborhood,
 		&row.Description, &row.Means, &row.Intel, &row.UpdatedAt,
 		&row.PeopleCount, &pending,
-		&row.Latitude, &row.Longitude, &row.GeoPrecision); err != nil {
+		&row.Latitude, &row.Longitude, &row.GeoPrecision, &row.SipomNature, &row.SipomSentAt); err != nil {
 		return nil, err
 	}
 	if incID.Valid {
@@ -290,10 +380,15 @@ func (r *Repo) List(ctx context.Context, sc Scope, opts ListOpts) (*ListResult, 
 	}
 	if err := r.db.QueryRowContext(ctx, unified+`
 		SELECT COUNT(*) FILTER (WHERE u.type <> 'homicidio'),
-		       COUNT(*) FILTER (WHERE u.type = 'homicidio')
+		       COUNT(*) FILTER (WHERE u.type = 'homicidio'),
+		       COUNT(*) FILTER (WHERE u.type <> 'homicidio' AND u.ops_id IS NOT NULL AND u.sent_at IS NULL)
 		  FROM u`+sharedWhere, args[:sharedArgs]...,
-	).Scan(&res.Counts.Productivity, &res.Counts.Homicides); err != nil {
+	).Scan(&res.Counts.Productivity, &res.Counts.Homicides, &res.Counts.Queue); err != nil {
 		return nil, fmt.Errorf("occurrences tab counts: %w", err)
+	}
+
+	if err := r.pendingSummary(ctx, args, &res.Summary); err != nil {
+		return nil, err
 	}
 
 	order, ok := sortable[opts.SortBy]
@@ -306,7 +401,7 @@ func (r *Repo) List(ctx context.Context, sc Scope, opts ListOpts) (*ListResult, 
 	}
 	rows, err := r.db.QueryContext(ctx, unified+rowSelect+where+`
 		 ORDER BY `+fmt.Sprintf(order, dir)+`, u.updated_at DESC
-		 LIMIT $14 OFFSET $15`,
+		 LIMIT $23 OFFSET $24`,
 		append(args, opts.Limit, opts.Offset)...)
 	if err != nil {
 		return nil, fmt.Errorf("occurrences list: %w", err)
@@ -320,6 +415,40 @@ func (r *Repo) List(ctx context.Context, sc Scope, opts ListOpts) (*ListResult, 
 		res.Items = append(res.Items, *row)
 	}
 	return res, rows.Err()
+}
+
+// pendingSummary conta, no recorte comum às abas, as ocorrências do relatório
+// por situação e por pendência.
+func (r *Repo) pendingSummary(ctx context.Context, args []any, out *PendingSummary) error {
+	shared := append(append([]any{}, args[:sharedArgs]...), args[21])
+	// $22 de blockingCount vira $10 aqui: só o recorte comum e os avisos.
+	blocking := strings.ReplaceAll(blockingCount, "$22", "$10")
+	if err := r.db.QueryRowContext(ctx, unified+`
+		SELECT COUNT(*) FILTER (WHERE u.sent_at IS NULL AND `+blocking+` > 0),
+		       COUNT(*) FILTER (WHERE u.sent_at IS NULL AND `+blocking+` = 0),
+		       COUNT(*) FILTER (WHERE u.sent_at IS NOT NULL)
+		  FROM u`+sharedWhere+` AND u.ops_id IS NOT NULL AND u.type <> 'homicidio'`, shared...,
+	).Scan(&out.Pending, &out.Ready, &out.Sent); err != nil {
+		return fmt.Errorf("occurrences pending summary: %w", err)
+	}
+	rows, err := r.db.QueryContext(ctx, unified+`
+		SELECT p, COUNT(*) FROM u, unnest(u.pending) p`+sharedWhere+`
+		   AND u.ops_id IS NOT NULL AND u.type <> 'homicidio' AND u.sent_at IS NULL
+		 GROUP BY p`, args[:sharedArgs]...)
+	if err != nil {
+		return fmt.Errorf("occurrences pending codes: %w", err)
+	}
+	defer rows.Close()
+	out.ByCode = map[string]int{}
+	for rows.Next() {
+		var code string
+		var n int
+		if err := rows.Scan(&code, &n); err != nil {
+			return err
+		}
+		out.ByCode[code] = n
+	}
+	return rows.Err()
 }
 
 // geoMaxPoints limita os pontos do mapa: um recorte largo numa base grande
@@ -340,7 +469,7 @@ func (r *Repo) ListGeo(ctx context.Context, sc Scope, opts ListOpts) (items []Ro
 	rows, err := r.db.QueryContext(ctx, unified+rowSelect+where+`
 		   AND u.latitude IS NOT NULL AND u.longitude IS NOT NULL
 		 ORDER BY u.occurred_on DESC, u.occurred_time DESC NULLS LAST
-		 LIMIT $14`, append(args, geoMaxPoints+1)...)
+		 LIMIT $23`, append(args, geoMaxPoints+1)...)
 	if err != nil {
 		return nil, 0, false, fmt.Errorf("occurrences geo: %w", err)
 	}

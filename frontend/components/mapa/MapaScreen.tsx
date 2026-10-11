@@ -204,7 +204,7 @@ export default function MapaScreen() {
 
   const semGeo = totalInRange != null ? Math.max(0, totalInRange - items.length) : null;
   const prodSemGeo = prodTotal != null ? Math.max(0, prodTotal - prodItems.length) : null;
-  const prodApprox = prodItems.filter((r) => r.geo_precision === "bairro").length;
+  const prodApprox = prodItems.filter((r) => r.geo_precision === "bairro" || r.geo_precision === "cidade").length;
 
   return (
     <div className="screen-fill">

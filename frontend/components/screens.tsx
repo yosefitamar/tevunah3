@@ -6,7 +6,6 @@ import AprovacoesScreen from "./aprovacoes/AprovacoesScreen";
 import AuditoriaScreen from "./auditoria/AuditoriaScreen";
 import EntidadesScreen from "./entidades/EntidadesScreen";
 import OcorrenciasScreen from "./ocorrencias/OcorrenciasScreen";
-import RelatorioOperacionalScreen from "./operacional/RelatorioOperacionalScreen";
 import MapaScreen from "./mapa/MapaScreen";
 import RelatoriosScreen from "./relatorios/RelatoriosScreen";
 import InformesScreen from "./informes/InformesScreen";
@@ -34,7 +33,6 @@ export const ScreenEntidades = EntidadesScreen;
 
 export const ScreenOcorrencias = OcorrenciasScreen;
 
-export const ScreenOperacional = RelatorioOperacionalScreen;
 
 export const ScreenMapa = MapaScreen;
 

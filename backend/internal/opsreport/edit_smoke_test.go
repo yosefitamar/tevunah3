@@ -380,12 +380,14 @@ func TestSmoke_ProcedureAndMaterials(t *testing.T) {
 		t.Errorf("revólver Taurus .38: %+v", w)
 	}
 	w = o.Weapons[1]
-	if w.SipomTipoID == nil || cat.ArmaTipoNome(*w.SipomTipoID) != "Artesanal" || w.SipomMarcaID != nil ||
+	// Artesanal não tem fabricante: a marca vai como "Suprimida".
+	if w.SipomTipoID == nil || cat.ArmaTipoNome(*w.SipomTipoID) != "Artesanal" ||
+		w.SipomMarcaID == nil || cat.ArmaMarcaNome(*w.SipomMarcaID) != "Suprimida" ||
 		w.SipomCalibreID == nil || cat.ArmaCalibreNome(*w.SipomCalibreID) != "9mm" {
 		t.Errorf("submetralhadora artesanal 9mm: %+v", w)
 	}
-	if !hasString(f.Pending, sipom.PendArma) {
-		t.Errorf("arma sem marca deveria deixar a pendência de arma: %v", f.Pending)
+	if hasString(f.Pending, sipom.PendArma) {
+		t.Errorf("armas resolvidas não deveriam deixar pendência de arma: %v", f.Pending)
 	}
 	d := o.Drugs[0]
 	if d.SipomDrogaID == nil || d.SipomQuantidade == nil || *d.SipomQuantidade != 582 {

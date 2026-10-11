@@ -2,7 +2,9 @@ package sipom
 
 import (
 	"regexp"
+	"sort"
 	"strings"
+	"unicode"
 )
 
 // Códigos de pendência gravados em ops_occurrences.sipom_pendencias. Os
@@ -41,6 +43,53 @@ func Notice(code string) bool {
 // pendência da ocorrência, não do envio.
 func Blocking(code string) bool {
 	return !Notice(code) && code != PendCoordenada
+}
+
+// Etapas da ficha da ocorrência em que cada pendência se resolve — o mesmo
+// agrupamento que a tela usa na trilha de etapas.
+const (
+	StepFato         = "fato"
+	StepLocal        = "local"
+	StepEfetivo      = "efetivo"
+	StepPessoas      = "pessoas"
+	StepProcedimento = "procedimento"
+	StepApreensoes   = "apreensoes"
+)
+
+// PendingStep diz a etapa de cada pendência.
+var PendingStep = map[string]string{
+	PendNatureza: StepFato, PendNatConfirm: StepFato, PendDataHora: StepFato, PendFicha: StepFato,
+	PendLogradouro: StepLocal, PendCidade: StepLocal, PendBairro: StepLocal, PendArea: StepLocal,
+	PendAreaAmbig: StepLocal, PendCoordenada: StepLocal,
+	PendOPM: StepEfetivo, PendComposicao: StepEfetivo, PendComposicaoMulti: StepEfetivo,
+	PendPessoaSemDossie: StepPessoas,
+	PendProcedimento:    StepProcedimento, PendProcTipo: StepProcedimento, PendProcNumero: StepProcedimento,
+	PendDelegacia: StepProcedimento, PendDelegado: StepProcedimento,
+	PendArma: StepApreensoes, PendDroga: StepApreensoes, PendVeiculo: StepApreensoes,
+}
+
+// StepCodes devolve as pendências da etapa; NoticeCodes, as que não impedem
+// o envio.
+func StepCodes(step string) []string {
+	var out []string
+	for code, s := range PendingStep {
+		if s == step {
+			out = append(out, code)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func NoticeCodes() []string {
+	var out []string
+	for code := range PendingStep {
+		if !Blocking(code) {
+			out = append(out, code)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // PendingLabel é o texto da pendência para a tela.
@@ -151,7 +200,7 @@ func (c *Catalog) Resolve(in Input) Result {
 	if ci, ok := c.cidadeByKey[key(in.City)]; ok {
 		id := ci.id
 		r.CidadeID = &id
-		if b, ok := c.bairroByKey[id][key(in.Neighborhood)]; ok && key(in.Neighborhood) != "" {
+		if b, ok := c.MatchBairro(id, in.Neighborhood); ok {
 			r.BairroID = &b
 		}
 	} else {
@@ -217,6 +266,67 @@ func (c *Catalog) OPM(cia, bpm string) (Companhia, bool) {
 	}
 	co, ok := c.companhiaByKey[key(cia+"/"+bpm)]
 	return co, ok
+}
+
+// MatchBairro procura o bairro do relatório entre os da cidade no catálogo.
+// O nome exato vence; senão vale o que soa igual ("Pial" → PIAU) e, por
+// último, o que difere do som em uma letra por palavra ("Jereissate I" →
+// JEREISSATI I, "Sepupará" → Sapupara). Sem bairro parecido na cidade — ou
+// com mais de um — não casa: o nome fica como o relatório escreveu.
+func (c *Catalog) MatchBairro(cidadeID int, name string) (int, bool) {
+	k := key(name)
+	if k == "" {
+		return 0, false
+	}
+	bairros := c.bairroByKey[cidadeID]
+	if id, ok := bairros[k]; ok {
+		return id, true
+	}
+	want := strings.Fields(k)
+	for _, eq := range []func(a, b string) bool{sameSound, nearSound} {
+		found, n := 0, 0
+		for bk, id := range bairros {
+			have := strings.Fields(bk)
+			if len(have) != len(want) {
+				continue
+			}
+			ok := true
+			for i := range want {
+				// Palavra curta é numeral ou sigla ("I", "II", "3"): só a
+				// própria, senão "Jereissati I" e "II" viram o mesmo bairro.
+				if short := len(want[i]) <= 3 || len(have[i]) <= 3; (short && want[i] != have[i]) || (!short && !eq(want[i], have[i])) {
+					ok = false
+					break
+				}
+			}
+			if ok {
+				found, n = id, n+1
+			}
+		}
+		if n == 1 {
+			return found, true
+		}
+		if n > 1 {
+			return 0, false
+		}
+	}
+	return 0, false
+}
+
+// CanonNeighborhood devolve o bairro como o catálogo o escreve, quando o do
+// relatório só casa com um da cidade pelo som (erro de digitação); senão, o
+// próprio nome. É o que vai à busca no mapa.
+func (c *Catalog) CanonNeighborhood(city, neighborhood string) string {
+	ci, ok := c.cidadeByKey[key(city)]
+	if !ok {
+		return neighborhood
+	}
+	id, ok := c.MatchBairro(ci.id, neighborhood)
+	if !ok || key(c.bairroNome[id]) == key(neighborhood) {
+		return neighborhood
+	}
+	// O catálogo tem nome com sujeira na ponta (": MONGUBA").
+	return strings.TrimFunc(c.bairroNome[id], func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) })
 }
 
 // ─── Endereço ───

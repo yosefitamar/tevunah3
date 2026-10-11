@@ -25,11 +25,17 @@ function precisionPill(occ: OpsOccurrence): { cls: string; label: string; title:
       return { cls: "active", label: "ENDEREÇO LOCALIZADO", title: "Rua e número encontrados no mapa" };
     case "rua":
       return { cls: "info", label: "RUA LOCALIZADA", title: "A rua foi encontrada; o número, não" };
+    case "cidade":
+      return {
+        cls: "hold",
+        label: "APROXIMADA · SEDE DO MUNICÍPIO",
+        title: "Nem a rua nem o bairro estão no mapa: o ponto é a sede do município, não o local do fato",
+      };
     default:
       return {
         cls: "hold",
         label: "APROXIMADA · BAIRRO",
-        title: "Só o bairro foi encontrado: o ponto é o centro dele, não o local do fato",
+        title: "Só o bairro (ou uma referência dele) foi encontrado: o ponto é aproximado, não o local do fato",
       };
   }
 }

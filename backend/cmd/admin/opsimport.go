@@ -172,7 +172,7 @@ func runOpsImport(args []string) {
 			o := &mine[i]
 			_, dup := existing[o.CIOPS]
 			if !dup && geo.Enabled() && !geoDown {
-				g, err := opsImportLocate(ctx, geo, o)
+				g, err := opsImportLocate(ctx, geo, cat, o)
 				if err != nil {
 					// Sem o geocodificador o lote segue: as ocorrências entram com
 					// a pendência de coordenada e `ops-geocode` as refaz depois.
@@ -344,11 +344,13 @@ func opsImportFiles(args []string) ([]string, error) {
 
 // opsImportLocate procura a coordenada do local do fato; Geo vazio quando o
 // endereço não foi localizado, erro só para falha do serviço.
-func opsImportLocate(ctx context.Context, geo *geocode.Geocoder, o *opsreport.Occurrence) (opsreport.Geo, error) {
+func opsImportLocate(ctx context.Context, geo *geocode.Geocoder, cat *sipom.Catalog, o *opsreport.Occurrence) (opsreport.Geo, error) {
 	in := opsreport.SipomInput(o)
 	street, number := sipom.SplitAddress(in.Address)
 	res, err := geo.Locate(ctx, geocode.Query{
-		Street: street, Number: number, Neighborhood: in.Neighborhood, City: in.City,
+		Street: street, Number: number, City: in.City,
+		Neighborhood:    cat.CanonNeighborhood(in.City, in.Neighborhood),
+		AltNeighborhood: in.Neighborhood,
 	})
 	if err != nil || res == nil {
 		return opsreport.Geo{}, err

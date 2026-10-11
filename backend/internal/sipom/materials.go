@@ -60,8 +60,7 @@ func (c *Catalog) ResolveWeapon(in WeaponInput, terms *TermMap) WeaponResult {
 		r.TipoID = &id
 	}
 	if r.TipoID == nil {
-		all := key(in.Kind + " " + in.Model + " " + in.Brand)
-		if strings.Contains(all, "artesanal") || strings.Contains(all, "caseir") {
+		if isHomemade(in) {
 			if id, ok := c.armaTipos.byKey["artesanal"]; ok {
 				r.TipoID = &id
 			}
@@ -74,6 +73,13 @@ func (c *Catalog) ResolveWeapon(in WeaponInput, terms *TermMap) WeaponResult {
 	} else if id, ok := c.matchBrand(in.Brand); ok {
 		r.MarcaID = &id
 	}
+	// Arma artesanal não tem fabricante: sem marca reconhecida, vai como
+	// "Suprimida" — é como o SIPOM a registra.
+	if r.MarcaID == nil && isHomemade(in) {
+		if id, ok := c.armaMarcas.byKey["suprimida"]; ok {
+			r.MarcaID = &id
+		}
+	}
 	// Calibre: termo aprendido; senão a forma numérica.
 	if id, ok := terms.Lookup(TermArmaCalibre, in.Caliber); ok && c.armaCalibres.byID[id] != "" {
 		r.CalibreID = &id
@@ -82,6 +88,13 @@ func (c *Catalog) ResolveWeapon(in WeaponInput, terms *TermMap) WeaponResult {
 	}
 	r.OK = r.TipoID != nil && r.MarcaID != nil && r.CalibreID != nil
 	return r
+}
+
+// isHomemade diz se a arma é artesanal, em qualquer campo em que o relatório
+// o escreva ("ARTESANAL" no tipo, "ESPINGARDA" com modelo "ARTESANAL").
+func isHomemade(in WeaponInput) bool {
+	all := key(in.Kind + " " + in.Model + " " + in.Brand)
+	return strings.Contains(all, "artesanal") || strings.Contains(all, "caseir")
 }
 
 // matchBrand casa a marca pelo nome inteiro ou pela primeira palavra do

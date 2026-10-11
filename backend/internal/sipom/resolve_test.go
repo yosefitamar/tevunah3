@@ -106,3 +106,40 @@ func TestCompositionTooManyRaio(t *testing.T) {
 		t.Errorf("6 PMs em RAIO: pend=%q funcs=%v", pend, funcs)
 	}
 }
+
+func TestMatchBairro(t *testing.T) {
+	c := &Catalog{
+		cidadeByKey: map[string]cidade{key("Maracanaú"): {id: 1}, key("Aquiraz"): {id: 2}},
+		bairroByKey: map[int]map[string]int{1: {}, 2: {}},
+		bairroNome:  map[int]string{},
+	}
+	for id, b := range map[int]struct {
+		cid  int
+		nome string
+	}{
+		10: {1, "JEREISSATI I"}, 11: {1, "Jereissati II"}, 12: {1, "COLONIA"}, 13: {1, "MUTIRÃO"},
+		14: {1, "ALTO ALEGRE I"}, 15: {1, "ALTO ALEGRE II"}, 20: {2, "PIAU"}, 21: {2, "Sapupara"}, 22: {2, "LIMA"}, 23: {2, "LIRA"},
+	} {
+		c.bairroByKey[b.cid][key(b.nome)] = id
+		c.bairroNome[id] = b.nome
+	}
+	for _, tc := range []struct {
+		city, in, want string
+	}{
+		{"MARACANAÚ", "JEREISSATE I", "JEREISSATI I"}, // uma letra, no bairro certo entre os parecidos
+		{"MARACANAÚ", "Jereissati II", "Jereissati II"},
+		{"MARACANAÚ", "COLÔNIA", "COLÔNIA"},  // mesma grafia a menos de acento: fica como veio
+		{"MARACANAÚ", "MULTIRÃO", "MUTIRÃO"}, // l que soa u
+		{"AQUIRAZ", "PIAL", "PIAU"},
+		{"AQUIRAZ", "SEPUPARÁ", "Sapupara"},
+		{"AQUIRAZ", "LIMA", "LIMA"},
+		{"AQUIRAZ", "LISA", "LISA"},                 // curto: não casa por aproximação
+		{"AQUIRAZ", "JEREISSATE I", "JEREISSATE I"}, // o bairro não é desta cidade
+		{"MARACANAÚ", "ZONA RURAL", "ZONA RURAL"},
+		{"OUTRA CIDADE", "PIAL", "PIAL"},
+	} {
+		if got := c.CanonNeighborhood(tc.city, tc.in); got != tc.want {
+			t.Errorf("CanonNeighborhood(%q, %q) = %q, quer %q", tc.city, tc.in, got, tc.want)
+		}
+	}
+}

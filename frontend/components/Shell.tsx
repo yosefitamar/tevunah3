@@ -26,7 +26,6 @@ import {
   ScreenInformes,
   ScreenMapa,
   ScreenOcorrencias,
-  ScreenOperacional,
   ScreenRelatorios,
 } from "./screens";
 import SandboxModais from "./sandbox/SandboxModais";
@@ -35,7 +34,6 @@ const VIEWS: Record<ModuleId, React.ComponentType> = {
   dashboard: Dashboard,
   entidades: ScreenEntidades,
   ocorrencias: ScreenOcorrencias,
-  operacional: ScreenOperacional,
   mapa: ScreenMapa,
   relatorios: ScreenRelatorios,
   informes: ScreenInformes,

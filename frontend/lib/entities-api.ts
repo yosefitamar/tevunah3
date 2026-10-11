@@ -172,8 +172,29 @@ export function getEntity(id: string) {
   return api<{ entity: Entity }>(`/api/entities/${encodeURIComponent(id)}`);
 }
 
+/** Ocorrência do relatório operacional em que o nome do dossiê aparece. */
+export type OpsEntityMatch = {
+  occurrence_id: string;
+  person_id: string;
+  ciops_record: string;
+  occurred_on: string;
+  natures: string[];
+  role: string;
+  name: string;
+  mother_name: string;
+  /** O nome no relatório está grafado de outro jeito. */
+  approx: boolean;
+};
+
+/**
+ * O que a criação de uma pessoa achou no relatório operacional: `linked` já
+ * foi vinculado (nome e mãe batem); `suggestions` só tem o nome igual e fica
+ * para o analista decidir.
+ */
+export type OpsEntityLinks = { linked: OpsEntityMatch[]; suggestions: OpsEntityMatch[] };
+
 export function createEntity(input: NewEntityInput) {
-  return api<{ entity: Entity }>(`/api/entities`, {
+  return api<{ entity: Entity; ops_links?: OpsEntityLinks }>(`/api/entities`, {
     method: "POST",
     body: JSON.stringify(input),
   });
@@ -332,6 +353,8 @@ export type PersonDuplicate = {
   date_of_birth?: string;
   score: number; // 1..3
   matched_fields: string[]; // "name" | "mother_name" | "date_of_birth"
+  /** O nome casa pelo som (grafia diferente), não letra a letra. */
+  approx?: boolean;
 };
 
 export type DuplicatesResult = {

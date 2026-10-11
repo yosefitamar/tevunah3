@@ -53,7 +53,26 @@ export type OccurrenceRow = {
   /** Coordenada (vem na consulta do mapa). "bairro" = ponto aproximado. */
   latitude?: number;
   longitude?: number;
-  geo_precision?: "" | "porta" | "rua" | "bairro";
+  geo_precision?: "" | "porta" | "rua" | "bairro" | "cidade";
+  /** Natureza do SIPOM resolvida para a ocorrência do relatório ("" = sem). */
+  sipom_natureza: string;
+  /** Quando foi marcada como enviada ao SIPOM (null = não foi). */
+  sipom_sent_at: string | null;
+};
+
+/** Situação da ocorrência do relatório quanto ao envio ao SIPOM. */
+export type OccurrenceStatus = "" | "pending" | "ready" | "sent";
+
+/**
+ * Ocorrências do relatório no recorte comum (busca, período, território), por
+ * situação do envio ao SIPOM e por pendência — alimenta os filtros da tela.
+ */
+export type OccurrencesSipomSummary = {
+  pending: number;
+  ready: number;
+  sent: number;
+  by_code: Record<string, number>;
+  labels: Record<string, string>;
 };
 
 /**
@@ -62,10 +81,18 @@ export type OccurrenceRow = {
  */
 export type OccurrenceCategory = "produtividade" | "homicidios";
 
-export const OCCURRENCE_CATEGORIES: OccurrenceCategory[] = ["produtividade", "homicidios"];
+/**
+ * Abas da tela de Ocorrências: as duas categorias e a fila de envio ao SIPOM
+ * — as ocorrências do relatório que ainda não foram enviadas.
+ */
+export type OccurrenceTab = OccurrenceCategory | "fila";
 
-export const OCCURRENCE_CATEGORY_LABEL: Record<OccurrenceCategory, string> = {
+export const OCCURRENCE_CATEGORIES: OccurrenceCategory[] = ["produtividade", "homicidios"];
+export const OCCURRENCE_TABS: OccurrenceTab[] = ["produtividade", "fila", "homicidios"];
+
+export const OCCURRENCE_CATEGORY_LABEL: Record<OccurrenceTab, string> = {
   produtividade: "PRODUTIVIDADE",
+  fila: "FILA DO SIPOM",
   homicidios: "HOMICÍDIOS",
 };
 
@@ -75,13 +102,14 @@ export type OccurrencesList = {
   limit: number;
   offset: number;
   /** Total de cada aba no recorte comum às duas (busca, período, território). */
-  counts: Record<OccurrenceCategory, number>;
+  counts: Record<OccurrenceTab, number>;
+  sipom: OccurrencesSipomSummary;
 };
 
 export type ListOccurrencesOpts = {
   limit?: number;
   offset?: number;
-  category?: OccurrenceCategory;
+  category?: OccurrenceTab;
   source?: "" | OccurrenceSource;
   type?: "" | IncidentType;
   means?: IncidentMeans;
@@ -90,8 +118,22 @@ export type ListOccurrencesOpts = {
   search?: string;
   date_from?: string;
   date_to?: string;
-  sort_by?: "occurred_on" | "type" | "updated_at";
+  sort_by?: "occurred_on" | "type" | "updated_at" | "ciops_record" | "nature" | "place" | "pending";
   sort_dir?: "asc" | "desc";
+  // Recortes da ocorrência do relatório operacional (aba PRODUTIVIDADE).
+  status?: OccurrenceStatus;
+  /** Etapa da ficha com pendência que impede o envio. */
+  step?: string;
+  /** Código de uma pendência. */
+  pendencia?: string;
+  /** "1" só com aviso, "0" só sem aviso. */
+  notes?: "" | "1" | "0";
+  cia?: string;
+  intel?: "" | "1" | "0";
+  /** Natureza como o relatório escreve. */
+  nature?: string;
+  /** Só as ocorrências de um relatório importado. */
+  report_id?: string;
 };
 
 export function listOccurrences(opts: ListOccurrencesOpts = {}) {

@@ -280,6 +280,7 @@ func main() {
 	mux.Handle("GET /api/ops-occurrences/{id}/photos/{pid}", auth(http.HandlerFunc(a.handleOpsPhotoGet)))
 	mux.Handle("DELETE /api/ops-occurrences/{id}/photos/{pid}", auth(http.HandlerFunc(a.handleOpsPhotoDelete)))
 	mux.Handle("POST /api/ops-occurrences/sipom/recompute", auth(http.HandlerFunc(a.handleSipomRecompute)))
+	mux.Handle("PUT /api/ops-occurrences/{id}/sipom/sent", auth(http.HandlerFunc(a.handleSipomSetSent)))
 	mux.Handle("PUT /api/ops-occurrences/{id}/sipom/natureza", auth(http.HandlerFunc(a.handleSipomSetNatureza)))
 	mux.Handle("PUT /api/ops-occurrences/{id}/sipom/procedimento", auth(http.HandlerFunc(a.handleSipomSetProcedimento)))
 	mux.Handle("PUT /api/ops-occurrences/{id}/sipom/materiais/{kind}/{pos}", auth(http.HandlerFunc(a.handleSipomSetMaterial)))

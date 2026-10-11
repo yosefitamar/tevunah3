@@ -17,6 +17,8 @@ type personDuplicateJSON struct {
 	DateOfBirth   *string  `json:"date_of_birth,omitempty"`
 	Score         int      `json:"score"`
 	MatchedFields []string `json:"matched_fields"`
+	// Approx: o nome casa pelo som (grafia diferente), não letra a letra.
+	Approx bool `json:"approx,omitempty"`
 }
 
 type duplicatesResultJSON struct {
@@ -70,7 +72,7 @@ func (a *app) handleEntityPersonDuplicates(w http.ResponseWriter, r *http.Reques
 func toDuplicateJSON(d *entities.PersonDuplicate) *personDuplicateJSON {
 	out := &personDuplicateJSON{
 		ID: d.ID, Name: d.Name, Score: d.Score, MatchedFields: d.MatchedFields,
-		MotherName: d.MotherName,
+		MotherName: d.MotherName, Approx: d.Approx,
 	}
 	if out.MatchedFields == nil {
 		out.MatchedFields = []string{}

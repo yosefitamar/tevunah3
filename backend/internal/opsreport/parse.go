@@ -139,6 +139,9 @@ type SipomFields struct {
 	Pending []string
 	// Manual são os campos que o analista fixou; o recálculo não os toca.
 	Manual []string
+	// SentAt: quando a ocorrência foi marcada como enviada ao SIPOM (nil =
+	// ainda na fila). Só leitura aqui — quem grava é Repo.SetSipomSent.
+	SentAt *time.Time
 }
 
 // IntelTexts são os campos onde se procura a participação da inteligência:

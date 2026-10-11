@@ -31,7 +31,6 @@ import (
 const (
 	opsReportMaxBytes  = 20 << 20 // 20 MiB — o relatório diário tem < 1 MiB
 	opsReportFieldName = "file"
-	opsReportsSubdir   = "ops-reports"
 )
 
 // ─────────────────────────── JSON ────────────────────────────
@@ -407,13 +406,9 @@ func (a *app) readOpsUpload(w http.ResponseWriter, r *http.Request) (*parsedUplo
 
 // ─────────────────────────── Vínculo automático ────────────────────────────
 
-// personCandidates busca dossiês para a pessoa e decide o vínculo automático.
-//
-// Regra: vincula sozinho só quando nome E mãe batem (normalizados) com
-// exatamente UM dossiê visível no clearance de quem importa, e esse dossiê
-// não está em óbito (a menos que o próprio relatório anote o óbito). Qualquer
-// outro caso volta como sugestão para o analista decidir. Sem nome da mãe —
-// vítimas e testemunhas nunca o trazem — não há vínculo automático.
+// personCandidates busca dossiês para a pessoa e decide o vínculo automático
+// (regra em opsreport.DecideAutoLink), dentro do clearance de quem importa.
+// O que não vincula sozinho volta como sugestão para o analista decidir.
 func (a *app) personCandidates(ctx context.Context, p opsreport.Person, clearance int) (auto string, matches []personDuplicateJSON, warning string, err error) {
 	matches = []personDuplicateJSON{}
 	res, err := a.entities.FindPersonDuplicates(ctx, entities.DuplicatesQuery{
@@ -422,34 +417,22 @@ func (a *app) personCandidates(ctx context.Context, p opsreport.Person, clearanc
 	if err != nil {
 		return "", matches, "", err
 	}
-	var strong []string
+	cands := make([]opsreport.AutoLinkCandidate, 0, len(res.Matches))
 	for i := range res.Matches {
 		d := res.Matches[i]
 		matches = append(matches, *toDuplicateJSON(&d))
+		c := opsreport.AutoLinkCandidate{ID: d.ID}
 		for _, f := range d.MatchedFields {
 			if f == "mother_name" {
-				strong = append(strong, d.ID)
+				c.MotherMatched = true
 			}
 		}
+		cands = append(cands, c)
 	}
-	switch {
-	case len(matches) == 0:
-		return "", matches, "", nil
-	case p.MotherName == "":
-		return "", matches, "Sem nome da mãe no relatório — confira o homônimo antes de vincular.", nil
-	case len(strong) == 0:
-		return "", matches, "Homônimo com mãe diferente — não vinculado.", nil
-	case len(strong) > 1:
-		return "", matches, fmt.Sprintf("%d dossiês com o mesmo nome e mãe — escolha o correto.", len(strong)), nil
-	}
-	dead, err := a.opsReports.PersonDeceased(ctx, strong[0])
-	if err != nil {
-		return "", matches, "", err
-	}
-	if dead && !strings.Contains(strings.ToUpper(p.Note), "ÓBITO") {
-		return "", matches, "O dossiê que casa está marcado como óbito — confira antes de vincular.", nil
-	}
-	return strong[0], matches, "", nil
+	auto, warning, err = opsreport.DecideAutoLink(p, cands, func(id string) (bool, error) {
+		return a.opsReports.PersonDeceased(ctx, id)
+	})
+	return auto, matches, warning, err
 }
 
 // ─────────────────────────── POST /api/ops-reports/preview ────────────────
@@ -598,7 +581,7 @@ func (a *app) handleOpsReportImport(w http.ResponseWriter, r *http.Request) {
 
 	// O PDF original fica guardado para conferência. Nome = hash: o mesmo
 	// arquivo nunca é gravado duas vezes.
-	dir := filepath.Join(photoDir(), opsReportsSubdir)
+	dir := filepath.Join(photoDir(), opsreport.ReportsSubdir)
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		log.Printf("mkdir %s: %v", dir, err)
 		httpx.Error(w, http.StatusInternalServerError, "erro ao preparar storage")
@@ -719,7 +702,7 @@ func (a *app) handleOpsReportFile(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusInternalServerError, "erro ao buscar")
 		return
 	}
-	f, err := os.Open(filepath.Join(photoDir(), opsReportsSubdir, rep.FileSHA256+".pdf"))
+	f, err := os.Open(filepath.Join(photoDir(), opsreport.ReportsSubdir, rep.FileSHA256+".pdf"))
 	if err != nil {
 		httpx.Error(w, http.StatusNotFound, "arquivo não encontrado")
 		return

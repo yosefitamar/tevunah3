@@ -17,6 +17,8 @@ u645012242_*.sql
 *-legacy_db*.sql
 # Bundle de importação do legado (data.sql + media/ + pdfs/) — dados de cliente
 legacy-bundle/
+# Relatórios diários do CPRAIO (PDFs baixados para importação) — dados reais
+relatorios-cpraio/
 
 # OS
 .DS_Store

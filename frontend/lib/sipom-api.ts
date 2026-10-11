@@ -79,7 +79,12 @@ export function setOpsSipomMaterial(occId: string, index: number, input: SipomMa
   );
 }
 
-export type SipomConfianca = "direta" | "sugerida";
+/**
+ * Confiança da regra do de-para. "com_arma" e "com_droga" aplicam sozinhas
+ * quando a ficha traz a apreensão correspondente (arma de fogo / droga); sem
+ * ela, valem como "sugerida".
+ */
+export type SipomConfianca = "direta" | "sugerida" | "com_arma" | "com_droga";
 
 export type SipomRule = {
   id: string;

@@ -7,8 +7,9 @@ package sipom
 //
 // Versão do contrato: muda quando um campo muda de sentido ou sai. A "2"
 // acrescenta procedimento e materiais (fase 2, docs/sipom-materiais.md); a
-// "3", as fotos da ocorrência.
-const PayloadVersion = "3"
+// "3", as fotos da ocorrência; a "4" troca `procedimento` (um) pela lista
+// `procedimentos` — a ocorrência com maiores e menor tem IP e AI.
+const PayloadVersion = "4"
 
 // Payload é uma ocorrência completa: cabeçalho, históricos, envolvidos e
 // composição, num POST só (o SIPOM grava tudo ou nada).
@@ -21,10 +22,11 @@ type Payload struct {
 	HistoricoInteligencia *string             `json:"historico_inteligencia"`
 	Envolvidos            []PayloadEnvolvido  `json:"envolvidos"`
 	Composicao            []PayloadComposicao `json:"composicao"`
-	// Fase 2: o procedimento (aba Procedimentos) e os materiais apreendidos
-	// (aba Materiais). Procedimento null = o relatório não trouxe.
-	Procedimento *PayloadProcedimento `json:"procedimento"`
-	Materiais    []PayloadMaterial    `json:"materiais"`
+	// Fase 2: os procedimentos (aba Procedimentos) e os materiais apreendidos
+	// (aba Materiais). Em geral é um procedimento; são dois quando a mesma
+	// ocorrência gera, por exemplo, um IP (maiores) e um AI (menor).
+	Procedimentos []PayloadProcedimento `json:"procedimentos"`
+	Materiais     []PayloadMaterial     `json:"materiais"`
 	// Fotos da ocorrência (aba Fotos): apreensão, prisão, local — anexadas
 	// pelo analista na ficha. Lista vazia = sem foto.
 	Fotos []PayloadFoto `json:"fotos"`

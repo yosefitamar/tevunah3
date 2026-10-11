@@ -15,7 +15,53 @@ import (
 const (
 	ConfDireta   = "direta"   // aplica sozinha
 	ConfSugerida = "sugerida" // aplica, mas pede confirmação do analista
+	// Aplica sozinha quando a ficha traz a apreensão que corrobora a natureza
+	// (arma de fogo na tabela de armas / item na tabela de drogas); sem a
+	// evidência, vale como sugerida.
+	ConfComArma  = "com_arma"
+	ConfComDroga = "com_droga"
 )
+
+// Evidence é o que a ficha traz de apreensão, usado para decidir se uma
+// regra condicionada à evidência aplica sozinha.
+type Evidence struct {
+	Firearm bool // arma de fogo na tabela de armas apreendidas
+	Drug    bool // item na tabela de drogas apreendidas
+}
+
+// firearmWords: tipos de arma do relatório que são arma de fogo. Arma branca,
+// simulacro e o que não se reconhece não corroboram a natureza.
+var firearmWords = []string{
+	"pistola", "revolver", "espingarda", "carabina", "fuzil", "rifle", "metralhadora",
+	"submetralhadora", "garrucha", "escopeta", "artesanal", "arma de fogo",
+}
+
+// IsFirearm diz se o tipo de arma, como o relatório escreve, é arma de fogo.
+func IsFirearm(kind string) bool {
+	k := key(kind)
+	if k == "" || strings.Contains(k, "simulacro") || strings.Contains(k, "branca") {
+		return false
+	}
+	for _, w := range firearmWords {
+		if strings.Contains(k, w) {
+			return true
+		}
+	}
+	return false
+}
+
+// direct diz se a regra aplica sozinha diante do que a ficha traz.
+func (r NatureRule) direct(ev Evidence) bool {
+	switch r.Confianca {
+	case ConfDireta:
+		return true
+	case ConfComArma:
+		return ev.Firearm
+	case ConfComDroga:
+		return ev.Drug
+	}
+	return false
+}
 
 var ErrEmptySource = errors.New("informe a natureza do relatório")
 
@@ -51,14 +97,28 @@ type NatureChoice struct {
 
 // Choose escolhe a natureza principal entre as da ficha: a regra mapeada de
 // menor prioridade (a mais grave); empate fica com a que vem primeiro.
-// Naturezas sem regra, ou com regra sem destino, não concorrem.
-func (m *NatureMap) Choose(natures []string) NatureChoice {
+// Naturezas sem regra, ou com regra sem destino, não concorrem. ev é a
+// apreensão que a ficha traz: decide as regras condicionadas à evidência.
+//
+// Quando as naturezas da ficha levam a mais de uma natureza do SIPOM (arma e
+// droga na mesma ocorrência, por exemplo), a escolha é sempre sugerida: qual
+// delas prevalece depende do inquérito, e quem confere é o analista. Natureza
+// que ainda não tem linha no de-para conta como outra — não se sabe para
+// onde iria; a que tem linha sem destino foi descartada de propósito.
+func (m *NatureMap) Choose(natures []string, ev Evidence) NatureChoice {
 	var best *NatureRule
+	targets := map[int]bool{}
+	unknown := false
 	for _, n := range natures {
 		r, ok := m.rules[NatureKey(n)]
-		if !ok || r.NaturezaID == nil {
+		if !ok {
+			unknown = unknown || strings.TrimSpace(n) != ""
 			continue
 		}
+		if r.NaturezaID == nil {
+			continue
+		}
+		targets[*r.NaturezaID] = true
 		if best == nil || r.Prioridade < best.Prioridade {
 			r := r
 			best = &r
@@ -68,7 +128,7 @@ func (m *NatureMap) Choose(natures []string) NatureChoice {
 		return NatureChoice{}
 	}
 	id := *best.NaturezaID
-	return NatureChoice{NaturezaID: &id, Suggested: best.Confianca != ConfDireta}
+	return NatureChoice{NaturezaID: &id, Suggested: len(targets) > 1 || unknown || !best.direct(ev)}
 }
 
 // Has diz se a natureza já tem linha no de-para (mapeada ou não).
@@ -128,7 +188,9 @@ func (r *MapRepo) Upsert(ctx context.Context, source string, naturezaID *int, co
 	if NatureKey(source) == "" {
 		return nil, ErrEmptySource
 	}
-	if confianca != ConfDireta {
+	switch confianca {
+	case ConfDireta, ConfComArma, ConfComDroga:
+	default:
 		confianca = ConfSugerida
 	}
 	// A chave de comparação é a do Go (NatureKey); o índice único do banco

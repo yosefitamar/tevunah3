@@ -10,6 +10,7 @@ import { formatBRDate } from "@/lib/format";
 import type { ApiError } from "@/lib/api";
 import PeriodButton from "../shared/PeriodButton";
 import OpsOccurrenceDrawer from "./OpsOccurrenceDrawer";
+import { STEP_OF_PENDING, type OpsStep } from "./OpsOccurrenceBody";
 import { IntelPill } from "./IntelStatus";
 
 // Rótulo curto de cada pendência para a tabela (o longo fica no title).
@@ -38,6 +39,20 @@ const SHORT: Record<string, string> = {
   veiculo: "VEÍCULO",
 };
 
+// Etapas da ficha em que uma pendência pode travar o envio, na ordem da ficha.
+const STEPS: [OpsStep, string][] = [
+  ["fato", "FATO"],
+  ["local", "LOCAL"],
+  ["efetivo", "EFETIVO"],
+  ["procedimento", "PROCEDIMENTO"],
+  ["apreensoes", "APREENSÕES"],
+];
+
+/** A ocorrência tem pendência que impede o envio nesta etapa da ficha. */
+function blockedAt(x: Queue["items"][number], step: OpsStep) {
+  return x.pendencias.some((p) => p.blocking && STEP_OF_PENDING[p.code] === step);
+}
+
 type Status = "all" | "pending" | "ready";
 
 /**
@@ -56,6 +71,7 @@ export default function SipomQueue() {
   const [period, setPeriod] = useState<PeriodSelection>(ALL_PERIOD);
   const [status, setStatus] = useState<Status>("pending");
   const [code, setCode] = useState<string>("");
+  const [step, setStep] = useState<OpsStep | "">("");
   const [openId, setOpenId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -81,9 +97,10 @@ export default function SipomQueue() {
     let xs = data?.items ?? [];
     if (status === "ready") xs = xs.filter((x) => x.ready);
     if (status === "pending") xs = xs.filter((x) => !x.ready);
+    if (step) xs = xs.filter((x) => blockedAt(x, step));
     if (code) xs = xs.filter((x) => x.pendencias.some((p) => p.code === code));
     return xs;
-  }, [data, status, code]);
+  }, [data, status, step, code]);
 
   const toConfirm = items.filter((x) => x.pendencias.some((p) => p.code === "natureza_confirmar"));
 
@@ -104,6 +121,9 @@ export default function SipomQueue() {
 
   const summary = data?.summary;
   const codes = Object.entries(summary?.by_code ?? {}).sort((a, b) => b[1] - a[1]);
+  const steps = STEPS.map(([k, label]) => [k, label, (data?.items ?? []).filter((x) => blockedAt(x, k)).length] as const).filter(
+    ([, , n]) => n > 0,
+  );
 
   return (
     <>
@@ -143,6 +163,23 @@ export default function SipomQueue() {
           <RefreshCw size={13} strokeWidth={1.8} /> {loading ? "CARREGANDO…" : "ATUALIZAR"}
         </button>
       </div>
+
+      {steps.length > 0 && (
+        <div className="sipom-codes">
+          <span className="muted">ETAPA COM PENDÊNCIA:</span>
+          {steps.map(([k, label, n]) => (
+            <button
+              key={k}
+              type="button"
+              className={"chip" + (step === k ? " on" : "")}
+              title={`Só as ocorrências com pendência que impede o envio na etapa ${label}`}
+              onClick={() => setStep(step === k ? "" : k)}
+            >
+              {label} · {n}
+            </button>
+          ))}
+        </div>
+      )}
 
       {codes.length > 0 && (
         <div className="sipom-codes">
@@ -191,7 +228,7 @@ export default function SipomQueue() {
               {!loading && items.length === 0 && (
                 <tr>
                   <td colSpan={9} className="muted" style={{ textAlign: "center", padding: 32 }}>
-                    {status === "pending" && !code ? "// NENHUMA PENDÊNCIA NO PERÍODO" : "// NENHUMA OCORRÊNCIA"}
+                    {status === "pending" && !code && !step ? "// NENHUMA PENDÊNCIA NO PERÍODO" : "// NENHUMA OCORRÊNCIA"}
                   </td>
                 </tr>
               )}

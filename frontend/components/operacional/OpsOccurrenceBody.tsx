@@ -43,7 +43,7 @@ export type OpsStep =
 export type OpsEditTab = Exclude<OpsStep, "pessoas" | "fotos" | "envio">;
 
 // Em que etapa cada pendência do SIPOM se resolve.
-const STEP_OF_PENDING: Record<string, OpsStep> = {
+export const STEP_OF_PENDING: Record<string, OpsStep> = {
   natureza: "fato",
   natureza_confirmar: "fato",
   data_hora: "fato",

@@ -21,6 +21,10 @@ import (
 // sipomProcedimentoJSON é o procedimento como vai ao SIPOM, com o que o
 // relatório trouxe em texto ao lado, para o analista conferir.
 type sipomProcedimentoJSON struct {
+	// Itens: um por procedimento da ocorrência (em geral um; dois quando há,
+	// por exemplo, IP e AI), na ordem do relatório.
+	Itens []sipomProcItemJSON `json:"itens"`
+	// Procedimento, Numero e Ano são os do primeiro item.
 	Procedimento *sipomRefJSON `json:"procedimento"`
 	Numero       string        `json:"numero"`
 	Ano          string        `json:"ano"`
@@ -79,6 +83,15 @@ func ref(id *int, name func(int) string) *sipomRefJSON {
 	return &sipomRefJSON{ID: *id, Nome: name(*id)}
 }
 
+// sipomProcItemJSON é um procedimento da lista, com o texto do relatório.
+type sipomProcItemJSON struct {
+	Procedimento *sipomRefJSON `json:"procedimento"`
+	Numero       string        `json:"numero"`
+	Ano          string        `json:"ano"`
+	TipoTexto    string        `json:"tipo_texto"`
+	NumeroTexto  string        `json:"numero_texto"`
+}
+
 // sipomProcedimentoJSON monta o bloco do procedimento. Os candidatos a
 // delegado são recalculados aqui (não ficam gravados).
 func (a *app) sipomProcedimentoJSON(o *opsreport.Occurrence, terms *sipom.TermMap) *sipomProcedimentoJSON {
@@ -95,7 +108,15 @@ func (a *app) sipomProcedimentoJSON(o *opsreport.Occurrence, terms *sipom.TermMa
 		TipoTexto: o.ProcedureType, NumeroTexto: o.ProcedureNumber,
 		DelegaciaTexto: o.PoliceStation, DelegadoTexto: o.Delegate,
 	}
-	out.Procedimento = ref(f.ProcedimentoID, func(id int) string { n, _ := a.sipom.Procedimento(id); return n })
+	procName := func(id int) string { n, _ := a.sipom.Procedimento(id); return n }
+	out.Procedimento = ref(f.ProcedimentoID, procName)
+	out.Itens = make([]sipomProcItemJSON, 0, len(proc.Itens))
+	for _, it := range proc.Itens {
+		out.Itens = append(out.Itens, sipomProcItemJSON{
+			Procedimento: ref(it.ProcedimentoID, procName), Numero: it.Numero, Ano: it.Ano,
+			TipoTexto: it.TipoTexto, NumeroTexto: it.NumeroTexto,
+		})
+	}
 	out.Delegacia = ref(f.DelegaciaID, func(id int) string { d, _ := a.sipom.Delegacia(id); return d.Nome })
 	out.Delegado = ref(f.DelegadoID, func(id int) string { d, _ := a.sipom.Delegado(id); return d.Nome })
 	for _, id := range proc.DelegadoCandidates {

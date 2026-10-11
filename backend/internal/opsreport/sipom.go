@@ -107,7 +107,13 @@ func TranslateSipom(cat *sipom.Catalog, refs SipomRefs, o *Occurrence) {
 	if !manual(SipomFieldNatureza) {
 		in.NaturezaID = nil
 		if nm != nil {
-			ch := nm.Choose(o.Natures)
+			// A apreensão que a própria ficha traz corrobora a natureza: a
+			// regra condicionada à evidência aplica sem pedir confirmação.
+			ev := sipom.Evidence{Drug: len(o.Drugs) > 0}
+			for _, w := range o.Weapons {
+				ev.Firearm = ev.Firearm || sipom.IsFirearm(w.Kind)
+			}
+			ch := nm.Choose(o.Natures, ev)
 			in.NaturezaID, in.NaturezaSuggested = ch.NaturezaID, ch.Suggested
 		}
 	}

@@ -12,6 +12,13 @@ import {
 import type { ApiError } from "@/lib/api";
 import Select from "../shared/Select";
 
+const CONFIANCA_OPTIONS: { value: SipomConfianca; label: string }[] = [
+  { value: "direta", label: "DIRETA" },
+  { value: "com_arma", label: "DIRETA SE HOUVER ARMA" },
+  { value: "com_droga", label: "DIRETA SE HOUVER DROGA" },
+  { value: "sugerida", label: "SUGERIDA" },
+];
+
 // Linha editável: regra existente ou natureza nova (ainda sem regra).
 type Row = {
   key: string;
@@ -30,7 +37,8 @@ type Row = {
  * natureza; com várias na ficha, vale a de menor prioridade.
  *
  * DIRETA aplica sozinha; SUGERIDA aplica, mas deixa a ocorrência pendente
- * até o analista confirmar na ficha. Gravar uma regra recalcula o acervo
+ * até o analista confirmar na ficha; DIRETA SE HOUVER ARMA/DROGA aplica
+ * sozinha quando a ficha traz a apreensão correspondente. Gravar uma regra recalcula o acervo
  * (exceto as ocorrências em que o analista fixou a natureza à mão).
  */
 export default function SipomNatureMap() {
@@ -124,7 +132,9 @@ export default function SipomNatureMap() {
       <p className="intel-kw-help">
         Cada ocorrência vai ao SIPOM com <strong>uma</strong> natureza do catálogo deles. Com várias naturezas na
         ficha, vale a de <strong>menor prioridade</strong> (a mais grave). <strong>Direta</strong> aplica sozinha;{" "}
-        <strong>sugerida</strong> aplica, mas a ocorrência fica pendente até o analista confirmar na ficha. O artigo de
+        <strong>sugerida</strong> aplica, mas a ocorrência fica pendente até o analista confirmar na ficha.{" "}
+        <strong>Direta se houver arma</strong> (ou <strong>droga</strong>) aplica sozinha quando a ficha traz a
+        apreensão na tabela de armas de fogo (ou de drogas) e, sem ela, vale como sugerida. O artigo de
         lei é ignorado na comparação (&ldquo;FURTO - ART. 155/CPB&rdquo; = &ldquo;FURTO&rdquo;).
       </p>
 
@@ -141,7 +151,7 @@ export default function SipomNatureMap() {
                   <th>NATUREZA NO RELATÓRIO</th>
                   <th style={{ width: 70, textAlign: "right" }}>OCORR.</th>
                   <th style={{ width: 380 }}>NATUREZA NO SIPOM</th>
-                  <th style={{ width: 170 }}>CONFIANÇA</th>
+                  <th style={{ width: 230 }}>CONFIANÇA</th>
                   <th style={{ width: 90 }}>PRIORIDADE</th>
                   <th style={{ width: 90 }} />
                 </tr>
@@ -166,18 +176,11 @@ export default function SipomNatureMap() {
                       />
                     </td>
                     <td>
-                      <div className="seg-row intel-seg">
-                        {(["direta", "sugerida"] as const).map((c) => (
-                          <button
-                            key={c}
-                            type="button"
-                            className={"seg-btn" + (r.confianca === c ? " seg-btn--on" : "")}
-                            onClick={() => patch(r.key, { confianca: c })}
-                          >
-                            {c.toUpperCase()}
-                          </button>
-                        ))}
-                      </div>
+                      <Select
+                        value={r.confianca}
+                        options={CONFIANCA_OPTIONS}
+                        onChange={(v) => patch(r.key, { confianca: v as SipomConfianca })}
+                      />
                     </td>
                     <td>
                       <input

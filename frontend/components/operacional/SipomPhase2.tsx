@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { Check, Search } from "lucide-react";
 import type { OpsOccurrence, SipomArma, SipomDroga, SipomRef, SipomVeiculo } from "@/lib/ops-reports-api";
 import { formatGrams } from "@/lib/ops-reports-api";
@@ -58,35 +58,56 @@ export function SipomProcedimento({ occ, ed }: PartProps) {
   const setProc = (input: SipomProcedimentoInput) =>
     !!occ.id && ed.run(() => setOpsSipomProcedimento(occ.id!, input));
   const procManual = manual.has("procedimento") || manual.has("delegacia") || manual.has("delegado");
+  // Ficha lida por um servidor anterior à lista: vale o procedimento único.
+  const itens = p.itens?.length
+    ? p.itens
+    : [{ procedimento: p.procedimento, numero: p.numero, ano: p.ano, tipo_texto: p.tipo_texto, numero_texto: p.numero_texto }];
+  const multi = itens.length > 1;
 
   return (
     <>
       {error && CAT_ERROR}
+      {multi && (
+        <div className="banner banner-info">
+          A OCORRÊNCIA TEM {itens.length} PROCEDIMENTOS — TODOS VÃO AO SIPOM. TIPO E NÚMERO SÃO CASADOS PELA ORDEM EM QUE O
+          RELATÓRIO OS ESCREVE; SE ESTIVEREM TROCADOS, AJUSTE EM CORRIGIR (BLOCO RELATÓRIO).
+        </div>
+      )}
       <OpsFields edit={editable}>
-        <OpsField
-          label="TIPO"
-          span={2}
-          value={p.procedimento?.nome}
-          missing={pending.has("procedimento") || pending.has("procedimento_tipo")}
-          tag={manual.has("procedimento") ? "ANALISTA" : undefined}
-        >
-          {editable && (
-            <Select
-              value={p.procedimento ? String(p.procedimento.id) : ""}
-              placeholder="ESCOLHA O TIPO"
-              disabled={busy || !cat}
-              onChange={(v) => setProc({ procedimento_id: Number(v) })}
-              options={opts(cat?.procedimentos, p.procedimento)}
-            />
-          )}
-        </OpsField>
-        <OpsField
-          label="NÚMERO / ANO"
-          span={2}
-          mono
-          value={p.numero ? `${p.numero} / ${p.ano}` : ""}
-          missing={pending.has("procedimento_numero")}
-        />
+        {itens.map((it, i) => {
+          const n = multi ? ` ${i + 1}` : "";
+          // Com um procedimento só, o tipo é escolhível aqui; com vários, cada
+          // tipo sai do texto do relatório.
+          const pick = editable && !multi;
+          return (
+            <Fragment key={i}>
+              <OpsField
+                label={`TIPO${n}`}
+                span={2}
+                value={it.procedimento?.nome}
+                missing={!it.procedimento}
+                tag={!multi && manual.has("procedimento") ? "ANALISTA" : undefined}
+              >
+                {pick && (
+                  <Select
+                    value={it.procedimento ? String(it.procedimento.id) : ""}
+                    placeholder="ESCOLHA O TIPO"
+                    disabled={busy || !cat}
+                    onChange={(v) => setProc({ procedimento_id: Number(v) })}
+                    options={opts(cat?.procedimentos, it.procedimento)}
+                  />
+                )}
+              </OpsField>
+              <OpsField
+                label={`NÚMERO / ANO${n}`}
+                span={2}
+                mono
+                value={it.numero ? `${it.numero} / ${it.ano}` : ""}
+                missing={!it.numero}
+              />
+            </Fragment>
+          );
+        })}
         <OpsField
           label="DELEGACIA"
           span={2}

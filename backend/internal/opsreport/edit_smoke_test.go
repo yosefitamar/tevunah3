@@ -495,13 +495,16 @@ func TestSmoke_PayloadPhase2(t *testing.T) {
 	if err != nil {
 		t.Fatalf("payload: %v", err)
 	}
-	if p.Origem.Versao != "3" {
+	if p.Origem.Versao != "4" {
 		t.Errorf("versão do contrato: %s", p.Origem.Versao)
 	}
-	if p.Procedimento == nil || p.Procedimento.ProcedimentoID != sipom.ProcIP || p.Procedimento.Numero != "7653" ||
-		p.Procedimento.Ano != "2026" || p.Procedimento.Reparticao != sipom.ReparticaoPoliciaCivil ||
-		p.Procedimento.DelegadoID == nil || !strings.HasPrefix(p.Procedimento.Delegacia, "939-") {
-		t.Errorf("procedimento: %+v", p.Procedimento)
+	if len(p.Procedimentos) != 1 {
+		t.Fatalf("procedimentos: %d, quer 1 (%+v)", len(p.Procedimentos), p.Procedimentos)
+	}
+	if pr := p.Procedimentos[0]; pr.ProcedimentoID != sipom.ProcIP || pr.Numero != "7653" ||
+		pr.Ano != "2026" || pr.Reparticao != sipom.ReparticaoPoliciaCivil ||
+		pr.DelegadoID == nil || !strings.HasPrefix(pr.Delegacia, "939-") {
+		t.Errorf("procedimento: %+v", pr)
 	}
 	if len(p.Materiais) != 3 {
 		t.Fatalf("materiais: %d itens, quer 3 (%+v)", len(p.Materiais), p.Materiais)

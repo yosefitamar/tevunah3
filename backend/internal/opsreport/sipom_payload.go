@@ -78,11 +78,12 @@ func BuildSipomPayload(cat *sipom.Catalog, so *StoredOccurrence, unidade string,
 			NumeroOcorrencia:         so.CIOPS,
 			ParticipacaoInteligencia: so.IntelParticipation,
 		},
-		Historico:  so.Narrative,
-		Envolvidos: []sipom.PayloadEnvolvido{},
-		Composicao: []sipom.PayloadComposicao{},
-		Materiais:  []sipom.PayloadMaterial{},
-		Fotos:      []sipom.PayloadFoto{},
+		Historico:     so.Narrative,
+		Envolvidos:    []sipom.PayloadEnvolvido{},
+		Composicao:    []sipom.PayloadComposicao{},
+		Materiais:     []sipom.PayloadMaterial{},
+		Fotos:         []sipom.PayloadFoto{},
+		Procedimentos: []sipom.PayloadProcedimento{},
 	}
 	if occPhoto != nil {
 		for _, ph := range so.Photos {
@@ -117,23 +118,30 @@ func BuildSipomPayload(cat *sipom.Catalog, so *StoredOccurrence, unidade string,
 		p.Envolvidos = append(p.Envolvidos, e)
 	}
 
-	// Procedimento: só vai quando o relatório trouxe (sem ele a ocorrência
-	// está pendente e não chega aqui); delegado é opcional.
+	// Procedimentos: só vão quando o relatório trouxe (sem eles a ocorrência
+	// está pendente e não chega aqui). Um item por procedimento — delegacia
+	// e delegado são os mesmos para todos; delegado é opcional.
 	if f.ProcedimentoID != nil && f.DelegaciaID != nil {
-		procName, _ := cat.Procedimento(*f.ProcedimentoID)
 		dele, _ := cat.Delegacia(*f.DelegaciaID)
-		num := cat.ResolveProcedure(sipom.ProcInput{Number: so.ProcedureNumber, Type: so.ProcedureType,
+		res := cat.ResolveProcedure(sipom.ProcInput{Number: so.ProcedureNumber, Type: so.ProcedureType,
 			ProcedimentoID: f.ProcedimentoID, ManualProc: true, DelegaciaID: f.DelegaciaID, ManualDelegacia: true,
 			ManualDelegado: true})
-		p.Procedimento = &sipom.PayloadProcedimento{
-			Reparticao: sipom.ReparticaoPoliciaCivil, ProcedimentoID: *f.ProcedimentoID, Procedimento: procName,
-			Numero: num.Numero, Ano: num.Ano, DelegaciaID: dele.ID, Delegacia: dele.Nome,
-		}
-		if f.DelegadoID != nil {
-			if d, ok := cat.Delegado(*f.DelegadoID); ok {
-				id := d.ID
-				p.Procedimento.DelegadoID, p.Procedimento.Delegado = &id, &d.Nome
+		for _, it := range res.Itens {
+			if it.ProcedimentoID == nil {
+				continue
 			}
+			procName, _ := cat.Procedimento(*it.ProcedimentoID)
+			pp := sipom.PayloadProcedimento{
+				Reparticao: sipom.ReparticaoPoliciaCivil, ProcedimentoID: *it.ProcedimentoID, Procedimento: procName,
+				Numero: it.Numero, Ano: it.Ano, DelegaciaID: dele.ID, Delegacia: dele.Nome,
+			}
+			if f.DelegadoID != nil {
+				if d, ok := cat.Delegado(*f.DelegadoID); ok {
+					id := d.ID
+					pp.DelegadoID, pp.Delegado = &id, &d.Nome
+				}
+			}
+			p.Procedimentos = append(p.Procedimentos, pp)
 		}
 	}
 

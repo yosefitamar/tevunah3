@@ -17,7 +17,7 @@ A proposta é um **POST único** por ocorrência, que cria no SIPOM a ocorrênci
 | Fase | Conteúdo |
 |---|---|
 | **1 (esta proposta)** | Cabeçalho da ocorrência, histórico, envolvidos (com foto) e composição |
-| **2 (implementada; contrato "2")** | Procedimento (delegacia e delegado do dump de 05/10/2026) e materiais apreendidos (armas, drogas, veículos) — ver `sipom-materiais.md` |
+| **2 (implementada; contrato "2", `procedimentos` em lista desde o "4")** | Procedimentos (delegacia e delegado do dump de 05/10/2026) e materiais apreendidos (armas, drogas, veículos) — ver `sipom-materiais.md` |
 | **Fotos da ocorrência (implementada; contrato "3")** | Bloco `fotos[]`: imagens da apreensão, da prisão ou do local, anexadas pelo analista na ficha — ver seção 4.6 |
 | 3 (a combinar) | Munição, celulares, dinheiro e outros materiais; histórico de inteligência |
 
@@ -55,7 +55,7 @@ As datas seguem a ISO 8601. `data_hora` vai com o fuso do Ceará (`-03:00`); `na
 | Campo | Tipo | Obrig. | Descrição |
 |---|---|---|---|
 | `sistema` | string | sim | Sempre `"TEVUNAH"` |
-| `versao` | string | sim | Versão deste contrato (`"1"` nesta proposta; o Tevunah hoje gera `"3"`) |
+| `versao` | string | sim | Versão deste contrato (`"1"` nesta proposta; o Tevunah hoje gera `"4"`) |
 | `unidade` | string | sim | Agência que envia (`"SAI/2º BPRAIO"`) |
 | `id` | uuid | sim | Id da ocorrência no Tevunah e chave de idempotência |
 | `relatorio_data` | date \| null | não | Data do relatório do CPRAIO de onde a ocorrência veio |

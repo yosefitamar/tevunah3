@@ -70,6 +70,13 @@ Geocodificação (coordenada das ocorrências pelo endereço):
   geo:backfill                Localiza as ocorrências do relatório operacional que estão
                               sem coordenada e refaz as pendências (requer GEOCODER_URL)
 
+Relatório operacional em lote:
+  ops:import <pasta> [--dry-run] [--user <email>]
+                              Importa todos os PDFs da pasta (Relatório Diário de
+                              Ocorrências), como a tela faz arquivo a arquivo. PDF já
+                              importado é pulado. --dry-run só mostra o que entraria.
+                              Usuário padrão: \$DEV_ADMIN_EMAIL ou admin@tevunah.local
+
 Espelhamento de produção:
   db:mirror-prod [user@host]  Copia banco + fotos de produção para o ambiente dev.
                               Somente leitura em prod; APAGA o banco local.
@@ -212,6 +219,31 @@ case "$cmd" in
 
   geo:backfill)
     $COMPOSE exec backend go run ./cmd/admin ops-geocode
+    ;;
+
+  ops:import)
+    [ -f .env ] && set -a && . ./.env && set +a || true
+    SRC=""; DRY=""; USER_EMAIL="${DEV_ADMIN_EMAIL:-admin@tevunah.local}"
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --dry-run) DRY="-dry-run" ;;
+        --user)    shift; USER_EMAIL="$1" ;;
+        *)         SRC="$1" ;;
+      esac
+      shift
+    done
+    [ -d "$SRC" ] || { echo "uso: ./tevunah ops:import <pasta> [--dry-run] [--user <email>]"; exit 2; }
+    # O backend só enxerga ./backend: os PDFs vão para uma pasta temporária
+    # dentro do container e saem de lá ao final.
+    TMP="/tmp/ops-import-$$"
+    $COMPOSE exec -T backend mkdir -p "$TMP"
+    $COMPOSE cp "$SRC/." "backend:$TMP" >/dev/null
+    set +e
+    $COMPOSE exec -T backend go run ./cmd/admin ops-import -user "$USER_EMAIL" $DRY "$TMP"
+    RC=$?
+    set -e
+    $COMPOSE exec -T backend rm -rf "$TMP"
+    exit $RC
     ;;
 
   seed:dev)

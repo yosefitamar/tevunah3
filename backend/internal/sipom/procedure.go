@@ -46,14 +46,30 @@ type ProcInput struct {
 	ManualProc, ManualDelegacia, ManualDelegado bool
 }
 
-// ProcResult é o procedimento nos códigos do SIPOM.
-type ProcResult struct {
+// ProcItem é um procedimento da ocorrência nos códigos do SIPOM, com o texto
+// do relatório de onde saiu.
+type ProcItem struct {
 	ProcedimentoID *int
 	Numero, Ano    string
 	// Code é o código de unidade que abre o número ("939"); 0 se não há.
-	Code        int
-	DelegaciaID *int
-	DelegadoID  *int
+	Code                   int
+	TipoTexto, NumeroTexto string
+}
+
+// ProcResult é o procedimento nos códigos do SIPOM. Uma ocorrência pode ter
+// mais de um — o caso típico é prisão de maiores com apreensão de menor: um
+// IP e um AI (ato infracional), cada um com seu número. O relatório os
+// escreve no mesmo campo, separados por ";" ou ",". Delegacia e delegado são
+// os mesmos para todos.
+type ProcResult struct {
+	// Itens: um por procedimento, na ordem do relatório.
+	Itens []ProcItem
+	// ProcedimentoID, Numero, Ano e Code são os do primeiro item.
+	ProcedimentoID *int
+	Numero, Ano    string
+	Code           int
+	DelegaciaID    *int
+	DelegadoID     *int
 	// DelegadoCandidates: delegados que casam com o nome abreviado quando
 	// mais de um serve — o analista escolhe.
 	DelegadoCandidates []int
@@ -75,6 +91,18 @@ var procTypes = map[string]int{
 	"ai": ProcAtoInfracional, "ato infracional": ProcAtoInfracional, "baai": ProcAtoInfracional,
 }
 
+// splitProc separa o campo do relatório que traz mais de um procedimento
+// ("AI;IP", "939-874/2026, 939-64/2026").
+func splitProc(s string) []string {
+	var out []string
+	for _, p := range strings.FieldsFunc(s, func(r rune) bool { return r == ';' || r == ',' }) {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 // ResolveProcedure traduz o procedimento. Pura: só consulta o catálogo em
 // memória e os termos aprendidos.
 func (c *Catalog) ResolveProcedure(in ProcInput) ProcResult {
@@ -85,24 +113,47 @@ func (c *Catalog) ResolveProcedure(in ProcInput) ProcResult {
 		return r
 	}
 
-	// Tipo.
-	switch {
-	case in.ManualProc:
-		r.ProcedimentoID = in.ProcedimentoID
-	default:
-		if id, ok := procTypes[key(typ)]; ok {
-			r.ProcedimentoID = &id
+	// Um item por procedimento: tipo e número são casados pela posição
+	// ("AI;IP" + "874/2026;64/2026" → AI 874, IP 64). Um tipo só para vários
+	// números vale para todos; número não se repete.
+	types, nums := splitProc(typ), splitProc(num)
+	n := max(len(types), len(nums), 1)
+	missType, missNum := false, false
+	for i := 0; i < n; i++ {
+		var it ProcItem
+		switch {
+		case i < len(types):
+			it.TipoTexto = types[i]
+		case len(types) == 1:
+			it.TipoTexto = types[0]
 		}
+		if i < len(nums) {
+			it.NumeroTexto = nums[i]
+		}
+		// Tipo: o que o analista fixou vale para o primeiro (o único, quando a
+		// ocorrência tem um procedimento só).
+		if i == 0 && in.ManualProc {
+			it.ProcedimentoID = in.ProcedimentoID
+		} else if id, ok := procTypes[key(it.TipoTexto)]; ok {
+			it.ProcedimentoID = &id
+		}
+		// Número/ano, com o código da delegacia que abre o número.
+		if m := reProcNumber.FindStringSubmatch(it.NumeroTexto); m != nil {
+			it.Code, _ = strconv.Atoi(m[1])
+			it.Numero, it.Ano = m[2], m[3]
+		}
+		missType = missType || it.ProcedimentoID == nil
+		missNum = missNum || it.Numero == ""
+		if r.Code == 0 {
+			r.Code = it.Code
+		}
+		r.Itens = append(r.Itens, it)
 	}
-	if r.ProcedimentoID == nil {
+	r.ProcedimentoID, r.Numero, r.Ano = r.Itens[0].ProcedimentoID, r.Itens[0].Numero, r.Itens[0].Ano
+	if missType {
 		r.Pending = append(r.Pending, PendProcTipo)
 	}
-
-	// Número/ano, com o código da delegacia que abre o número.
-	if m := reProcNumber.FindStringSubmatch(num); m != nil {
-		r.Code, _ = strconv.Atoi(m[1])
-		r.Numero, r.Ano = m[2], m[3]
-	} else {
+	if missNum {
 		r.Pending = append(r.Pending, PendProcNumero)
 	}
 

@@ -151,22 +151,32 @@ Exibição na aba: `Repartição: Polícia Civil · Procedimento: Inquerito Poli
 | Dinheiro | só em "objetos apreendidos", em texto | sem extração estruturada hoje |
 | Procedimento | delegacia (sigla), delegado (nome), tipo (BO/IP/TCO), número com prefixo da delegacia | ver `sipom-integracao.md`, seção de procedimento: prefixo do número → código da delegacia; nome do delegado por aproximação; repartição = Polícia Civil |
 
-## 4. No contrato do POST único (implementado, versão "2")
+## 4. No contrato do POST único (implementado; `procedimentos` desde a versão "4")
 
 Dois blocos novos no payload da fase 1, com os ids das tabelas de referência
-(nunca os tokens da tela). `procedimento` vai `null` quando o relatório não
-trouxe procedimento — mas aí a ocorrência está pendente e não é enviada.
+(nunca os tokens da tela). `procedimentos` é uma **lista**: em geral um item, mas a mesma ocorrência
+pode gerar mais de um — o caso típico é prisão de maiores com apreensão de
+menor, que vira um IP e um AI (ato infracional), cada um com seu número. O
+relatório os escreve no mesmo campo, separados por ";" ou ","; tipo e número
+são casados pela ordem. Delegacia e delegado são os mesmos em todos os itens.
+Sem procedimento no relatório a ocorrência está pendente e não é enviada.
+Até a versão "3" o campo era `procedimento`, um objeto só.
 `delegado_id` pode ir `null`: o SIPOM não o exige. `materiais` leva um item
 por arma, droga e veículo; munição, celular e dinheiro ainda não.
 
 ```json
-"procedimento": {
-  "reparticao": 2,
-  "procedimento_id": 1, "procedimento": "Inquerito Policial - IP",
-  "numero": "7653", "ano": "2026",
-  "delegacia_id": 3, "delegacia": "939-CENTRAL DE PROCEDIMENTOS DIGITAIS",
-  "delegado_id": 361, "delegado": "ITALO RENNO ALVES FEITOSA"
-},
+"procedimentos": [
+  { "reparticao": 2,
+    "procedimento_id": 4, "procedimento": "Ato Infracional",
+    "numero": "874", "ano": "2026",
+    "delegacia_id": 3, "delegacia": "939-CENTRAL DE PROCEDIMENTOS DIGITAIS",
+    "delegado_id": 361, "delegado": "ITALO RENNO ALVES FEITOSA" },
+  { "reparticao": 2,
+    "procedimento_id": 1, "procedimento": "Inquerito Policial - IP",
+    "numero": "64", "ano": "2026",
+    "delegacia_id": 3, "delegacia": "939-CENTRAL DE PROCEDIMENTOS DIGITAIS",
+    "delegado_id": 361, "delegado": "ITALO RENNO ALVES FEITOSA" }
+],
 "materiais": [
   { "tipo_id": 1, "tipo": "Arma",
     "arma_tipo_id": 2, "arma_tipo": "Revolver", "arma_marca_id": 27, "arma_marca": "Taurus",
@@ -187,6 +197,7 @@ como a lista da tela mostra.
 |---|---|---|
 | Tipo do procedimento | BO, IP, TCO, AI pelo texto | `procedimento_tipo` (bloqueia) |
 | Número/ano | `nnn-nnnn/aaaa` ou `nnnn/aaaa` | `procedimento_numero` (bloqueia; corrige pelo CORRIGIR) |
+| Vários procedimentos | campo com ";" ou "," vira um item por procedimento; um tipo só para vários números vale para todos | `procedimento_tipo` / `procedimento_numero` se algum item ficar sem tipo ou sem número |
 | Delegacia | código que abre o número do procedimento → catálogo; senão termo aprendido para o texto ("DMC"); senão "N° DP" → distrito | `delegacia` (bloqueia) |
 | Delegado | termo aprendido; senão o nome abreviado contra o catálogo (palavras na ordem, inicial casa qualquer nome); um candidato é aceito, vários viram sugestão | `delegado` (aviso: não é obrigatório) |
 | Arma | tipo por sinônimos ("REVOLVER", "FACA" → Branca, "ARTESANAL"), marca pelo nome ou primeira palavra do catálogo, calibre pelos dígitos (".38" = "38", "9MM" = "9mm") | `arma` (bloqueia) |

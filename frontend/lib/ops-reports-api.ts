@@ -99,8 +99,22 @@ export type SipomOccurrence = {
   materiais: SipomMateriais;
 };
 
+export type SipomProcItem = {
+  procedimento: SipomRef | null;
+  numero: string;
+  ano: string;
+  tipo_texto: string;
+  numero_texto: string;
+};
+
 /** Procedimento como vai ao SIPOM, com o texto do relatório ao lado. */
 export type SipomProcedimento = {
+  /**
+   * Um por procedimento da ocorrência, na ordem do relatório — em geral um;
+   * dois quando há, por exemplo, IP (maiores) e AI (menor).
+   */
+  itens: SipomProcItem[];
+  /** procedimento, numero e ano são os do primeiro item. */
   procedimento: SipomRef | null;
   numero: string;
   ano: string;

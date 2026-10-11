@@ -9,6 +9,8 @@
 //	                  operacional para os códigos do SIPOM
 //	admin ops-geocode — localiza no geocodificador da agência (GEOCODER_URL)
 //	                  as ocorrências do relatório operacional sem coordenada
+//	admin ops-import -user <email> [-dry-run] <pasta|arquivo.pdf>...
+//	                — importa em lote os PDFs do relatório operacional
 //
 // O comando conecta como o role tevunah_app (APP_DATABASE_URL).
 package main
@@ -47,6 +49,8 @@ func main() {
 		runSipomRecompute()
 	case "ops-geocode":
 		runOpsGeocode()
+	case "ops-import":
+		runOpsImport(os.Args[2:])
 	default:
 		usage()
 		os.Exit(2)
@@ -54,7 +58,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "uso: admin <create|seed-dev|sipom-recompute|ops-geocode>")
+	fmt.Fprintln(os.Stderr, "uso: admin <create|seed-dev|sipom-recompute|ops-geocode|ops-import>")
 }
 
 func openDB() *sql.DB {

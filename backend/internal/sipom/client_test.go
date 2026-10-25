@@ -38,7 +38,8 @@ func TestReceberAssinaOCorpoEnviado(t *testing.T) {
 		ts := r.Header.Get("X-SIPOM-Timestamp")
 		if r.Header.Get("X-SIPOM-Cliente") != "cli_teste" || ts != strconv.FormatInt(now.Unix(), 10) ||
 			r.Header.Get("X-SIPOM-Assinatura") != Sign("segredo-teste", ts, r.Method, r.URL.Path, got) ||
-			string(got) != string(body) || r.URL.Path != PathReceber {
+			string(got) != string(body) || r.URL.Path != PathReceber ||
+			r.Header.Get("User-Agent") != UserAgent {
 			w.WriteHeader(http.StatusUnauthorized)
 			_, _ = w.Write([]byte(`{"erro":"assinatura","codigo":"assinatura_invalida"}`))
 			return

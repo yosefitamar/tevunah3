@@ -35,6 +35,9 @@ const (
 	MaxBodyBytes   = 20 << 20 // acima disto o SIPOM responde 413
 	maxRespBytes   = 1 << 20
 	defaultTimeout = 60 * time.Second
+	// UserAgent identifica o Tevunah nas chamadas: o nginx do SIPOM barra o
+	// padrão do Go, e um nome fixo deixa a liberação ser feita por regra.
+	UserAgent = "Tevunah-SIPOM/1.0 (SAI 2BPRAIO; +cliente TEVUNAH)"
 )
 
 // Situações devolvidas pelo receber.
@@ -207,6 +210,7 @@ func (c *Client) once(ctx context.Context, method, path string, body []byte, out
 	req.Header.Set("X-SIPOM-Timestamp", ts)
 	req.Header.Set("X-SIPOM-Assinatura", Sign(c.Secret, ts, method, u.EscapedPath(), body))
 	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", UserAgent)
 	if method != http.MethodGet {
 		req.Header.Set("Content-Type", "application/json; charset=utf-8")
 	}

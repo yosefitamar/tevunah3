@@ -133,6 +133,11 @@ services:
       # informar, e a falta dela não vira pendência).
       GEOCODER_URL:            "${GEOCODER_URL:-}"
       GEOCODER_STATE:          "${GEOCODER_STATE:-Ceará}"
+      # API de integração do SIPOM. Sem chave ou segredo, o envio fica
+      # desligado e o analista marca à mão o que lançou lá.
+      SIPOM_BASE_URL:          "${SIPOM_BASE_URL:-https://sipom.pm.ce.gov.br}"
+      SIPOM_CLIENT_KEY:        "${SIPOM_CLIENT_KEY:-}"
+      SIPOM_SECRET:            "${SIPOM_SECRET:-}"
       # Seed dev — só usado pelo `admin seed-dev` quando APP_ENV=development
       DEV_ADMIN_EMAIL:    ${DEV_ADMIN_EMAIL:-admin@tevunah.local}
       DEV_ADMIN_NAME:     ${DEV_ADMIN_NAME:-Administrador Dev}

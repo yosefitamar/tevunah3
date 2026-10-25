@@ -8,7 +8,6 @@ import (
 	"database/sql"
 	"errors"
 	"os"
-	"strings"
 	"testing"
 
 	idb "github.com/belia/tevunah/backend/internal/db"
@@ -266,11 +265,9 @@ func TestSmoke_GeoPending(t *testing.T) {
 	if p := translate(false, Geo{}); hasString(p, sipom.PendCoordenada) {
 		t.Errorf("geocodificador desligado não gera pendência de coordenada: %v", p)
 	}
-	if sipom.Blocking(sipom.PendCoordenada) || sipom.Notice(sipom.PendCoordenada) {
-		t.Errorf("coordenada: não impede o envio ao SIPOM, mas é pendência (não aviso)")
-	}
-	if SipomBlocked([]string{sipom.PendCoordenada}) {
-		t.Errorf("falta de coordenada não pode travar o envio ao SIPOM")
+	// A API do SIPOM exige latitude e longitude.
+	if !SipomBlocked([]string{sipom.PendCoordenada}) {
+		t.Errorf("falta de coordenada tem de travar o envio ao SIPOM")
 	}
 }
 
@@ -346,7 +343,7 @@ func TestSmoke_ProcedureAndMaterials(t *testing.T) {
 	if err != nil {
 		t.Skipf("catálogo do SIPOM não carregado: %v", err)
 	}
-	g := 582.0
+	g, ano := 582.0, 2019
 	o := &Occurrence{
 		Natures: []string{"TRÁFICO DE DROGAS"}, StartTime: "10:00", CIOPS: "SMK4",
 		PlaceNeighborhood: "CENTRO", PlaceCity: "CAUCAIA",
@@ -355,8 +352,10 @@ func TestSmoke_ProcedureAndMaterials(t *testing.T) {
 			{Kind: "REVOLVER", Brand: "TAURUS", Caliber: "38", Serial: "GI63237"},
 			{Kind: "SUBMETRALHADORA", Model: "ARTESANAL", Caliber: "9MM"},
 		},
-		Drugs:    []Drug{{Description: "MACONHA", Grams: &g}},
-		Vehicles: []Vehicle{{Kind: "MOTOCICLETA", Brand: "HONDA", Model: "CG 160 FAN", Color: "PRETO", Plate: "ABC1D23"}},
+		Drugs: []Drug{{Description: "MACONHA", Grams: &g}},
+		// O ano o analista informa (o relatório não traz): sem ele o veículo
+		// fica pendente.
+		Vehicles: []Vehicle{{Kind: "MOTOCICLETA", Brand: "HONDA", Model: "CG 160 FAN", Color: "PRETO", Plate: "ABC1D23", SipomAnoFabricacao: &ano}},
 	}
 	TranslateSipom(cat, SipomRefs{}, o)
 	f := o.Sipom
@@ -492,36 +491,129 @@ func TestSmoke_PayloadPhase2(t *testing.T) {
 	if so.Sipom.CidadeID == nil {
 		t.Skip("CAUCAIA fora do catálogo de cidades")
 	}
+	bairros := cat.Bairros(*so.Sipom.CidadeID)
+	if len(bairros) == 0 {
+		t.Skip("CAUCAIA sem bairros no catálogo")
+	}
+	so.Sipom.BairroID = &bairros[0].ID
+	lat, lng := -3.73, -38.65
+	so.Geo = Geo{Lat: &lat, Lng: &lng}
+	ano := 2019
+	so.Vehicles[0].SipomAnoFabricacao = &ano
+	so.Weapons[0].ID, so.Drugs[0].ID, so.Vehicles[0].ID = "w1", "d1", "v1"
 	so.Sipom.Pending = nil
-	p, err := BuildSipomPayload(cat, so, "SAI/2º BPRAIO", nil, nil)
+
+	p, err := BuildSipomPayload(cat, so, PayloadSources{})
 	if err != nil {
 		t.Fatalf("payload: %v", err)
 	}
-	if p.Origem.Versao != "4" {
-		t.Errorf("versão do contrato: %s", p.Origem.Versao)
+	if p.Origem.ID != "smoke-payload" || p.Ocorrencia.Endereco.BairroID != bairros[0].ID || p.Ocorrencia.Endereco.Latitude != lat {
+		t.Errorf("cabeçalho: %+v", p.Ocorrencia)
 	}
 	if len(p.Procedimentos) != 1 {
 		t.Fatalf("procedimentos: %d, quer 1 (%+v)", len(p.Procedimentos), p.Procedimentos)
 	}
 	if pr := p.Procedimentos[0]; pr.ProcedimentoID != sipom.ProcIP || pr.Numero != "7653" ||
 		pr.Ano != "2026" || pr.Reparticao != sipom.ReparticaoPoliciaCivil ||
-		pr.DelegadoID == nil || !strings.HasPrefix(pr.Delegacia, "939-") {
+		pr.DelegadoID == nil || pr.DelegaciaID == 0 || pr.ID != "proc-1-7653-2026" {
 		t.Errorf("procedimento: %+v", pr)
 	}
 	if len(p.Materiais) != 3 {
 		t.Fatalf("materiais: %d itens, quer 3 (%+v)", len(p.Materiais), p.Materiais)
 	}
 	arma, droga, veic := p.Materiais[0], p.Materiais[1], p.Materiais[2]
-	if arma.TipoID != sipom.MaterialArma || arma.ArmaTipo != "Revolver" || arma.ArmaMarca != "Taurus" ||
-		arma.ArmaCalibre != ".38" || arma.Numero != "GI63237" || arma.Descricao != "RT 85" || arma.Quantidade == nil || *arma.Quantidade != 1 {
-		t.Errorf("arma: %+v", arma)
-	}
-	if droga.TipoID != sipom.MaterialDroga || droga.Droga != "Maconha" || droga.Unidade != "gramas (g)" ||
+	// Maconha é o 1 na tabela droga_tipos do SIPOM (dump de 2026-10-19).
+	if droga.ID != "d1" || droga.TipoID != sipom.MaterialDroga || droga.DrogaTipoID == nil || *droga.DrogaTipoID != 1 ||
 		droga.Quantidade == nil || *droga.Quantidade != 582 {
 		t.Errorf("droga: %+v", droga)
 	}
-	if veic.TipoID != sipom.MaterialVeiculo || veic.Placa != "ABC1D23" || veic.MarcaModelo != "HONDA/CG 160 FAN" ||
-		veic.Cor != "PRETA" || veic.Situacao == nil || *veic.Situacao != sipom.VeiculoApreendido {
+	if arma.ID != "w1" || arma.TipoID != sipom.MaterialArma || cat.ArmaTipoNome(*arma.ArmaTipoID) != "Revolver" ||
+		arma.ArmaMarcaID == nil || arma.Numero != "GI63237" || arma.Descricao != "RT 85" {
+		t.Errorf("arma: %+v", arma)
+	}
+	if veic.ID != "v1" || veic.TipoID != sipom.MaterialVeiculo || veic.Placa != "ABC1D23" || veic.CodigoMarcaModelo == nil ||
+		veic.AnoFabricacao == nil || *veic.AnoFabricacao != 2019 || veic.Situacao == nil || *veic.Situacao != sipom.VeiculoApreendido {
 		t.Errorf("veículo: %+v", veic)
+	}
+}
+
+// O resultado do envio pela API, o sexo do envolvido e o ano do veículo são
+// gravados e voltam no FindByID. Restaura o que havia.
+func TestSmoke_SipomSendState(t *testing.T) {
+	db, _ := smokeDB(t)
+	ctx := context.Background()
+	r := New(db)
+	var id string
+	err := db.QueryRowContext(ctx, `
+		SELECT o.id FROM app.ops_occurrences o
+		 WHERE o.deleted_at IS NULL
+		   AND EXISTS (SELECT 1 FROM app.ops_occurrence_people p WHERE p.occurrence_id = o.id)
+		 ORDER BY o.created_at, o.id LIMIT 1`).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		t.Skip("sem ocorrência com envolvido no banco")
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	orig, err := r.FindByID(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_, err := db.ExecContext(ctx, `
+			UPDATE app.ops_occurrences
+			   SET sipom_sent_at = $2, sipom_protocolo = NULLIF($3, '')::uuid, sipom_identificador = $4,
+			       sipom_situacao = $5, sipom_avisos = '[]', sipom_body_sha256 = $6, sipom_erro = $7,
+			       sipom_tentativa_em = $8, sipom_excluida_em = $9
+			 WHERE id = $1`, id, orig.Sipom.SentAt, orig.Sipom.Send.Protocolo, orig.Sipom.Send.Identificador,
+			orig.Sipom.Send.Situacao, orig.Sipom.Send.BodySHA256, orig.Sipom.Send.Erro,
+			orig.Sipom.Send.TentativaEm, orig.Sipom.Send.ExcluidaEm)
+		if err != nil {
+			t.Errorf("restaurar envio: %v", err)
+		}
+		if err := r.SetPersonSipomSexo(ctx, id, orig.People[0].ID, orig.People[0].SipomSexo); err != nil {
+			t.Errorf("restaurar sexo: %v", err)
+		}
+	}()
+
+	res := &sipom.Resultado{Protocolo: "0b6f4f4e-4a49-4f0e-9a52-6d1b2f0a9c11", Situacao: sipom.SituacaoCriado,
+		Identificador: "2026A1B2C3D4", Avisos: []sipom.Aviso{{Campo: "composicao.2.matricula", Codigo: "matricula_nao_encontrada"}}}
+	var actor string
+	if err := db.QueryRowContext(ctx, `SELECT id FROM app.users ORDER BY created_at LIMIT 1`).Scan(&actor); err != nil {
+		t.Skipf("sem usuário: %v", err)
+	}
+	if err := r.SaveSipomSend(ctx, id, actor, res, "abc"); err != nil {
+		t.Fatalf("SaveSipomSend: %v", err)
+	}
+	got, _ := r.FindByID(ctx, id)
+	if s := got.Sipom.Send; got.Sipom.SentAt == nil || s.Protocolo != res.Protocolo || s.Identificador != res.Identificador ||
+		s.Situacao != res.Situacao || len(s.Avisos) != 1 || s.Avisos[0].Codigo != "matricula_nao_encontrada" ||
+		s.BodySHA256 != "abc" || s.Erro != "" || s.TentativaEm == nil {
+		t.Errorf("envio gravado: %+v", got.Sipom.Send)
+	}
+	if err := r.SaveSipomSendError(ctx, id, "SIPOM 409 conflito", true); err != nil {
+		t.Fatalf("SaveSipomSendError: %v", err)
+	}
+	if got, _ := r.FindByID(ctx, id); got.Sipom.Send.Erro == "" || got.Sipom.Send.ExcluidaEm == nil ||
+		got.Sipom.Send.Identificador != res.Identificador {
+		t.Errorf("erro do envio: %+v", got.Sipom.Send)
+	}
+
+	pid := orig.People[0].ID
+	if err := r.SetPersonSipomSexo(ctx, id, pid, sipom.SexoFeminino); err != nil {
+		t.Fatalf("SetPersonSipomSexo: %v", err)
+	}
+	if got, _ := r.FindByID(ctx, id); got.People[0].SipomSexo != sipom.SexoFeminino {
+		t.Errorf("sexo: %d", got.People[0].SipomSexo)
+	}
+	if len(orig.Vehicles) > 0 {
+		y := 2019
+		defer r.SetVehicleYears(ctx, id, 0, orig.Vehicles[0].SipomAnoFabricacao, orig.Vehicles[0].SipomAnoModelo)
+		if err := r.SetVehicleYears(ctx, id, 0, &y, nil); err != nil {
+			t.Fatalf("SetVehicleYears: %v", err)
+		}
+		if got, _ := r.FindByID(ctx, id); got.Vehicles[0].SipomAnoFabricacao == nil || *got.Vehicles[0].SipomAnoFabricacao != 2019 {
+			t.Errorf("ano: %+v", got.Vehicles[0])
+		}
 	}
 }

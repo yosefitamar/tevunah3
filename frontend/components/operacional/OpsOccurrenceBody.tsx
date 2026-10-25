@@ -51,6 +51,7 @@ export const STEP_OF_PENDING: Record<string, OpsStep> = {
   logradouro: "local",
   cidade: "local",
   bairro: "local",
+  bairro_catalogo: "local",
   area: "local",
   area_ambigua: "local",
   coordenada: "local",
@@ -58,6 +59,8 @@ export const STEP_OF_PENDING: Record<string, OpsStep> = {
   composicao: "efetivo",
   composicao_multi: "efetivo",
   pessoa_sem_dossie: "pessoas",
+  pessoa_sexo: "pessoas",
+  catalogo_vinculo: "pessoas",
   procedimento: "procedimento",
   procedimento_tipo: "procedimento",
   procedimento_numero: "procedimento",
@@ -237,7 +240,7 @@ export default function OpsOccurrenceBody({
           </OpsBlock>
           {s && occ.people.length > 0 && (
             <OpsBlock title={`SIPOM · ENVOLVIDOS (${s.pessoas.length})`}>
-              <SipomEnvolvidos occ={occ} />
+              <SipomEnvolvidos occ={occ} ed={ed} />
             </OpsBlock>
           )}
         </>

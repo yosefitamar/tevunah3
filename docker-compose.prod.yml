@@ -78,6 +78,11 @@ services:
       # Vazio = desligado.
       GEOCODER_URL:            "${GEOCODER_URL:-}"
       GEOCODER_STATE:          "${GEOCODER_STATE:-Ceará}"
+      # API de integração do SIPOM. Sem chave ou segredo, o envio fica
+      # desligado e o analista marca à mão o que lançou lá.
+      SIPOM_BASE_URL:          "${SIPOM_BASE_URL:-https://sipom.pm.ce.gov.br}"
+      SIPOM_CLIENT_KEY:        "${SIPOM_CLIENT_KEY:-}"
+      SIPOM_SECRET:            "${SIPOM_SECRET:-}"
     volumes:
       - tevunah-photos:/var/lib/tevunah/photos
     depends_on:

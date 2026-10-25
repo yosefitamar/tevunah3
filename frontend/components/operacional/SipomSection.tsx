@@ -2,12 +2,15 @@
 
 import { useEffect, useState } from "react";
 import { AlertTriangle, Braces, Check, CheckCircle2, Pencil, RotateCcw, Send, Undo2 } from "lucide-react";
-import type { OpsOccurrence, OpsOfficer, SipomOccurrence, SipomRef } from "@/lib/ops-reports-api";
+import type { OpsOccurrence, OpsOfficer, SipomOccurrence, SipomPending, SipomRef } from "@/lib/ops-reports-api";
 import {
+  enviarSipom,
+  listSipomBairros,
   listSipomNaturezas,
   setOpsSipomField,
   setOpsSipomNatureza,
   setSipomSent,
+  setSipomSexo,
   type SipomAreaRule,
   type SipomFieldInput,
   type SipomNatureza,
@@ -179,6 +182,17 @@ export function SipomLocal({ occ, ed }: PartProps) {
     editable && (pending.has("area") || pending.has("area_ambigua") || manual.has("area") || s.area_learned);
   const areaChoices: SipomRef[] = s.area_options.length ? s.area_options : s.area_candidates;
   const addrTag = manual.has("endereco") ? "ANALISTA" : undefined;
+  // Bairro do relatório que não casa com o catálogo: o SIPOM exige o id, e
+  // o analista escolhe entre os bairros da cidade.
+  const bairroEditable = editable && !!s.cidade && (pending.has("bairro_catalogo") || manual.has("bairro"));
+  const [bairros, setBairros] = useState<SipomRef[]>([]);
+  const cidadeId = s.cidade?.id;
+  useEffect(() => {
+    if (!bairroEditable || !cidadeId) return;
+    listSipomBairros(cidadeId)
+      .then((r) => setBairros(r.items))
+      .catch(() => setBairros([]));
+  }, [bairroEditable, cidadeId]);
 
   return (
     <>
@@ -230,7 +244,27 @@ export function SipomLocal({ occ, ed }: PartProps) {
           </OpsActions>
         )}
 
-        <OpsField label="BAIRRO" value={s.bairro?.nome ?? occ.place_neighborhood} missing={pending.has("bairro")} />
+        <OpsField
+          label="BAIRRO"
+          span={bairroEditable ? 2 : 1}
+          value={s.bairro?.nome ?? occ.place_neighborhood}
+          missing={pending.has("bairro") || pending.has("bairro_catalogo")}
+          tag={manual.has("bairro") ? "ANALISTA" : undefined}
+        >
+          {bairroEditable && (
+            <div className="ops-control-row">
+              <Select
+                searchable
+                value={s.bairro ? String(s.bairro.id) : ""}
+                placeholder="ESCOLHA O BAIRRO DO SIPOM"
+                disabled={busy || bairros.length === 0}
+                onChange={(v) => ed.setField({ field: "bairro", bairro_id: Number(v) })}
+                options={bairros.map((b) => ({ value: String(b.id), label: b.nome }))}
+              />
+              {manual.has("bairro") && <AutoButton busy={busy} onClick={() => ed.setField({ field: "bairro", bairro_id: null })} />}
+            </div>
+          )}
+        </OpsField>
         <OpsField label="CIDADE" value={s.cidade?.nome ?? occ.place_city} missing={pending.has("cidade")} />
         <OpsField
           label="ÁREA DA UNIDADE MILITAR"
@@ -356,9 +390,15 @@ export function OfficersTable({ officers }: { officers: OpsOfficer[] }) {
   );
 }
 
-/** Envolvidos como vão ao SIPOM (qualificação do dossiê, quando há vínculo). */
-export function SipomEnvolvidos({ occ }: { occ: OpsOccurrence }) {
+/**
+ * Envolvidos como vão ao SIPOM (qualificação do dossiê, quando há vínculo).
+ * O SIPOM exige o sexo de toda pessoa identificada: quando o dossiê não diz,
+ * o analista informa aqui.
+ */
+export function SipomEnvolvidos({ occ, ed }: { occ: OpsOccurrence; ed?: SipomEdit }) {
   const s = occ.sipom!;
+  const canSetSex = (p: (typeof s.pessoas)[number]) =>
+    !!ed?.editable && !!occ.id && !!p.id && !!p.nome && (p.sexo === 0 || p.sexo_ficha);
   if (s.pessoas.length === 0) return <div className="ops-empty">NENHUM ENVOLVIDO VAI AO SIPOM</div>;
   return (
     <div className="ops-tbl-scroll">
@@ -382,7 +422,26 @@ export function SipomEnvolvidos({ occ }: { occ: OpsOccurrence }) {
               <td>{p.vinculo_label}</td>
               <td className="ops-strong">{p.nome || "—"}</td>
               <td className="mono">{p.cpf ? formatCPF(p.cpf) : "—"}</td>
-              <td>{p.sexo === 1 ? "MASCULINO" : p.sexo === 2 ? "FEMININO" : "—"}</td>
+              <td>
+                {canSetSex(p) ? (
+                  <Select
+                    value={p.sexo ? String(p.sexo) : ""}
+                    placeholder="INFORME"
+                    disabled={ed!.busy}
+                    onChange={(v) => ed!.run(() => setSipomSexo(occ.id!, p.id, Number(v) as 1 | 2))}
+                    options={[
+                      { value: "1", label: "MASCULINO" },
+                      { value: "2", label: "FEMININO" },
+                    ]}
+                  />
+                ) : p.sexo === 1 ? (
+                  "MASCULINO"
+                ) : p.sexo === 2 ? (
+                  "FEMININO"
+                ) : (
+                  "—"
+                )}
+              </td>
               <td>{p.nascimento ? formatBRDate(p.nascimento) : "—"}</td>
               <td>{p.mae || "—"}</td>
               <td>{p.morte ? <span className="pill deceased">SIM</span> : "NÃO"}</td>
@@ -403,10 +462,18 @@ export function SipomEnvolvidos({ occ }: { occ: OpsOccurrence }) {
 /** Selo de situação do envio: pronta, ou quantas pendências impedem. */
 export function SipomReadyPill({ s }: { s: SipomOccurrence }) {
   const blocking = s.pendencias.filter((p) => p.blocking).length;
-  if (s.sent_at) {
+  if (s.envio?.excluida_em) {
     return (
-      <span className="pill info sipom-ready" title={`Marcada como enviada em ${formatBRDate(s.sent_at.slice(0, 10))}`}>
-        <Send size={10} strokeWidth={2} /> ENVIADA AO SIPOM
+      <span className="pill crit sipom-ready" title="O SIPOM informou que a ocorrência foi excluída lá e não a recria">
+        <AlertTriangle size={10} strokeWidth={2} /> EXCLUÍDA NO SIPOM
+      </span>
+    );
+  }
+  if (s.sent_at) {
+    const num = s.envio?.identificador;
+    return (
+      <span className="pill info sipom-ready" title={`Enviada em ${formatBRDate(s.sent_at.slice(0, 10))}`}>
+        <Send size={10} strokeWidth={2} /> ENVIADA AO SIPOM{num ? ` · ${num}` : ""}
       </span>
     );
   }
@@ -442,10 +509,36 @@ export function SipomEnvio({
   const [showPayload, setShowPayload] = useState(false);
   const [busySent, setBusySent] = useState(false);
   const [sentError, setSentError] = useState<string | null>(null);
+  const [sendDetails, setSendDetails] = useState<string[]>([]);
   const blocking = s.pendencias.filter((p) => p.blocking);
+  const envio = s.envio;
 
-  // Enquanto o SIPOM não tem API, quem diz que a ocorrência foi lançada lá é
-  // o analista: marcar tira a ocorrência da fila de envio.
+  // Envio pela API: monta o corpo no servidor (com as fotos) e manda. A
+  // resposta traz a ficha já com o número da ocorrência no SIPOM.
+  async function send() {
+    if (!occ.id || busySent) return;
+    setBusySent(true);
+    setSentError(null);
+    setSendDetails([]);
+    try {
+      const r = await enviarSipom(occ.id);
+      onSent?.(r.sipom);
+    } catch (e) {
+      const err = e as ApiError;
+      setSentError(err.message || "Erro no envio");
+      // 409: pendências; 502 com 422 do SIPOM: erros por campo.
+      if (Array.isArray(err.details)) {
+        setSendDetails((err.details as SipomPending[]).map((p) => p.label || p.code));
+      } else if (err.details && typeof err.details === "object") {
+        setSendDetails(Object.entries(err.details as Record<string, string>).map(([k, v]) => `${k}: ${v}`));
+      }
+    } finally {
+      setBusySent(false);
+    }
+  }
+
+  // Sem a API configurada, quem diz que a ocorrência foi lançada lá é o
+  // analista: marcar tira a ocorrência da fila de envio.
   async function markSent(sent: boolean) {
     if (!occ.id || busySent) return;
     setBusySent(true);
@@ -484,7 +577,22 @@ export function SipomEnvio({
             <Braces size={12} strokeWidth={2} /> PRÉVIA DO ENVIO
           </button>
         )}
-        {onSent && occ.id && s.ready && !s.sent_at && (
+        {s.api && onSent && occ.id && s.ready && !envio?.excluida_em && (
+          <button
+            type="button"
+            className={"btn btn-sm" + (s.sent_at ? "" : " btn-primary")}
+            disabled={busySent}
+            onClick={send}
+            title={
+              s.sent_at
+                ? "Reenvia a ficha: o SIPOM atualiza o que mudou (ou responde que nada mudou)"
+                : "Envia a ocorrência ao SIPOM pela API"
+            }
+          >
+            <Send size={12} strokeWidth={2} /> {busySent ? "ENVIANDO…" : s.sent_at ? "REENVIAR AO SIPOM" : "ENVIAR AO SIPOM"}
+          </button>
+        )}
+        {!s.api && onSent && occ.id && s.ready && !s.sent_at && (
           <button
             type="button"
             className="btn btn-sm"
@@ -495,7 +603,7 @@ export function SipomEnvio({
             <Send size={12} strokeWidth={2} /> MARCAR COMO ENVIADA
           </button>
         )}
-        {onSent && occ.id && s.sent_at && (
+        {!s.api && onSent && occ.id && s.sent_at && (
           <button
             type="button"
             className="btn btn-ghost btn-sm"
@@ -507,7 +615,30 @@ export function SipomEnvio({
           </button>
         )}
       </div>
-      {sentError && <div className="banner banner-error">⚠ {sentError}</div>}
+      {sentError && (
+        <div className="banner banner-error">
+          ⚠ {sentError}
+          {sendDetails.map((d) => (
+            <div key={d}>· {d}</div>
+          ))}
+        </div>
+      )}
+      {!sentError && envio?.erro && (
+        <div className="banner banner-error">
+          ⚠ ÚLTIMA TENTATIVA ({formatBRDate(envio.tentativa_em.slice(0, 10))}): {envio.erro}
+        </div>
+      )}
+      {envio && !envio.erro && envio.identificador && (
+        <div className="banner banner-info">
+          OCORRÊNCIA Nº <span className="mono">{envio.identificador}</span> NO SIPOM ·{" "}
+          {SITUACAO_LABEL[envio.situacao] ?? envio.situacao}
+          {envio.avisos.map((a) => (
+            <div key={a.campo + a.codigo}>
+              ⚠ {AVISO_LABEL[a.codigo] ?? a.codigo}: <span className="mono">{a.campo}</span>
+            </div>
+          ))}
+        </div>
+      )}
       {blocking.length > 0 && (
         <>
           <div className="ops-sub">IMPEDEM O ENVIO ({blocking.length})</div>
@@ -525,6 +656,17 @@ export function SipomEnvio({
     </>
   );
 }
+
+const SITUACAO_LABEL: Record<string, string> = {
+  criado: "CRIADA",
+  atualizado: "ATUALIZADA",
+  sem_alteracao: "SEM ALTERAÇÃO (O SIPOM JÁ TINHA ESTA VERSÃO)",
+};
+
+const AVISO_LABEL: Record<string, string> = {
+  matricula_nao_encontrada: "MATRÍCULA NÃO ENCONTRADA NO SIPOM — O POLICIAL FICOU FORA DA COMPOSIÇÃO",
+  numeral_nao_numerico: "NÚMERO DO ENDEREÇO NÃO NUMÉRICO — FICOU VAZIO NO SIPOM",
+};
 
 export function AutoButton({
   busy,

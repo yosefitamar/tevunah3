@@ -66,6 +66,8 @@ type sipomVeiculoJSON struct {
 	// MarcaModeloCandidates: linhas que casam em parte com marca e modelo.
 	MarcaModeloCandidates []sipomRefJSON `json:"marca_modelo_candidates"`
 	Situacao              int            `json:"situacao"` // 1 apreendido, 2 recuperado, 0 indefinida
+	AnoFabricacao         *int           `json:"ano_fabricacao"`
+	AnoModelo             *int           `json:"ano_modelo"`
 	Manual                bool           `json:"manual"`
 	OK                    bool           `json:"ok"`
 }
@@ -136,7 +138,7 @@ func (a *app) sipomMateriaisJSON(o *opsreport.Occurrence, terms *sipom.TermMap) 
 			Tipo:    ref(w.SipomTipoID, a.sipom.ArmaTipoNome),
 			Marca:   ref(w.SipomMarcaID, a.sipom.ArmaMarcaNome),
 			Calibre: ref(w.SipomCalibreID, a.sipom.ArmaCalibreNome),
-			OK:      w.SipomTipoID != nil && w.SipomMarcaID != nil && w.SipomCalibreID != nil,
+			OK:      w.SipomTipoID != nil,
 		})
 	}
 	for i, d := range o.Drugs {
@@ -153,6 +155,7 @@ func (a *app) sipomMateriaisJSON(o *opsreport.Occurrence, terms *sipom.TermMap) 
 	for i, v := range o.Vehicles {
 		j := sipomVeiculoJSON{
 			Index: i, Manual: v.SipomManual, Situacao: v.SipomSituacao, MarcaModeloCandidates: []sipomRefJSON{},
+			AnoFabricacao: v.SipomAnoFabricacao, AnoModelo: v.SipomAnoModelo,
 			Tipo: ref(v.SipomTipoCodigo, a.sipom.VeiculoTipoNome),
 			Cor:  ref(v.SipomCorCodigo, a.sipom.VeiculoCorNome),
 		}
@@ -167,7 +170,7 @@ func (a *app) sipomMateriaisJSON(o *opsreport.Occurrence, terms *sipom.TermMap) 
 				j.MarcaModeloCandidates = append(j.MarcaModeloCandidates, sipomRefJSON{ID: m.Codigo, Nome: m.Descricao})
 			}
 		}
-		j.OK = j.Tipo != nil && j.Cor != nil && j.MarcaModelo != nil && j.Situacao != 0
+		j.OK = j.Tipo != nil && j.Cor != nil && j.MarcaModelo != nil && j.Situacao != 0 && j.AnoFabricacao != nil
 		out.Veiculos = append(out.Veiculos, j)
 	}
 	return out
@@ -362,12 +365,14 @@ func (a *app) handleSipomSetMaterial(w http.ResponseWriter, r *http.Request) {
 			httpx.Error(w, http.StatusNotFound, "arma não encontrada")
 			return
 		}
-		if !req.Reset && (req.TipoID == nil || req.MarcaID == nil || req.CalibreID == nil) {
-			httpx.Error(w, http.StatusBadRequest, "informe tipo_id, marca_id e calibre_id")
+		// Só o tipo é obrigatório no SIPOM; marca e calibre, se souber.
+		if !req.Reset && req.TipoID == nil {
+			httpx.Error(w, http.StatusBadRequest, "informe tipo_id")
 			return
 		}
-		if !req.Reset && (a.sipom.ArmaTipoNome(*req.TipoID) == "" || a.sipom.ArmaMarcaNome(*req.MarcaID) == "" ||
-			a.sipom.ArmaCalibreNome(*req.CalibreID) == "") {
+		if !req.Reset && (a.sipom.ArmaTipoNome(*req.TipoID) == "" ||
+			(req.MarcaID != nil && a.sipom.ArmaMarcaNome(*req.MarcaID) == "") ||
+			(req.CalibreID != nil && a.sipom.ArmaCalibreNome(*req.CalibreID) == "")) {
 			httpx.Error(w, http.StatusBadRequest, "tipo, marca ou calibre inexistente")
 			return
 		}
@@ -375,8 +380,12 @@ func (a *app) handleSipomSetMaterial(w http.ResponseWriter, r *http.Request) {
 		if err == nil && !req.Reset {
 			wpn := before.Weapons[pos]
 			a.learnTerm(r, learned, sipom.TermArmaTipo, wpn.Kind, *req.TipoID, me.ID)
-			a.learnTerm(r, learned, sipom.TermArmaMarca, wpn.Brand, *req.MarcaID, me.ID)
-			a.learnTerm(r, learned, sipom.TermArmaCalibre, wpn.Caliber, *req.CalibreID, me.ID)
+			if req.MarcaID != nil {
+				a.learnTerm(r, learned, sipom.TermArmaMarca, wpn.Brand, *req.MarcaID, me.ID)
+			}
+			if req.CalibreID != nil {
+				a.learnTerm(r, learned, sipom.TermArmaCalibre, wpn.Caliber, *req.CalibreID, me.ID)
+			}
 		}
 	case "drogas":
 		if pos >= len(before.Drugs) {

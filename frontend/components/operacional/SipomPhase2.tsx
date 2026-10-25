@@ -9,6 +9,7 @@ import {
   searchSipomMarcasModelos,
   setOpsSipomMaterial,
   setOpsSipomProcedimento,
+  setSipomVehicleYears,
   type SipomCatalogo,
   type SipomMaterialInput,
   type SipomProcedimentoInput,
@@ -192,7 +193,15 @@ export function SipomMateriais({ occ, ed }: PartProps) {
       ))}
       {veiculos.length > 0 && <div className="ops-sub">VEÍCULOS ({veiculos.length})</div>}
       {veiculos.map((v) => (
-        <VeiculoRow key={"v" + v.index} v={v} raw={occ.vehicles[v.index]} cat={cat} editable={editable} busy={busy} onSave={(input) => setMat(v.index, input)} />
+        <Fragment key={"v" + v.index}>
+          <VeiculoRow v={v} raw={occ.vehicles[v.index]} cat={cat} editable={editable} busy={busy} onSave={(input) => setMat(v.index, input)} />
+          <VeiculoAnos
+            v={v}
+            editable={editable}
+            busy={busy}
+            onSave={(fab, mod) => !!occ.id && ed.run(() => setSipomVehicleYears(occ.id!, v.index, fab, mod))}
+          />
+        </Fragment>
       ))}
     </>
   );
@@ -253,10 +262,10 @@ function ArmaRow({ a, raw, cat, editable, busy, onSave }: RowProps<{ a: SipomArm
             <OpsField label="TIPO" missing={!tipo}>
               <Select value={tipo} placeholder="TIPO" disabled={busy || !cat} onChange={setTipo} options={opts(cat?.arma_tipos, a.tipo)} />
             </OpsField>
-            <OpsField label="MARCA" span={2} missing={!marca}>
+            <OpsField label="MARCA" span={2}>
               <Select searchable value={marca} placeholder="MARCA" disabled={busy || !cat} onChange={setMarca} options={opts(cat?.arma_marcas, a.marca)} />
             </OpsField>
-            <OpsField label="CALIBRE" missing={!calibre}>
+            <OpsField label="CALIBRE">
               <Select value={calibre} placeholder="CALIBRE" disabled={busy || !cat} onChange={setCalibre} options={opts(cat?.arma_calibres, a.calibre)} />
             </OpsField>
           </OpsFields>
@@ -264,8 +273,15 @@ function ArmaRow({ a, raw, cat, editable, busy, onSave }: RowProps<{ a: SipomArm
             <button
               type="button"
               className="btn btn-primary btn-sm"
-              disabled={busy || !tipo || !marca || !calibre || (!dirty && a.manual)}
-              onClick={() => onSave({ kind: "armas", tipo_id: Number(tipo), marca_id: Number(marca), calibre_id: Number(calibre) })}
+              disabled={busy || !tipo || (!dirty && a.manual)}
+              onClick={() =>
+                onSave({
+                  kind: "armas",
+                  tipo_id: Number(tipo),
+                  marca_id: marca ? Number(marca) : undefined,
+                  calibre_id: calibre ? Number(calibre) : undefined,
+                })
+              }
             >
               <Check size={12} strokeWidth={2} /> GRAVAR
             </button>
@@ -460,6 +476,75 @@ function VeiculoRow({ v, raw, cat, editable, busy, onSave }: RowProps<{ v: Sipom
         />
       )}
     </div>
+  );
+}
+
+// Ano de fabricação e do modelo do veículo: o relatório não traz, e o SIPOM
+// exige o de fabricação para placa que ainda não está cadastrada lá.
+function VeiculoAnos({
+  v,
+  editable,
+  busy,
+  onSave,
+}: {
+  v: SipomVeiculo;
+  editable: boolean;
+  busy: boolean;
+  onSave: (fabricacao: number | null, modelo: number | null) => void;
+}) {
+  const [fab, setFab] = useState(v.ano_fabricacao ? String(v.ano_fabricacao) : "");
+  const [mod, setMod] = useState(v.ano_modelo ? String(v.ano_modelo) : "");
+  useEffect(() => {
+    setFab(v.ano_fabricacao ? String(v.ano_fabricacao) : "");
+    setMod(v.ano_modelo ? String(v.ano_modelo) : "");
+  }, [v.ano_fabricacao, v.ano_modelo]);
+  const year = (x: string) => (/^\d{4}$/.test(x) ? Number(x) : null);
+  const dirty = fab !== (v.ano_fabricacao ? String(v.ano_fabricacao) : "") || mod !== (v.ano_modelo ? String(v.ano_modelo) : "");
+  if (!editable) {
+    return (
+      <MaterialRead
+        fields={[
+          ["ANO DE FABRICAÇÃO", v.ano_fabricacao ? String(v.ano_fabricacao) : undefined],
+          ["ANO DO MODELO", v.ano_modelo ? String(v.ano_modelo) : undefined],
+        ]}
+      />
+    );
+  }
+  return (
+    <OpsFields edit>
+      <OpsField label="ANO DE FABRICAÇÃO" missing={!v.ano_fabricacao}>
+        <input
+          className="ops-input mono"
+          inputMode="numeric"
+          maxLength={4}
+          value={fab}
+          placeholder="AAAA"
+          disabled={busy}
+          onChange={(e) => setFab(e.target.value.replace(/\D/g, ""))}
+        />
+      </OpsField>
+      <OpsField label="ANO DO MODELO">
+        <input
+          className="ops-input mono"
+          inputMode="numeric"
+          maxLength={4}
+          value={mod}
+          placeholder="AAAA"
+          disabled={busy}
+          onChange={(e) => setMod(e.target.value.replace(/\D/g, ""))}
+        />
+      </OpsField>
+      <OpsActions>
+        <button
+          type="button"
+          className="btn btn-primary btn-sm"
+          disabled={busy || !dirty || year(fab) === null || (mod !== "" && year(mod) === null)}
+          onClick={() => onSave(year(fab), year(mod))}
+        >
+          <Check size={12} strokeWidth={2} /> GRAVAR ANOS
+        </button>
+      </OpsActions>
+    </OpsFields>
   );
 }
 

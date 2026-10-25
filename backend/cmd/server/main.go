@@ -76,6 +76,10 @@ type app struct {
 	// sipomTerms são os termos aprendidos (delegacia, delegado, tipos de
 	// arma, drogas, cores…) das escolhas dos analistas.
 	sipomTerms *sipom.TermRepo
+	// sipomClient envia as ocorrências pela API do SIPOM; nil = sem
+	// credenciais (SIPOM_BASE_URL/CLIENT_KEY/SECRET) — o analista marca à
+	// mão o que lançou lá.
+	sipomClient *sipom.Client
 	// geocoder localiza o endereço das ocorrências no Nominatim da agência;
 	// nil = desligado (GEOCODER_URL vazio).
 	geocoder *geocode.Geocoder
@@ -140,6 +144,11 @@ func main() {
 	a.sipomMap = sipom.NewMapRepo(appDB)
 	a.sipomAreas = sipom.NewAreaRuleRepo(appDB)
 	a.sipomTerms = sipom.NewTermRepo(appDB)
+	if a.sipomClient = sipom.NewClientFromEnv(); a.sipomClient != nil {
+		log.Printf("SIPOM: envio pela API em %s", a.sipomClient.BaseURL)
+	} else {
+		log.Printf("SIPOM: API sem credenciais — envio marcado à mão")
+	}
 
 	var geoStatus string
 	a.geocoder, geoStatus = geocode.FromEnv(appDB)
@@ -284,7 +293,12 @@ func main() {
 	mux.Handle("PUT /api/ops-occurrences/{id}/sipom/natureza", auth(http.HandlerFunc(a.handleSipomSetNatureza)))
 	mux.Handle("PUT /api/ops-occurrences/{id}/sipom/procedimento", auth(http.HandlerFunc(a.handleSipomSetProcedimento)))
 	mux.Handle("PUT /api/ops-occurrences/{id}/sipom/materiais/{kind}/{pos}", auth(http.HandlerFunc(a.handleSipomSetMaterial)))
+	mux.Handle("POST /api/ops-occurrences/{id}/sipom/enviar", auth(http.HandlerFunc(a.handleSipomEnviar)))
+	mux.Handle("PUT /api/ops-occurrences/{id}/sipom/pessoas/{pid}/sexo", auth(http.HandlerFunc(a.handleSipomSetSexo)))
+	mux.Handle("PUT /api/ops-occurrences/{id}/sipom/veiculos/{pos}/ano", auth(http.HandlerFunc(a.handleSipomSetVehicleYears)))
 	mux.Handle("PUT /api/ops-occurrences/{id}/sipom/{field}", auth(http.HandlerFunc(a.handleSipomSetField)))
+	mux.Handle("GET /api/sipom/bairros", auth(http.HandlerFunc(a.handleSipomBairros)))
+	mux.Handle("GET /api/admin/sipom/ping", auth(http.HandlerFunc(a.handleSipomPing)))
 	mux.Handle("GET /api/sipom/catalogo", auth(http.HandlerFunc(a.handleSipomCatalogo)))
 	mux.Handle("GET /api/sipom/marcas-modelos", auth(http.HandlerFunc(a.handleSipomMarcasModelos)))
 	mux.Handle("GET /api/ops-occurrences/{id}/sipom/payload", auth(http.HandlerFunc(a.handleSipomPayload)))

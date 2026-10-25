@@ -54,6 +54,10 @@ INCIDENT_MAPS_RESOLVER="${INCIDENT_MAPS_RESOLVER:-on}"
 # importadas. Vazio = desligado.
 GEOCODER_URL="${GEOCODER_URL:-}"
 GEOCODER_STATE="${GEOCODER_STATE:-Ceará}"
+# API de integração do SIPOM. Sem chave ou segredo, o envio fica desligado.
+SIPOM_BASE_URL="${SIPOM_BASE_URL:-https://sipom.pm.ce.gov.br}"
+SIPOM_CLIENT_KEY="${SIPOM_CLIENT_KEY:-}"
+SIPOM_SECRET="${SIPOM_SECRET:-}"
 
 # ─── 2. Pacotes de sistema ───────────────────────────────────────────────
 log "Instalando pacotes apt"
@@ -206,6 +210,9 @@ SESSION_IDLE_MINUTES=${SESSION_IDLE_MINUTES}
 INCIDENT_MAPS_RESOLVER=${INCIDENT_MAPS_RESOLVER}
 GEOCODER_URL=${GEOCODER_URL}
 GEOCODER_STATE=${GEOCODER_STATE}
+SIPOM_BASE_URL=${SIPOM_BASE_URL}
+SIPOM_CLIENT_KEY=${SIPOM_CLIENT_KEY}
+SIPOM_SECRET=${SIPOM_SECRET}
 EOF
 
 cat > "$REPO_DIR/frontend.env" <<EOF

@@ -48,6 +48,7 @@ type Catalog struct {
 	// bairro por cidade e nome normalizado.
 	bairroByKey map[int]map[string]int
 	bairroNome  map[int]string
+	bairroCid   map[int]int // bairro.id → cidade.id
 	// Área de atuação: companhias por bairro e por cidade inteira.
 	areaByBairro map[int][]int
 	areaByCidade map[int][]int
@@ -74,6 +75,7 @@ type Catalog struct {
 	drogas            map[int]Droga
 	drogaList         []Droga
 	celularMarcas     *refList
+	vinculos          map[string]int // nome normalizado → vinculos.id
 	veiculoTipos      *codeList
 	veiculoCores      *codeList
 	marcasModelos     []MarcaModelo          // tabela DENATRAN inteira, para busca
@@ -168,6 +170,7 @@ func Load(ctx context.Context, db *sql.DB) (*Catalog, error) {
 		cidadeNome:     map[int]string{},
 		bairroByKey:    map[int]map[string]int{},
 		bairroNome:     map[int]string{},
+		bairroCid:      map[int]int{},
 		areaByBairro:   map[int][]int{},
 		areaByCidade:   map[int][]int{},
 		policiamentos:  map[int]string{},
@@ -178,7 +181,7 @@ func Load(ctx context.Context, db *sql.DB) (*Catalog, error) {
 		procedimentos: map[int]string{}, delegacias: map[int]Delegacia{}, delegaciaByCode: map[int]int{},
 		delegados: map[int]Delegado{},
 		armaTipos: newRefList(), armaMarcas: newRefList(), armaCalibres: newRefList(),
-		drogas: map[int]Droga{}, celularMarcas: newRefList(),
+		drogas: map[int]Droga{}, celularMarcas: newRefList(), vinculos: map[string]int{},
 		veiculoTipos: newCodeList(), veiculoCores: newCodeList(),
 		marcaModeloKey: map[string]MarcaModelo{}, marcaModeloByCode: map[int]MarcaModelo{},
 	}
@@ -238,6 +241,7 @@ func Load(ctx context.Context, db *sql.DB) (*Catalog, error) {
 			}
 			c.bairroByKey[cid][key(nome)] = id
 			c.bairroNome[id] = nome
+			c.bairroCid[id] = cid
 			return nil
 		}},
 		{"atuacao", `SELECT a.companhia_id, a.bairro_id, a.cidade_id
@@ -318,6 +322,15 @@ func Load(ctx context.Context, db *sql.DB) (*Catalog, error) {
 		{"arma_marcas", `SELECT id, nome FROM sipom.arma_marcas WHERE deletado_em IS NULL ORDER BY id`, refScan(c.armaMarcas)},
 		{"arma_calibres", `SELECT id, nome FROM sipom.arma_calibres WHERE deletado_em IS NULL ORDER BY id`, refScan(c.armaCalibres)},
 		{"celular_marcas", `SELECT id, nome FROM sipom.celular_marcas ORDER BY id`, refScan(c.celularMarcas)},
+		{"vinculos", `SELECT id, nome FROM sipom.vinculos`, func(r *sql.Rows) error {
+			var id int
+			var nome string
+			if err := r.Scan(&id, &nome); err != nil {
+				return err
+			}
+			c.vinculos[key(nome)] = id
+			return nil
+		}},
 		{"drogas", `SELECT id, nome, unidade FROM sipom.drogas ORDER BY id`, func(r *sql.Rows) error {
 			var d Droga
 			if err := r.Scan(&d.ID, &d.Nome, &d.Unidade); err != nil {
@@ -469,6 +482,25 @@ func (c *Catalog) Companhia(id int) (Companhia, bool) {
 func (c *Catalog) CidadeNome(id int) string { return c.cidadeNome[id] }
 func (c *Catalog) BairroNome(id int) string { return c.bairroNome[id] }
 
+// BairroDaCidade diz se o bairro (ativo) é da cidade — o SIPOM recusa
+// bairro de outra cidade.
+func (c *Catalog) BairroDaCidade(bairroID, cidadeID int) bool {
+	cid, ok := c.bairroCid[bairroID]
+	return ok && cid == cidadeID
+}
+
+// Bairros devolve os bairros ativos da cidade, por nome.
+func (c *Catalog) Bairros(cidadeID int) []Ref {
+	out := []Ref{}
+	for id, cid := range c.bairroCid {
+		if cid == cidadeID {
+			out = append(out, Ref{ID: id, Nome: c.bairroNome[id]})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return key(out[i].Nome) < key(out[j].Nome) })
+	return out
+}
+
 // Policiamento e Funcao devolvem o nome do tipo de policiamento e da função.
 func (c *Catalog) Policiamento(id int) string { return c.policiamentos[id] }
 func (c *Catalog) Funcao(id int) string       { return c.funcoes[id] }
@@ -539,10 +571,21 @@ func (c *Catalog) Delegados() []Delegado { return c.delegadoList }
 
 // ArmaTipos, ArmaMarcas, ArmaCalibres e CelularMarcas devolvem as listas
 // dos selects do material; os nomes por id ficam em *Nome.
-func (c *Catalog) ArmaTipos() []Ref              { return c.armaTipos.items }
-func (c *Catalog) ArmaMarcas() []Ref             { return c.armaMarcas.items }
-func (c *Catalog) ArmaCalibres() []Ref           { return c.armaCalibres.items }
-func (c *Catalog) CelularMarcas() []Ref          { return c.celularMarcas.items }
+func (c *Catalog) ArmaTipos() []Ref     { return c.armaTipos.items }
+func (c *Catalog) ArmaMarcas() []Ref    { return c.armaMarcas.items }
+func (c *Catalog) ArmaCalibres() []Ref  { return c.armaCalibres.items }
+func (c *Catalog) CelularMarcas() []Ref { return c.celularMarcas.items }
+
+// VinculoID devolve o id do SIPOM (sipom.vinculos) para o vínculo interno
+// do envolvido, pelo nome da opção como o SIPOM escreve (VinculoLabel).
+func (c *Catalog) VinculoID(vinculo string) (int, bool) {
+	label, ok := VinculoLabel[vinculo]
+	if !ok {
+		return 0, false
+	}
+	id, ok := c.vinculos[key(label)]
+	return id, ok
+}
 func (c *Catalog) ArmaTipoNome(id int) string    { return c.armaTipos.byID[id] }
 func (c *Catalog) ArmaMarcaNome(id int) string   { return c.armaMarcas.byID[id] }
 func (c *Catalog) ArmaCalibreNome(id int) string { return c.armaCalibres.byID[id] }

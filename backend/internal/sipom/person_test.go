@@ -57,3 +57,22 @@ func TestTranslatePerson(t *testing.T) {
 		}
 	}
 }
+
+// Os cinco vínculos da ocorrência casam com os nomes da tabela do SIPOM
+// (dump de 2026-10-19), na grafia de lá.
+func TestVinculoID(t *testing.T) {
+	c := &Catalog{vinculos: map[string]int{}}
+	for id, nome := range map[int]string{9: "Vitima", 10: "Infrator", 11: "Testemunha",
+		12: "Vitma - Não Identificada", 13: "Infrator - Não identificado", 3: "Mãe"} {
+		c.vinculos[key(nome)] = id
+	}
+	for vinc, want := range map[string]int{VincVitima: 9, VincInfrator: 10, VincTestemunha: 11,
+		VincVitimaNI: 12, VincInfratorNI: 13} {
+		if got, ok := c.VinculoID(vinc); !ok || got != want {
+			t.Errorf("%s: %d %v, quer %d", vinc, got, ok, want)
+		}
+	}
+	if _, ok := c.VinculoID("mae"); ok {
+		t.Errorf("vínculo fora da ocorrência não deveria casar")
+	}
+}

@@ -1,49 +1,104 @@
 package sipom
 
-// Contrato do envio ao SIPOM — o corpo do POST proposto ao desenvolvedor do
-// SIPOM (ver docs/sipom-integracao.md). Ids são os das tabelas do SIPOM
-// (natureza_fatos, companhias, cidade, bairro, policiamentos_*,
-// postos_graduacoes); textos acompanham os ids só para conferência.
+// Contrato do envio ao SIPOM — o corpo de POST /api/integracoes/ocorrencias/
+// receber, como o manual do SIPOM o define ("API de integração SIPOM —
+// Referência", 2026-10-19). Todos os ids são os das tabelas do SIPOM; só vai
+// o que o SIPOM lê (os nomes ao lado dos ids ele ignora, e conteúdo igual
+// precisa dar "sem_alteracao" no reenvio).
 //
-// Versão do contrato: muda quando um campo muda de sentido ou sai. A "2"
-// acrescenta procedimento e materiais (fase 2, docs/sipom-materiais.md); a
-// "3", as fotos da ocorrência; a "4" troca `procedimento` (um) pela lista
-// `procedimentos` — a ocorrência com maiores e menor tem IP e AI.
-const PayloadVersion = "4"
+// A ocorrência é identificada por origem.id; cada item leva o id estável do
+// Tevunah (o uuid da linha), pelo qual o SIPOM sincroniza a atualização:
+// novo entra, alterado é trocado, ausente sai.
+//
+// Versão "5": o contrato do manual. As anteriores ("1" a "4") eram a nossa
+// proposta (docs/sipom-integracao.md).
+const PayloadVersion = "5"
 
-// Payload é uma ocorrência completa: cabeçalho, históricos, envolvidos e
-// composição, num POST só (o SIPOM grava tudo ou nada).
+// Limites do manual (itens por ocorrência e tamanho de foto).
+const (
+	MaxComposicao    = 30
+	MaxProcedimentos = 20
+	MaxMateriais     = 100
+	MaxFotos         = 10
+	MaxEnvolvidos    = 50
+	MaxFotoBytes     = 5 << 20
+	MaxNumeroOcorr   = 45
+)
+
+// Payload é uma ocorrência completa, num POST só (o SIPOM grava tudo ou
+// nada).
 type Payload struct {
-	Origem     PayloadOrigem     `json:"origem"`
-	Ocorrencia PayloadOcorrencia `json:"ocorrencia"`
-	Historico  string            `json:"historico"`
-	// Reservado: o texto do histórico de inteligência ainda não é gerado
-	// pelo Tevunah (vai null).
-	HistoricoInteligencia *string             `json:"historico_inteligencia"`
-	Envolvidos            []PayloadEnvolvido  `json:"envolvidos"`
-	Composicao            []PayloadComposicao `json:"composicao"`
-	// Fase 2: os procedimentos (aba Procedimentos) e os materiais apreendidos
-	// (aba Materiais). Em geral é um procedimento; são dois quando a mesma
-	// ocorrência gera, por exemplo, um IP (maiores) e um AI (menor).
-	Procedimentos []PayloadProcedimento `json:"procedimentos"`
-	Materiais     []PayloadMaterial     `json:"materiais"`
-	// Fotos da ocorrência (aba Fotos): apreensão, prisão, local — anexadas
-	// pelo analista na ficha. Lista vazia = sem foto.
-	Fotos []PayloadFoto `json:"fotos"`
+	Origem                PayloadOrigem         `json:"origem"`
+	Ocorrencia            PayloadOcorrencia     `json:"ocorrencia"`
+	Historico             string                `json:"historico,omitempty"`
+	HistoricoInteligencia string                `json:"historico_inteligencia,omitempty"`
+	Composicao            []PayloadComposicao   `json:"composicao"`
+	Procedimentos         []PayloadProcedimento `json:"procedimentos"`
+	Materiais             []PayloadMaterial     `json:"materiais"`
+	Fotos                 []PayloadFoto         `json:"fotos"`
+	Envolvidos            []PayloadEnvolvido    `json:"envolvidos"`
 }
 
-// PayloadProcedimento são os campos do modal "Procedimento Ocorrência",
-// repartição Polícia Civil (a única que o relatório operacional traz).
+// PayloadOrigem: origem.id (uuid da ocorrência no Tevunah) é a chave de
+// idempotência.
+type PayloadOrigem struct {
+	ID string `json:"id"`
+}
+
+// PayloadOcorrencia é o cabeçalho.
+type PayloadOcorrencia struct {
+	// Data e hora do fato, ISO 8601 com o fuso do Ceará (-03:00).
+	DataHora       string `json:"data_hora"`
+	NaturezaFatoID int    `json:"natureza_fato_id"` // natureza_fatos.id
+	// Área da unidade militar do local do fato (companhias.id, qualquer
+	// batalhão).
+	UnidadeMilitarID int `json:"unidade_militar_id"`
+	// OPM da equipe (companhias.id); tem de estar no escopo do cliente.
+	OPMMilitarID     int             `json:"opm_militar_id"`
+	Endereco         PayloadEndereco `json:"endereco"`
+	NumeroOcorrencia string          `json:"numero_ocorrencia,omitempty"` // ficha CIOPS, até 45
+	Viatura          string          `json:"viatura,omitempty"`
+	NumeroHT         string          `json:"numero_ht,omitempty"`
+}
+
+// PayloadEndereco: cidade, bairro e coordenada são obrigatórios; o bairro
+// tem de ser da cidade. Numeral não numérico o SIPOM deixa vazio (aviso
+// numeral_nao_numerico).
+type PayloadEndereco struct {
+	CidadeID   int     `json:"cidade_id"`
+	BairroID   int     `json:"bairro_id"`
+	Latitude   float64 `json:"latitude"`
+	Longitude  float64 `json:"longitude"`
+	Logradouro string  `json:"logradouro,omitempty"`
+	Numeral    string  `json:"numeral,omitempty"`
+}
+
+// PayloadComposicao é um policial da guarnição. Matrícula fora dos
+// servidores do SIPOM: o item é ignorado, com aviso matricula_nao_encontrada.
+type PayloadComposicao struct {
+	ID                 string `json:"id"`
+	Matricula          string `json:"matricula"`
+	PoliciamentoTipoID int    `json:"policiamento_tipo_id"` // policiamentos_tipos.id
+	FuncaoID           int    `json:"funcao_id"`            // policiamentos_funcoes.id
+}
+
+// Repartições do procedimento.
+const (
+	ReparticaoPM             = 1
+	ReparticaoPoliciaCivil   = 2
+	ReparticaoPoliciaFederal = 3
+)
+
+// PayloadProcedimento: o relatório operacional só traz procedimento da
+// Polícia Civil (repartição 2: delegacia e delegado do catálogo).
 type PayloadProcedimento struct {
-	Reparticao     int     `json:"reparticao"`      // 2 = Polícia Civil
-	ProcedimentoID int     `json:"procedimento_id"` // procedimentos.id
-	Procedimento   string  `json:"procedimento"`    // conferência
-	Numero         string  `json:"numero"`
-	Ano            string  `json:"ano"`
-	DelegaciaID    int     `json:"delegacia_id"` // delegacias.id
-	Delegacia      string  `json:"delegacia"`    // conferência
-	DelegadoID     *int    `json:"delegado_id"`  // delegados.id; null = não identificado (não é obrigatório)
-	Delegado       *string `json:"delegado"`
+	ID             string `json:"id"`
+	ProcedimentoID int    `json:"procedimento_id"` // procedimentos.id
+	Numero         string `json:"numero"`
+	Ano            string `json:"ano"` // AAAA
+	Reparticao     int    `json:"reparticao"`
+	DelegaciaID    int    `json:"delegacia_id,omitempty"` // delegacias.id
+	DelegadoID     *int   `json:"delegado_id,omitempty"`  // delegados.id (opcional)
 }
 
 // Tipos de material (material_tipos.id).
@@ -57,132 +112,66 @@ const (
 	MaterialOutros   = 7
 )
 
-// PayloadMaterial é um item do modal "Material": o tipo decide quais campos
-// vêm preenchidos (os demais ficam null/zero). Os textos acompanham os ids
-// para conferência.
+// PayloadMaterial é um item da aba Materiais: o tipo decide os campos.
 type PayloadMaterial struct {
+	ID     string `json:"id"`
 	TipoID int    `json:"tipo_id"` // material_tipos.id
-	Tipo   string `json:"tipo"`
 
-	// Arma.
+	// Arma: tipo obrigatório; marca, calibre, número e descrição opcionais.
 	ArmaTipoID    *int   `json:"arma_tipo_id,omitempty"`
-	ArmaTipo      string `json:"arma_tipo,omitempty"`
 	ArmaMarcaID   *int   `json:"arma_marca_id,omitempty"`
-	ArmaMarca     string `json:"arma_marca,omitempty"`
 	ArmaCalibreID *int   `json:"arma_calibre_id,omitempty"`
-	ArmaCalibre   string `json:"arma_calibre,omitempty"`
 	Numero        string `json:"numero,omitempty"`
 	Descricao     string `json:"descricao,omitempty"`
 
-	// Droga: nome e unidade como a lista do SIPOM mostra (não há id lá).
-	Droga   string `json:"droga,omitempty"`
-	Unidade string `json:"unidade,omitempty"`
+	// Droga.
+	DrogaTipoID *int `json:"droga_tipo_id,omitempty"`
 
-	// Quantidade: unidades (arma), ou na unidade da droga.
+	// Quantidade: unidades (arma), na unidade da droga, ou valor em R$.
 	Quantidade *float64 `json:"quantidade,omitempty"`
 
-	// Veículo: códigos DENATRAN, como os selects do SIPOM enviam.
-	Situacao          *int   `json:"situacao,omitempty"` // 1 apreendido, 2 recuperado
+	// Veículo: placa já cadastrada no SIPOM é só vinculada; placa nova pede
+	// os códigos DENATRAN e o ano de fabricação.
 	Placa             string `json:"placa,omitempty"`
-	VeiculoTipoCodigo *int   `json:"veiculo_tipo_codigo,omitempty"`
-	VeiculoTipo       string `json:"veiculo_tipo,omitempty"`
-	MarcaModeloCodigo *int   `json:"marca_modelo_codigo,omitempty"`
-	MarcaModelo       string `json:"marca_modelo,omitempty"`
-	CorCodigo         *int   `json:"cor_codigo,omitempty"`
-	Cor               string `json:"cor,omitempty"`
+	Situacao          *int   `json:"situacao,omitempty"` // 1 apreendido, 2 recuperado
+	CodigoTipo        *int   `json:"codigo_tipo,omitempty"`
+	CodigoCor         *int   `json:"codigo_cor,omitempty"`
+	CodigoMarcaModelo *int   `json:"codigo_marca_modelo,omitempty"`
+	AnoFabricacao     *int   `json:"ano_fabricacao,omitempty"`
+	AnoModelo         *int   `json:"ano_modelo,omitempty"`
 }
 
-// PayloadOrigem identifica o registro no Tevunah. origem.id é a chave de
-// idempotência: o mesmo id reenviado não cria outra ocorrência.
-type PayloadOrigem struct {
-	Sistema       string  `json:"sistema"` // "TEVUNAH"
-	Versao        string  `json:"versao"`  // versão do contrato
-	Unidade       string  `json:"unidade"` // agência que envia ("SAI/2º BPRAIO")
-	ID            string  `json:"id"`      // uuid da ocorrência no Tevunah
-	RelatorioData *string `json:"relatorio_data"`
-}
-
-// PayloadOcorrencia é o cabeçalho — os campos de "Criando nova ocorrência".
-type PayloadOcorrencia struct {
-	NaturezaFatoID int    `json:"natureza_fato_id"` // natureza_fatos.id
-	NaturezaFato   string `json:"natureza_fato"`    // natureza_fatos.nome (conferência)
-	// Data e hora do fato, ISO 8601 com o fuso do Ceará (-03:00).
-	DataHora string `json:"data_hora"`
-	// Área da unidade militar do local do fato (companhias.id).
-	UnidadeMilitarID int    `json:"unidade_militar_id"`
-	UnidadeMilitar   string `json:"unidade_militar"`
-	// OPM que atendeu (companhias.id).
-	OPMMilitarID     int             `json:"opm_militar_id"`
-	OPMMilitar       string          `json:"opm_militar"`
-	Endereco         PayloadEndereco `json:"endereco"`
-	NumeroOcorrencia string          `json:"numero_ocorrencia"` // ficha CIOPS
-	Viatura          *string         `json:"viatura"`
-	NumeroHT         *string         `json:"numero_ht"`
-	// Houve participação da inteligência (SAI) na ocorrência.
-	ParticipacaoInteligencia bool `json:"participacao_inteligencia"`
-}
-
-// PayloadEndereco: no formulário do SIPOM bairro e cidade são texto; os ids
-// do catálogo vão junto para quem quiser casar sem depender da grafia.
-type PayloadEndereco struct {
-	Logradouro string   `json:"logradouro"`
-	Numeral    string   `json:"numeral"`
-	Bairro     string   `json:"bairro"`
-	BairroID   *int     `json:"bairro_id"` // bairro.id; null se o bairro não está no catálogo
-	Cidade     string   `json:"cidade"`
-	CidadeID   int      `json:"cidade_id"` // cidade.id
-	CidadeIBGE int      `json:"cidade_ibge"`
-	Latitude   *float64 `json:"latitude"`
-	Longitude  *float64 `json:"longitude"`
-}
-
-// Vínculo do envolvido. No formulário do SIPOM o valor da opção é um token
-// que muda a cada carregamento, por isso o contrato usa códigos estáveis.
-const (
-	PayloadVincVitima     = "VITIMA"
-	PayloadVincInfrator   = "INFRATOR"
-	PayloadVincTestemunha = "TESTEMUNHA"
-	PayloadVincVitimaNI   = "VITIMA_NAO_IDENTIFICADA"
-	PayloadVincInfratorNI = "INFRATOR_NAO_IDENTIFICADO"
-)
-
-// PayloadVinculo traduz o vínculo interno para o código do contrato.
-var PayloadVinculo = map[string]string{
-	VincVitima:     PayloadVincVitima,
-	VincInfrator:   PayloadVincInfrator,
-	VincTestemunha: PayloadVincTestemunha,
-	VincVitimaNI:   PayloadVincVitimaNI,
-	VincInfratorNI: PayloadVincInfratorNI,
-}
-
-// PayloadEnvolvido são os campos do modal "Adicionar Pessoa à Ocorrência".
-type PayloadEnvolvido struct {
-	Vinculo    string       `json:"vinculo"`
-	Nome       *string      `json:"nome"`
-	CPF        *string      `json:"cpf"`        // 11 dígitos
-	Sexo       *int         `json:"sexo"`       // 1 masculino, 2 feminino
-	Nascimento *string      `json:"nascimento"` // YYYY-MM-DD
-	Mae        *string      `json:"mae"`
-	Morte      bool         `json:"morte"`
-	Foto       *PayloadFoto `json:"foto"`
-}
-
-// PayloadFoto é uma imagem em base64: a foto principal do dossiê (em
-// envolvidos[].foto) ou uma foto da ocorrência (em fotos[]).
+// PayloadFoto é uma foto da ocorrência (aba Fotos). JPG, PNG ou WebP, até
+// 5 MB; o SIPOM confere o tipo pelo conteúdo e regrava em JPG.
 type PayloadFoto struct {
-	Mime   string `json:"mime"` // image/jpeg | image/png
-	Base64 string `json:"base64"`
+	ID      string `json:"id"`
+	Base64  string `json:"base64"`
+	Legenda string `json:"legenda,omitempty"`
 }
 
-// PayloadComposicao é um policial da guarnição. O SIPOM localiza o servidor
-// pela matrícula; posto e nome de guerra vão para conferência.
-type PayloadComposicao struct {
-	Matricula          string `json:"matricula"`
-	PoliciamentoTipoID int    `json:"policiamento_tipo_id"` // policiamentos_tipos.id
-	FuncaoID           int    `json:"funcao_id"`            // policiamentos_funcoes.id
-	PostoGraduacaoID   *int   `json:"posto_graduacao_id"`   // postos_graduacoes.id
-	Posto              string `json:"posto"`
-	Numeral            string `json:"numeral"`
-	NomeGuerra         string `json:"nome_guerra"`
-	Equipe             string `json:"equipe"` // "RAIO 01", "VTRA 121"
+// PayloadEnvolvido: pessoa nil = não identificado (com sexo no item, se
+// souber).
+type PayloadEnvolvido struct {
+	ID        string         `json:"id"`
+	VinculoID int            `json:"vinculo_id"`
+	Morte     bool           `json:"morte"`
+	Pessoa    *PayloadPessoa `json:"pessoa"`
+	Sexo      int            `json:"sexo,omitempty"` // só sem pessoa
+}
+
+// PayloadPessoa: encontrada por CPF, ou por nome + mãe + nascimento, é só
+// vinculada no SIPOM (e só os campos vazios lá são preenchidos).
+type PayloadPessoa struct {
+	Nome       string           `json:"nome"` // 3 a 125 caracteres
+	Sexo       int              `json:"sexo"` // 1 masculino, 2 feminino
+	CPF        string           `json:"cpf,omitempty"`
+	Nascimento string           `json:"nascimento,omitempty"` // AAAA-MM-DD
+	Mae        string           `json:"mae,omitempty"`
+	Foto       *PayloadFotoMime `json:"foto,omitempty"`
+}
+
+// PayloadFotoMime é a foto da pessoa: {mime, base64}.
+type PayloadFotoMime struct {
+	Mime   string `json:"mime"`
+	Base64 string `json:"base64"`
 }

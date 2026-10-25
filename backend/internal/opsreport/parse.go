@@ -22,6 +22,8 @@ import (
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/belia/tevunah/backend/internal/sipom"
 )
 
 // Papéis de pessoa na ocorrência — os mesmos do cadastro de ocorrências.
@@ -98,6 +100,9 @@ type Occurrence struct {
 	// peopleLinked[i]: People[i] tem dossiê vinculado (só no recálculo do
 	// gravado; na importação o vínculo ainda não existe).
 	peopleLinked []bool
+	// peopleSexed[i]: People[i] tem sexo para o SIPOM (dossiê ou ficha; só
+	// no recálculo).
+	peopleSexed []bool
 
 	Warnings []string
 }
@@ -139,9 +144,29 @@ type SipomFields struct {
 	Pending []string
 	// Manual são os campos que o analista fixou; o recálculo não os toca.
 	Manual []string
-	// SentAt: quando a ocorrência foi marcada como enviada ao SIPOM (nil =
-	// ainda na fila). Só leitura aqui — quem grava é Repo.SetSipomSent.
+	// SentAt: quando a ocorrência foi enviada (ou marcada como lançada) no
+	// SIPOM (nil = ainda na fila). Só leitura aqui — quem grava é
+	// Repo.SetSipomSent ou Repo.SaveSipomSend.
 	SentAt *time.Time
+	// Send é o resultado do último envio pela API.
+	Send SipomSend
+}
+
+// SipomSend é o estado do envio pela API do SIPOM.
+type SipomSend struct {
+	Protocolo     string // uuid do recebimento no SIPOM
+	Identificador string // número da ocorrência no SIPOM ("2026A1B2C3D4")
+	Situacao      string // criado | atualizado | sem_alteracao
+	Avisos        []sipom.Aviso
+	// BodySHA256: hash do corpo aceito por último — diz se a ficha mudou
+	// desde o envio.
+	BodySHA256 string
+	// Erro da última tentativa que falhou (vazio = a última deu certo).
+	Erro        string
+	TentativaEm *time.Time
+	// ExcluidaEm: o SIPOM respondeu 409 — a ocorrência foi excluída lá e
+	// não é recriada.
+	ExcluidaEm *time.Time
 }
 
 // IntelTexts são os campos onde se procura a participação da inteligência:
@@ -165,6 +190,9 @@ type Person struct {
 
 // Weapon é uma arma apreendida.
 type Weapon struct {
+	// ID é o da linha gravada (vazio na prévia): vai ao SIPOM como id
+	// estável do item. O mesmo vale para Drug, Vehicle e Officer.
+	ID                                  string
 	Kind, Model, Brand, Caliber, Serial string
 
 	// Tradução para o material "Arma" do SIPOM. SipomManual: o analista
@@ -175,6 +203,7 @@ type Weapon struct {
 
 // Drug é uma droga apreendida. Grams/Packages nil = não informado.
 type Drug struct {
+	ID          string
 	Description string
 	Grams       *float64
 	Packages    *int
@@ -188,6 +217,7 @@ type Drug struct {
 
 // Vehicle é um veículo apreendido.
 type Vehicle struct {
+	ID                               string
 	Kind, Brand, Model, Plate, Color string
 
 	// Tradução para o material "Veículo" do SIPOM: códigos DENATRAN e a
@@ -195,10 +225,14 @@ type Vehicle struct {
 	SipomTipoCodigo, SipomCorCodigo, SipomMarcaModeloCodigo *int
 	SipomSituacao                                           int
 	SipomManual                                             bool
+	// Ano de fabricação (obrigatório no SIPOM para placa nova) e do modelo:
+	// o relatório não traz, o analista informa.
+	SipomAnoFabricacao, SipomAnoModelo *int
 }
 
 // Officer é um policial da composição ("30079116-2SGT 22410 SOARES").
 type Officer struct {
+	ID           string
 	Registration string // matrícula
 	Rank         string // posto/graduação
 	Number       string // numeral

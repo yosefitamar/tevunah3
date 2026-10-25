@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"log"
 	"net/http"
@@ -60,6 +59,7 @@ type sipomPendingJSON struct {
 
 // sipomPersonJSON é o envolvido como vai ao SIPOM (modal "Adicionar Pessoa").
 type sipomPersonJSON struct {
+	ID           string  `json:"id"`
 	Vinculo      string  `json:"vinculo"`
 	VinculoLabel string  `json:"vinculo_label"`
 	Nome         string  `json:"nome"`
@@ -70,6 +70,8 @@ type sipomPersonJSON struct {
 	Morte        bool    `json:"morte"`
 	Foto         bool    `json:"foto"`
 	Fonte        string  `json:"fonte"`
+	// SexoFicha: o sexo foi informado na ficha (o dossiê não diz).
+	SexoFicha bool `json:"sexo_ficha"`
 }
 
 type sipomOccurrenceJSON struct {
@@ -83,8 +85,13 @@ type sipomOccurrenceJSON struct {
 	OPM         *sipomRefJSON      `json:"opm"`
 	Pendencias  []sipomPendingJSON `json:"pendencias"`
 	Ready       bool               `json:"ready"`
-	// SentAt: quando foi marcada como enviada ao SIPOM (null = na fila).
-	SentAt  *time.Time        `json:"sent_at"`
+	// SentAt: quando foi enviada (ou marcada como lançada) no SIPOM (null =
+	// na fila).
+	SentAt *time.Time `json:"sent_at"`
+	// API: o envio é pela API do SIPOM (com credenciais); false = o
+	// analista marca à mão. Envio: resultado do último envio pela API.
+	API     bool              `json:"api"`
+	Envio   *sipomEnvioJSON   `json:"envio"`
 	Manual  []string          `json:"manual"`
 	Pessoas []sipomPersonJSON `json:"pessoas"`
 	// AreaLearned: a área veio da referência aprendida (cidade + bairro),
@@ -113,6 +120,7 @@ func (a *app) sipomJSON(o *opsreport.Occurrence, people []sipom.Person) *sipomOc
 		Pessoas:        make([]sipomPersonJSON, 0, len(people)),
 		AreaCandidates: []sipomRefJSON{}, OPMCandidates: []sipomRefJSON{},
 		Equipes: splitTeams(o.Teams), SentAt: f.SentAt,
+		API: a.sipomClient != nil, Envio: sipomEnvio(f.Send),
 	}
 	if f.CidadeID != nil {
 		for _, id := range a.sipom.CityAreas(*f.CidadeID) {
@@ -132,6 +140,7 @@ func (a *app) sipomJSON(o *opsreport.Occurrence, people []sipom.Person) *sipomOc
 	}
 	for _, p := range people {
 		pj := sipomPersonJSON{
+			ID: p.ID, SexoFicha: p.SexoFicha,
 			Vinculo: p.Vinculo, VinculoLabel: sipom.VinculoLabel[p.Vinculo],
 			Nome: p.Nome, CPF: p.CPF, Sexo: p.Sexo, Mae: p.Mae,
 			Morte: p.Morte, Foto: p.Foto, Fonte: p.Fonte,
@@ -488,6 +497,7 @@ func splitTeams(teams string) []string {
 // PUT /api/ops-occurrences/{id}/sipom/{field}
 //
 //	area        {"area_id": 123 | null}
+//	bairro      {"bairro_id": 390 | null}
 //	opm         {"opm_id": 92 | null}
 //	endereco    {"logradouro": "...", "numeral": "..."} | {"reset": true}
 //	composicao  {"equipes": ["RAIO 01", "RAIO 02", ...]} | {"reset": true}
@@ -505,6 +515,7 @@ func (a *app) handleSipomSetField(w http.ResponseWriter, r *http.Request) {
 	id, field := r.PathValue("id"), r.PathValue("field")
 	var req struct {
 		AreaID     *int     `json:"area_id"`
+		BairroID   *int     `json:"bairro_id"`
 		OPMID      *int     `json:"opm_id"`
 		Logradouro string   `json:"logradouro"`
 		Numeral    string   `json:"numeral"`
@@ -532,6 +543,12 @@ func (a *app) handleSipomSetField(w http.ResponseWriter, r *http.Request) {
 		if err = a.opsReports.SetSipomArea(r.Context(), id, req.AreaID); err == nil && req.AreaID != nil {
 			areaRule = a.learnArea(r, &before.Occurrence, *req.AreaID)
 		}
+	case opsreport.SipomFieldBairro:
+		if req.BairroID != nil && (before.Sipom.CidadeID == nil || !a.sipom.BairroDaCidade(*req.BairroID, *before.Sipom.CidadeID)) {
+			httpx.Error(w, http.StatusBadRequest, "bairro inexistente ou de outra cidade no SIPOM")
+			return
+		}
+		err = a.opsReports.SetSipomBairro(r.Context(), id, req.BairroID)
 	case opsreport.SipomFieldOPM:
 		if req.OPMID != nil && !a.sipom.IsActiveCompany(*req.OPMID) {
 			httpx.Error(w, http.StatusBadRequest, "companhia inexistente ou desativada no SIPOM")
@@ -807,70 +824,66 @@ func (a *app) handleSipomConfirmNaturezas(w http.ResponseWriter, r *http.Request
 
 // ─── Payload (contrato do POST ao SIPOM) ───
 
-// Foto maior que isto não vai no envio (o dossiê aceita fotos grandes; o
-// SIPOM recorta e guarda miniatura).
-const sipomPhotoMaxBytes = 5 << 20
-
-// sipomPhotoLoader lê a foto principal do dossiê para o payload, com as
-// mesmas regras de quem a vê na tela: dossiê dentro do clearance, caminho
-// sob PHOTO_DIR e auditoria. Sem withData, devolve só o tipo (prévia).
-func (a *app) sipomPhotoLoader(r *http.Request, clearance int, withData bool) opsreport.PhotoLoader {
-	return func(entityID string) *sipom.PayloadFoto {
-		e, err := a.entities.FindByID(r.Context(), entityID)
-		if err != nil || e.DeletedAt != nil || e.Classification > clearance {
-			return nil
-		}
-		pp := primaryPhotoPath(e)
-		if pp == "" {
-			return nil
-		}
-		path := filepath.Join(photoDir(), pp)
-		abs, err := filepath.Abs(path)
-		if err != nil || !strings.HasPrefix(abs, photoDir()) {
-			return nil
-		}
-		mime := "image/jpeg"
-		if strings.HasSuffix(strings.ToLower(pp), ".png") {
-			mime = "image/png"
-		}
-		if !withData {
-			return &sipom.PayloadFoto{Mime: mime}
-		}
-		data, err := os.ReadFile(abs)
-		if err != nil || len(data) > sipomPhotoMaxBytes {
-			return nil
-		}
-		aid, sid, ip, ua := a.actorInfo(r)
-		classPtr := e.Classification
-		_ = a.audit.Log(r.Context(), audit.Entry{
-			ActorUserID: aid, ActorSessionID: sid, ActorIP: ip, ActorUserAgent: ua,
-			Action:                 "entity.photo.view",
-			ResourceType:           audit.Ptr("entity"),
-			ResourceID:             audit.Ptr(entityID),
-			ResourceClassification: &classPtr,
-			After:                  map[string]any{"contexto": "sipom.payload"},
-		})
-		return &sipom.PayloadFoto{Mime: mime, Base64: base64.StdEncoding.EncodeToString(data)}
+// sipomPayloadSources lê as fotos do envio com as mesmas regras de quem as
+// vê na tela: dossiê dentro do clearance, caminho sob PHOTO_DIR e auditoria.
+// Sem withData, só diz que a foto existe (prévia).
+func (a *app) sipomPayloadSources(r *http.Request, clearance int, withData bool) opsreport.PayloadSources {
+	return opsreport.PayloadSources{
+		Preview: !withData,
+		Shrink:  sipom.ShrinkJPEG,
+		Photo: func(entityID string) ([]byte, string) {
+			e, err := a.entities.FindByID(r.Context(), entityID)
+			if err != nil || e.DeletedAt != nil || e.Classification > clearance {
+				return nil, ""
+			}
+			pp := primaryPhotoPath(e)
+			if pp == "" {
+				return nil, ""
+			}
+			mime := "image/jpeg"
+			if strings.HasSuffix(strings.ToLower(pp), ".png") {
+				mime = "image/png"
+			}
+			if !withData {
+				return nil, mime
+			}
+			data := readPhotoFile(pp)
+			if data == nil {
+				return nil, ""
+			}
+			aid, sid, ip, ua := a.actorInfo(r)
+			classPtr := e.Classification
+			_ = a.audit.Log(r.Context(), audit.Entry{
+				ActorUserID: aid, ActorSessionID: sid, ActorIP: ip, ActorUserAgent: ua,
+				Action:                 "entity.photo.view",
+				ResourceType:           audit.Ptr("entity"),
+				ResourceID:             audit.Ptr(entityID),
+				ResourceClassification: &classPtr,
+				After:                  map[string]any{"contexto": "sipom.payload"},
+			})
+			return data, mime
+		},
+		OccPhoto: func(p opsreport.Photo) []byte {
+			if !withData {
+				return nil
+			}
+			return readPhotoFile(p.Path)
+		},
 	}
 }
 
-// sipomOccPhotoLoader lê uma foto da ocorrência para o payload. Sem
-// withData, devolve só o tipo (prévia).
-func sipomOccPhotoLoader(withData bool) opsreport.OccPhotoLoader {
-	return func(p opsreport.Photo) *sipom.PayloadFoto {
-		if !withData {
-			return &sipom.PayloadFoto{Mime: p.MIME}
-		}
-		abs, err := filepath.Abs(filepath.Join(photoDir(), p.Path))
-		if err != nil || !strings.HasPrefix(abs, photoDir()) {
-			return nil
-		}
-		data, err := os.ReadFile(abs)
-		if err != nil || len(data) > sipomPhotoMaxBytes {
-			return nil
-		}
-		return &sipom.PayloadFoto{Mime: p.MIME, Base64: base64.StdEncoding.EncodeToString(data)}
+// readPhotoFile lê um arquivo de foto sob PHOTO_DIR (nil se sumiu ou se o
+// caminho escapa do diretório).
+func readPhotoFile(rel string) []byte {
+	abs, err := filepath.Abs(filepath.Join(photoDir(), rel))
+	if err != nil || !strings.HasPrefix(abs, photoDir()) {
+		return nil
 	}
+	data, err := os.ReadFile(abs)
+	if err != nil {
+		return nil
+	}
+	return data
 }
 
 // GET /api/ops-occurrences/{id}/sipom/payload[?fotos=1]
@@ -892,10 +905,8 @@ func (a *app) handleSipomPayload(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusNotFound, "ocorrência não encontrada")
 		return
 	}
-	unidade := "SAI/" + a.opsUnit
 	withData := r.URL.Query().Get("fotos") == "1"
-	payload, err := opsreport.BuildSipomPayload(a.sipom, so, unidade,
-		a.sipomPhotoLoader(r, me.ClearanceLevel, withData), sipomOccPhotoLoader(withData))
+	payload, err := opsreport.BuildSipomPayload(a.sipom, so, a.sipomPayloadSources(r, me.ClearanceLevel, withData))
 	var nr *opsreport.NotReadyError
 	switch {
 	case errors.As(err, &nr):
@@ -907,7 +918,7 @@ func (a *app) handleSipomPayload(w http.ResponseWriter, r *http.Request) {
 		return
 	case err != nil:
 		log.Printf("sipom payload: %v", err)
-		httpx.Error(w, http.StatusInternalServerError, "erro ao montar o envio")
+		httpx.Error(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
 	httpx.OK(w, map[string]any{"ready": true, "pendencias": []sipomPendingJSON{}, "payload": payload})

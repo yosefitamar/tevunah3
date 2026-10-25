@@ -31,10 +31,6 @@ const (
 	ProcAtoInfracional = 4
 )
 
-// Repartição de registro do procedimento, no formulário do SIPOM. O
-// relatório operacional só traz procedimentos da Polícia Civil.
-const ReparticaoPoliciaCivil = 2
-
 // ProcInput é o que a resolução do procedimento lê da ocorrência.
 type ProcInput struct {
 	Type     string // "BO", "IP", "TCO"… como o relatório escreve

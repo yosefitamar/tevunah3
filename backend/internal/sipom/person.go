@@ -50,12 +50,17 @@ type PersonInput struct {
 	Deceased   bool
 	DeceasedOn *time.Time
 	HasPhoto   bool
+	// Sexo informado na ficha para o SIPOM (0 = não): vale quando o dossiê
+	// não diz.
+	Sexo int
 
 	OccurredOn time.Time
 }
 
 // Person é o envolvido pronto para o SIPOM.
 type Person struct {
+	// ID é o do envolvido na ficha (ops_occurrence_people; vazio na prévia).
+	ID         string
 	Vinculo    string
 	Nome       string
 	CPF        string // só dígitos
@@ -65,6 +70,9 @@ type Person struct {
 	Morte      bool
 	Foto       bool
 	Fonte      string // de onde vieram os dados: dossiê ou só o relatório
+	// SexoFicha: o sexo veio da ficha (informado pelo analista), não do
+	// dossiê.
+	SexoFicha bool
 }
 
 // Linked diz se o envolvido tem dossiê — sem ele só vão nome e mãe.
@@ -90,6 +98,9 @@ func TranslatePerson(in PersonInput) Person {
 		}
 		p.Nascimento = in.BirthDate
 		p.Foto = in.HasPhoto
+	}
+	if p.Sexo == 0 && (in.Sexo == SexoMasculino || in.Sexo == SexoFeminino) {
+		p.Sexo, p.SexoFicha = in.Sexo, true
 	}
 
 	unidentified := Unidentified(p.Nome)

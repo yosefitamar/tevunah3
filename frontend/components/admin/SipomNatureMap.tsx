@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Save } from "lucide-react";
+import { PlugZap, Save } from "lucide-react";
 import {
   getSipomNatureMap,
   listSipomNaturezas,
+  pingSipom,
   upsertSipomNatureRule,
   type SipomConfianca,
   type SipomNatureza,
@@ -138,6 +139,8 @@ export default function SipomNatureMap() {
         lei é ignorado na comparação (&ldquo;FURTO - ART. 155/CPB&rdquo; = &ldquo;FURTO&rdquo;).
       </p>
 
+      <SipomPing />
+
       {error && <div className="banner banner-error">⚠ {error}</div>}
       {notice && <div className="banner banner-info">{notice}</div>}
       {rows === null && !error && <div className="muted">// CARREGANDO…</div>}
@@ -212,6 +215,39 @@ export default function SipomNatureMap() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// Teste da conexão com a API do SIPOM: confere chave, segredo e relógio do
+// servidor sem gravar nada lá.
+function SipomPing() {
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
+  async function run() {
+    setBusy(true);
+    setResult(null);
+    try {
+      const r = await pingSipom();
+      if (!r.configurado) {
+        setResult({ ok: false, text: "API DO SIPOM SEM CREDENCIAIS NO SERVIDOR — O ENVIO É MARCADO À MÃO" });
+      } else if (r.ok) {
+        setResult({ ok: true, text: `CONEXÃO OK · ${r.url} · CLIENTE ${r.cliente} · ${r.ms} MS` });
+      } else {
+        setResult({ ok: false, text: `${r.url}: ${r.erro}` });
+      }
+    } catch (e) {
+      setResult({ ok: false, text: (e as ApiError).message || "Erro ao testar" });
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="ops-control-row">
+      <button type="button" className="btn btn-sm" disabled={busy} onClick={run}>
+        <PlugZap size={12} strokeWidth={2} /> {busy ? "TESTANDO…" : "TESTAR CONEXÃO COM O SIPOM"}
+      </button>
+      {result && <span className={result.ok ? "pill active" : "pill crit"}>{result.text}</span>}
     </div>
   );
 }

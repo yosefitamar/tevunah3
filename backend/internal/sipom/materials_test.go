@@ -32,8 +32,11 @@ func TestResolveWeaponHomemadeBrand(t *testing.T) {
 		{"tipo artesanal", WeaponInput{Kind: "ARTESANAL", Caliber: "12"}, 40, true},
 		{"arma caseira", WeaponInput{Kind: "Arma caseira", Caliber: "38"}, 40, true},
 		{"artesanal com marca escrita: vale a marca", WeaponInput{Kind: "PISTOLA", Brand: "Taurus", Model: "ARTESANAL", Caliber: "38"}, 3, true},
-		{"artesanal sem calibre: marca resolvida, segue pendente", WeaponInput{Kind: "ESPINGARDA", Model: "ARTESANAL"}, 40, false},
-		{"industrial sem marca: continua sem", WeaponInput{Kind: "PISTOLA", Caliber: "38"}, 0, false},
+		// Só o tipo é obrigatório no SIPOM: sem calibre ou sem marca, a arma
+		// vai assim mesmo.
+		{"artesanal sem calibre: marca resolvida, vai sem calibre", WeaponInput{Kind: "ESPINGARDA", Model: "ARTESANAL"}, 40, true},
+		{"industrial sem marca: vai sem marca", WeaponInput{Kind: "PISTOLA", Caliber: "38"}, 0, true},
+		{"sem tipo: pendente", WeaponInput{Kind: "TRABUCO", Caliber: "38"}, 0, false},
 	} {
 		r := c.ResolveWeapon(tc.in, nil)
 		got := 0

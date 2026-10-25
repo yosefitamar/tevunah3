@@ -56,6 +56,8 @@ export type SipomPending = { code: string; label: string; blocking: boolean };
 
 /** Envolvido como vai ao SIPOM (modal "Adicionar Pessoa à Ocorrência"). */
 export type SipomPerson = {
+  /** Id do envolvido na ficha (vazio na prévia da importação). */
+  id: string;
   vinculo: string;
   /** Texto da opção no SIPOM, na grafia deles. */
   vinculo_label: string;
@@ -69,6 +71,25 @@ export type SipomPerson = {
   foto: boolean;
   /** "dossie" = qualificação do dossiê vinculado; "relatorio" = só o PDF. */
   fonte: "dossie" | "relatorio";
+  /** O sexo foi informado na ficha (o dossiê não diz). */
+  sexo_ficha: boolean;
+};
+
+/** Aviso do SIPOM num envio aceito (o item foi ignorado ou ficou vazio lá). */
+export type SipomAviso = { campo: string; codigo: string };
+
+/** Resultado do último envio pela API do SIPOM. */
+export type SipomEnvioResult = {
+  protocolo: string;
+  /** Número da ocorrência no SIPOM. */
+  identificador: string;
+  situacao: "criado" | "atualizado" | "sem_alteracao" | "";
+  avisos: SipomAviso[];
+  /** Erro da última tentativa ("" = a última deu certo). */
+  erro: string;
+  tentativa_em: string;
+  /** O SIPOM respondeu que a ocorrência foi excluída lá: não é recriada. */
+  excluida_em: string | null;
 };
 
 /** A ocorrência traduzida para os códigos do SIPOM. */
@@ -87,8 +108,12 @@ export type SipomOccurrence = {
   area_options: SipomRef[];
   opm: SipomRef | null;
   pendencias: SipomPending[];
-  /** Quando foi marcada como enviada ao SIPOM (null = ainda na fila). */
+  /** Quando foi enviada (ou marcada como lançada) no SIPOM (null = na fila). */
   sent_at: string | null;
+  /** Envio pela API do SIPOM; false = sem credenciais, o analista marca à mão. */
+  api: boolean;
+  /** Último envio pela API (null = nunca tentado). */
+  envio: SipomEnvioResult | null;
   /** Sem pendência bloqueante: pode ser enviada. */
   ready: boolean;
   manual: string[];
@@ -158,6 +183,9 @@ export type SipomVeiculo = {
   marca_modelo_candidates: SipomRef[];
   /** 1 apreendido, 2 recuperado, 0 indefinida. */
   situacao: 0 | 1 | 2;
+  /** Ano de fabricação (obrigatório no SIPOM) e do modelo — o analista informa. */
+  ano_fabricacao: number | null;
+  ano_modelo: number | null;
   manual: boolean;
   ok: boolean;
 };

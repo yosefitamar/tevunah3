@@ -30,7 +30,11 @@ func SipomInput(o *Occurrence) sipom.Input {
 		Teams:          o.Teams,
 		Officers:       len(o.Officers),
 		UnlinkedPeople: unlinkedPeople(o.People, o.peopleLinked),
-		HasGeo:         o.Geo.Located(),
+		People:         len(o.People),
+		// Na importação o sexo ainda não existe (o vínculo ao dossiê vem
+		// depois): todo identificado conta como sem sexo.
+		PeopleWithoutSex: unlinkedPeople(o.People, o.peopleSexed),
+		HasGeo:           o.Geo.Located(),
 	}
 }
 
@@ -70,7 +74,9 @@ func unlinkedPeople(people []Person, linked []bool) int {
 func SipomPeople(so *StoredOccurrence) []sipom.Person {
 	out := make([]sipom.Person, 0, len(so.People))
 	for _, sp := range so.People {
-		out = append(out, sipom.TranslatePerson(personInput(so, sp)))
+		p := sipom.TranslatePerson(personInput(so, sp))
+		p.ID = sp.ID
+		out = append(out, p)
 	}
 	return out
 }
@@ -133,6 +139,19 @@ func TranslateSipom(cat *sipom.Catalog, refs SipomRefs, o *Occurrence) {
 		r.Pending = without(r.Pending, sipom.PendLogradouro)
 		if strings.TrimSpace(r.Logradouro) == "" {
 			r.Pending = append(r.Pending, sipom.PendLogradouro)
+		}
+	}
+	// Bairro escolhido no catálogo pelo analista — vale enquanto for da
+	// cidade (trocou a cidade da ficha, volta ao automático).
+	if manual(SipomFieldBairro) && stored.BairroID != nil && r.CidadeID != nil &&
+		cat.BairroDaCidade(*stored.BairroID, *r.CidadeID) {
+		r.BairroID = stored.BairroID
+		r.Pending = without(r.Pending, sipom.PendBairroCatalogo)
+		if !manual(SipomFieldArea) {
+			if opts := cat.Areas(r.CidadeID, r.BairroID); len(opts) == 1 {
+				r.AreaID, r.AreaOptions = &opts[0], nil
+				r.Pending = without(r.Pending, sipom.PendArea, sipom.PendAreaAmbig)
+			}
 		}
 	}
 	if manual(SipomFieldArea) {
@@ -219,7 +238,9 @@ func translateMaterials(cat *sipom.Catalog, terms *sipom.TermMap, o *Occurrence)
 		}, terms)
 		v.SipomTipoCodigo, v.SipomCorCodigo, v.SipomMarcaModeloCodigo, v.SipomSituacao =
 			r.TipoCodigo, r.CorCodigo, r.MarcaModeloCodigo, r.Situacao
-		okAll = okAll && r.OK
+		// O ano de fabricação o relatório não traz: é o analista quem
+		// informa (obrigatório no SIPOM para placa nova).
+		okAll = okAll && r.OK && v.SipomAnoFabricacao != nil
 	}
 	if !okAll {
 		pending = append(pending, sipom.PendVeiculo)

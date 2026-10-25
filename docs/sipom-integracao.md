@@ -1,5 +1,9 @@
 # Integração Tevunah → SIPOM — proposta de contrato (v1)
 
+> **Superado em 2026-10-19.** O SIPOM entregou a API própria ("API de integração SIPOM — Referência"): `POST /api/integracoes/ocorrencias/receber` com assinatura HMAC-SHA256, criação ou atualização por `origem.id` e itens sincronizados por id estável. O Tevunah gera hoje o contrato **"5"**, o do manual: `backend/internal/sipom/payload.go` (tipos), `backend/internal/sipom/client.go` (assinatura e envio) e `backend/internal/opsreport/sipom_payload.go` (montagem). Este documento fica como histórico da proposta.
+>
+> Vínculos e marcas de celular (migração 00066, `backend/db/sipom/gen_vinculos.py`) e drogas (00067, `gen_drogas.py`, que remapeia os ids já gravados) vieram nos dumps de 2026-10-19. A chave e o segredo do cliente "TEVUNAH" foram entregues em 2026-10-25 (ficam só no `.env` do servidor); a liberação de IP foi dispensada pelo SIPOM.
+
 **De:** SAI/2º BPRAIO — Tevunah (sistema de inteligência da agência)
 **Para:** desenvolvimento do SIPOM (sipom.pm.ce.gov.br)
 **Situação:** proposta para avaliação. Nada é enviado ao SIPOM até a aprovação deste contrato e a liberação do canal.

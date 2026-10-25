@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/belia/tevunah/backend/internal/sipom"
 )
 
 // Link-mode do vínculo pessoa ↔ dossiê.
@@ -401,6 +403,10 @@ type StoredPerson struct {
 	EntityBirthDate  *time.Time
 	EntityDeceasedOn *time.Time
 	EntityHasPhoto   bool
+
+	// SipomSexo: sexo informado na ficha para o SIPOM (1 masculino, 2
+	// feminino, 0 = não informado); vale quando o dossiê não diz.
+	SipomSexo int
 }
 
 // ListOpts controla a listagem de ocorrências.
@@ -584,12 +590,15 @@ const occSelect = `
 	(SELECT r.report_date FROM app.ops_reports r WHERE r.id = o.report_id),
 	o.updated_at, COALESCE((SELECT u.display_name FROM app.users u WHERE u.id = o.updated_by), ''),
 	o.latitude, o.longitude, o.geo_precision, o.geo_source,
-	o.sipom_procedimento_id, o.sipom_delegacia_id, o.sipom_delegado_id, o.sipom_sent_at`
+	o.sipom_procedimento_id, o.sipom_delegacia_id, o.sipom_delegado_id, o.sipom_sent_at,
+	COALESCE(o.sipom_protocolo::text, ''), o.sipom_identificador, o.sipom_situacao, o.sipom_avisos::text,
+	o.sipom_body_sha256, o.sipom_erro, o.sipom_tentativa_em, o.sipom_excluida_em`
 
 // occArrays recebe as colunas de array de occSelect, que chegam como JSON
 // (to_jsonb) e são decodificadas por decode.
 type occArrays struct {
 	natures, intelMatched, sipomPending, sipomManual string
+	sipomAvisos                                      string
 }
 
 func (a *occArrays) decode(so *StoredOccurrence) error {
@@ -604,6 +613,12 @@ func (a *occArrays) decode(so *StoredOccurrence) error {
 	} {
 		if err := decodeStrings(x.js, x.dst); err != nil {
 			return err
+		}
+	}
+	so.Sipom.Send.Avisos = []sipom.Aviso{}
+	if a.sipomAvisos != "" {
+		if err := json.Unmarshal([]byte(a.sipomAvisos), &so.Sipom.Send.Avisos); err != nil {
+			return fmt.Errorf("decode avisos: %w", err)
 		}
 	}
 	return nil
@@ -626,6 +641,8 @@ func occDest(so *StoredOccurrence, arr *occArrays) []any {
 		&so.UpdatedAt, &so.UpdatedByName,
 		&o.Geo.Lat, &o.Geo.Lng, &o.Geo.Precision, &o.Geo.Source,
 		&o.Sipom.ProcedimentoID, &o.Sipom.DelegaciaID, &o.Sipom.DelegadoID, &o.Sipom.SentAt,
+		&o.Sipom.Send.Protocolo, &o.Sipom.Send.Identificador, &o.Sipom.Send.Situacao, &arr.sipomAvisos,
+		&o.Sipom.Send.BodySHA256, &o.Sipom.Send.Erro, &o.Sipom.Send.TentativaEm, &o.Sipom.Send.ExcluidaEm,
 	}
 }
 
@@ -668,11 +685,11 @@ func (r *Repo) FindByID(ctx context.Context, id string) (*StoredOccurrence, erro
 	if errMat != nil {
 		return nil, errMat
 	}
-	if err := r.each(ctx, `SELECT registration, rank, number, war_name, raw,
+	if err := r.each(ctx, `SELECT id, registration, rank, number, war_name, raw,
 		       sipom_equipe, sipom_policiamento_tipo_id, sipom_funcao_id FROM app.ops_occurrence_officers
 		WHERE occurrence_id = $1 ORDER BY position`, id, func(rows *sql.Rows) error {
 		var f Officer
-		if err := rows.Scan(&f.Registration, &f.Rank, &f.Number, &f.WarName, &f.Raw,
+		if err := rows.Scan(&f.ID, &f.Registration, &f.Rank, &f.Number, &f.WarName, &f.Raw,
 			&f.SipomEquipe, &f.SipomPoliciamentoTipoID, &f.SipomFuncaoID); err != nil {
 			return err
 		}
@@ -690,11 +707,11 @@ func (r *Repo) FindByID(ctx context.Context, id string) (*StoredOccurrence, erro
 // materials carrega armas, drogas e veículos da ocorrência, com a tradução
 // para o SIPOM.
 func (r *Repo) materials(ctx context.Context, id string) (weapons []Weapon, drugs []Drug, vehicles []Vehicle, err error) {
-	if err := r.each(ctx, `SELECT kind, model, brand, caliber, serial,
+	if err := r.each(ctx, `SELECT id, kind, model, brand, caliber, serial,
 		       sipom_tipo_id, sipom_marca_id, sipom_calibre_id, sipom_manual
 		  FROM app.ops_occurrence_weapons WHERE occurrence_id = $1 ORDER BY position`, id, func(rows *sql.Rows) error {
 		var w Weapon
-		if err := rows.Scan(&w.Kind, &w.Model, &w.Brand, &w.Caliber, &w.Serial,
+		if err := rows.Scan(&w.ID, &w.Kind, &w.Model, &w.Brand, &w.Caliber, &w.Serial,
 			&w.SipomTipoID, &w.SipomMarcaID, &w.SipomCalibreID, &w.SipomManual); err != nil {
 			return err
 		}
@@ -703,13 +720,13 @@ func (r *Repo) materials(ctx context.Context, id string) (weapons []Weapon, drug
 	}); err != nil {
 		return nil, nil, nil, err
 	}
-	if err := r.each(ctx, `SELECT description, grams::float8, packages,
+	if err := r.each(ctx, `SELECT id, description, grams::float8, packages,
 		       sipom_droga_id, sipom_quantidade::float8, sipom_manual
 		  FROM app.ops_occurrence_drugs WHERE occurrence_id = $1 ORDER BY position`, id, func(rows *sql.Rows) error {
 		var d Drug
 		var g sql.NullFloat64
 		var p sql.NullInt64
-		if err := rows.Scan(&d.Description, &g, &p, &d.SipomDrogaID, &d.SipomQuantidade, &d.SipomManual); err != nil {
+		if err := rows.Scan(&d.ID, &d.Description, &g, &p, &d.SipomDrogaID, &d.SipomQuantidade, &d.SipomManual); err != nil {
 			return err
 		}
 		if g.Valid {
@@ -724,12 +741,14 @@ func (r *Repo) materials(ctx context.Context, id string) (weapons []Weapon, drug
 	}); err != nil {
 		return nil, nil, nil, err
 	}
-	if err := r.each(ctx, `SELECT kind, brand, model, plate, color,
-		       sipom_tipo_codigo, sipom_cor_codigo, sipom_marca_modelo_codigo, sipom_situacao, sipom_manual
+	if err := r.each(ctx, `SELECT id, kind, brand, model, plate, color,
+		       sipom_tipo_codigo, sipom_cor_codigo, sipom_marca_modelo_codigo, sipom_situacao, sipom_manual,
+		       sipom_ano_fabricacao, sipom_ano_modelo
 		  FROM app.ops_occurrence_vehicles WHERE occurrence_id = $1 ORDER BY position`, id, func(rows *sql.Rows) error {
 		var v Vehicle
-		if err := rows.Scan(&v.Kind, &v.Brand, &v.Model, &v.Plate, &v.Color,
-			&v.SipomTipoCodigo, &v.SipomCorCodigo, &v.SipomMarcaModeloCodigo, &v.SipomSituacao, &v.SipomManual); err != nil {
+		if err := rows.Scan(&v.ID, &v.Kind, &v.Brand, &v.Model, &v.Plate, &v.Color,
+			&v.SipomTipoCodigo, &v.SipomCorCodigo, &v.SipomMarcaModeloCodigo, &v.SipomSituacao, &v.SipomManual,
+			&v.SipomAnoFabricacao, &v.SipomAnoModelo); err != nil {
 			return err
 		}
 		vehicles = append(vehicles, v)
@@ -760,7 +779,8 @@ func (r *Repo) listPeople(ctx context.Context, occID string) ([]StoredPerson, er
 		       p.entity_id, COALESCE(e.name, ''), COALESCE(ep.deceased, false),
 		       p.link_mode, p.linked_at,
 		       COALESCE(ep.cpf, ''), COALESCE(ep.gender, ''), COALESCE(ep.mother_name, ''),
-		       ep.date_of_birth, ep.deceased_on, COALESCE(ep.photo_path, '') <> ''
+		       ep.date_of_birth, ep.deceased_on, COALESCE(ep.photo_path, '') <> '',
+		       COALESCE(p.sipom_sexo, 0)
 		  FROM app.ops_occurrence_people p
 		  LEFT JOIN app.entities e ON e.id = p.entity_id
 		  LEFT JOIN app.entity_persons ep ON ep.entity_id = p.entity_id
@@ -779,7 +799,7 @@ func (r *Repo) listPeople(ctx context.Context, occID string) ([]StoredPerson, er
 		if err := rows.Scan(&sp.ID, &sp.Role, &sp.Name, &sp.MotherName, &age, &sp.Address, &sp.Note,
 			&ent, &sp.EntityName, &sp.EntityDeceased, &sp.LinkMode, &linkedAt,
 			&sp.EntityCPF, &sp.EntityGender, &sp.EntityMother,
-			&sp.EntityBirthDate, &sp.EntityDeceasedOn, &sp.EntityHasPhoto); err != nil {
+			&sp.EntityBirthDate, &sp.EntityDeceasedOn, &sp.EntityHasPhoto, &sp.SipomSexo); err != nil {
 			return nil, err
 		}
 		if age.Valid {
@@ -1005,6 +1025,56 @@ func (r *Repo) SetSipomSent(ctx context.Context, id string, sent bool, actor str
 	return nil
 }
 
+// SaveSipomSend grava o envio aceito pelo SIPOM: a ocorrência sai da fila
+// (sipom_sent_at) e fica com o protocolo, o número dela no SIPOM, os avisos
+// e o hash do corpo enviado.
+func (r *Repo) SaveSipomSend(ctx context.Context, id, actor string, res *sipom.Resultado, bodySHA string) error {
+	avisos := res.Avisos
+	if avisos == nil {
+		avisos = []sipom.Aviso{}
+	}
+	js, err := json.Marshal(avisos)
+	if err != nil {
+		return err
+	}
+	return r.execOne(ctx, `
+		UPDATE app.ops_occurrences
+		   SET sipom_sent_at = now(), sipom_sent_by = $2,
+		       sipom_protocolo = NULLIF($3, '')::uuid, sipom_identificador = $4, sipom_situacao = $5,
+		       sipom_avisos = $6::jsonb, sipom_body_sha256 = $7,
+		       sipom_erro = '', sipom_tentativa_em = now()
+		 WHERE id = $1 AND deleted_at IS NULL`,
+		id, actor, res.Protocolo, res.Identificador, res.Situacao, string(js), bodySHA)
+}
+
+// SaveSipomSendError grava a tentativa que falhou. excluded: o SIPOM disse
+// que a ocorrência foi excluída lá (409) — não adianta reenviar.
+func (r *Repo) SaveSipomSendError(ctx context.Context, id, msg string, excluded bool) error {
+	return r.execOne(ctx, `
+		UPDATE app.ops_occurrences
+		   SET sipom_erro = $2, sipom_tentativa_em = now(),
+		       sipom_excluida_em = CASE WHEN $3 THEN COALESCE(sipom_excluida_em, now()) ELSE sipom_excluida_em END
+		 WHERE id = $1 AND deleted_at IS NULL`, id, msg, excluded)
+}
+
+// SetPersonSipomSexo grava o sexo do envolvido para o SIPOM (0 = limpa).
+func (r *Repo) SetPersonSipomSexo(ctx context.Context, occID, personID string, sexo int) error {
+	return r.execOne(ctx, `
+		UPDATE app.ops_occurrence_people p SET sipom_sexo = NULLIF($3, 0)
+		  FROM app.ops_occurrences o
+		 WHERE p.id = $2 AND p.occurrence_id = $1 AND o.id = p.occurrence_id AND o.deleted_at IS NULL`,
+		occID, personID, sexo)
+}
+
+// SetVehicleYears grava ano de fabricação e do modelo do veículo (nil limpa).
+func (r *Repo) SetVehicleYears(ctx context.Context, id string, pos int, fabricacao, modelo *int) error {
+	return r.execOne(ctx, `
+		UPDATE app.ops_occurrence_vehicles v SET sipom_ano_fabricacao = $3, sipom_ano_modelo = $4
+		  FROM app.ops_occurrences o
+		 WHERE v.occurrence_id = $1 AND v.position = $2 AND o.id = v.occurrence_id AND o.deleted_at IS NULL`,
+		id, pos, nilInt(fabricacao), nilInt(modelo))
+}
+
 // UnlinkedPerson é um envolvido ainda sem dossiê, com o mínimo da ocorrência
 // para dizer ao analista onde ele aparece.
 type UnlinkedPerson struct {
@@ -1143,7 +1213,7 @@ func (r *Repo) SipomSources(ctx context.Context, onlyID string) ([]SipomSource, 
 		       o.approach_address, o.approach_neighborhood, o.approach_city,
 		       o.cia, o.bpm, o.teams, o.sipom_natureza_id, to_jsonb(o.sipom_manual)::text,
 		       (SELECT COUNT(*) FROM app.ops_occurrence_officers f WHERE f.occurrence_id = o.id),
-		       o.sipom_logradouro, o.sipom_numeral, o.sipom_area_id, o.sipom_opm_id,
+		       o.sipom_logradouro, o.sipom_numeral, o.sipom_area_id, o.sipom_opm_id, o.sipom_bairro_id,
 		       o.latitude, o.longitude,
 		       o.police_station, o.delegate, o.procedure_type, o.procedure_number,
 		       o.sipom_procedimento_id, o.sipom_delegacia_id, o.sipom_delegado_id
@@ -1163,7 +1233,7 @@ func (r *Repo) SipomSources(ctx context.Context, onlyID string) ([]SipomSource, 
 			&s.PlaceAddress, &s.PlaceNeighborhood, &s.PlaceCity,
 			&s.ApproachAddress, &s.ApproachNeighborhood, &s.ApproachCity,
 			&s.CIA, &s.BPM, &s.Teams, &s.Sipom.NaturezaID, &manual, &officers,
-			&s.Sipom.Logradouro, &s.Sipom.Numeral, &s.Sipom.AreaID, &s.Sipom.OPMID,
+			&s.Sipom.Logradouro, &s.Sipom.Numeral, &s.Sipom.AreaID, &s.Sipom.OPMID, &s.Sipom.BairroID,
 			&s.Geo.Lat, &s.Geo.Lng,
 			&s.PoliceStation, &s.Delegate, &s.ProcedureType, &s.ProcedureNumber,
 			&s.Sipom.ProcedimentoID, &s.Sipom.DelegaciaID, &s.Sipom.DelegadoID); err != nil {
@@ -1188,9 +1258,12 @@ func (r *Repo) SipomSources(ctx context.Context, onlyID string) ([]SipomSource, 
 		idx[out[i].ID] = i
 	}
 	prows, err := r.db.QueryContext(ctx, `
-		SELECT p.occurrence_id, p.name, p.entity_id IS NOT NULL
+		SELECT p.occurrence_id, COALESCE(NULLIF(e.name, ''), p.name), p.entity_id IS NOT NULL,
+		       p.sipom_sexo IS NOT NULL OR upper(COALESCE(ep.gender, '')) IN ('M', 'F')
 		  FROM app.ops_occurrence_people p
 		  JOIN app.ops_occurrences o ON o.id = p.occurrence_id
+		  LEFT JOIN app.entities e ON e.id = p.entity_id
+		  LEFT JOIN app.entity_persons ep ON ep.entity_id = p.entity_id
 		 WHERE o.deleted_at IS NULL AND ($1 = '' OR o.id::text = $1)
 		 ORDER BY p.occurrence_id, p.position`, onlyID)
 	if err != nil {
@@ -1199,13 +1272,14 @@ func (r *Repo) SipomSources(ctx context.Context, onlyID string) ([]SipomSource, 
 	defer prows.Close()
 	for prows.Next() {
 		var occID, name string
-		var linked bool
-		if err := prows.Scan(&occID, &name, &linked); err != nil {
+		var linked, hasSex bool
+		if err := prows.Scan(&occID, &name, &linked, &hasSex); err != nil {
 			return nil, err
 		}
 		if i, ok := idx[occID]; ok {
 			out[i].People = append(out[i].People, Person{Name: name})
 			out[i].peopleLinked = append(out[i].peopleLinked, linked)
+			out[i].peopleSexed = append(out[i].peopleSexed, hasSex)
 		}
 	}
 	if err := prows.Err(); err != nil {
@@ -1386,6 +1460,17 @@ func (r *Repo) SetSipomOPM(ctx context.Context, id string, opmID *int) error {
 	}
 	return r.execOne(ctx, `UPDATE app.ops_occurrences SET sipom_opm_id = $3, sipom_manual = `+sipomManualAdd+`
 		WHERE id = $1 AND deleted_at IS NULL`, id, SipomFieldOPM, *opmID)
+}
+
+// SetSipomBairro fixa o bairro do catálogo ou, com nil, devolve à
+// correspondência automática com o bairro do relatório.
+func (r *Repo) SetSipomBairro(ctx context.Context, id string, bairroID *int) error {
+	if bairroID == nil {
+		return r.execOne(ctx, `UPDATE app.ops_occurrences SET sipom_manual = `+sipomManualDel+`
+			WHERE id = $1 AND deleted_at IS NULL`, id, SipomFieldBairro)
+	}
+	return r.execOne(ctx, `UPDATE app.ops_occurrences SET sipom_bairro_id = $3, sipom_manual = `+sipomManualAdd+`
+		WHERE id = $1 AND deleted_at IS NULL`, id, SipomFieldBairro, *bairroID)
 }
 
 // SetSipomEndereco fixa logradouro e número ou, com reset, devolve à
@@ -1627,6 +1712,7 @@ const (
 	SipomFieldEndereco     = "endereco"
 	SipomFieldLocal        = "local"
 	SipomFieldArea         = "area"
+	SipomFieldBairro       = "bairro"
 	SipomFieldOPM          = "opm"
 	SipomFieldComposicao   = "composicao"
 	SipomFieldProcedimento = "procedimento"

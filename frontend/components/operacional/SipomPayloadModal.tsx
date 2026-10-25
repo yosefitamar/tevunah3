@@ -17,10 +17,10 @@ function abbreviate(_key: string, value: unknown) {
   return `${value.slice(0, B64_SHOWN)}… (abreviado na tela: ${kb} KB)`;
 }
 
-// Quantas fotos o envio leva (envolvidos[].foto e fotos[]).
+// Quantas fotos o envio leva (envolvidos[].pessoa.foto e fotos[]).
 function countPhotos(payload: unknown): number {
-  const p = payload as { envolvidos?: { foto?: unknown }[]; fotos?: unknown[] } | null;
-  return (p?.fotos?.length ?? 0) + (p?.envolvidos?.filter((e) => e.foto).length ?? 0);
+  const p = payload as { envolvidos?: { pessoa?: { foto?: unknown } | null }[]; fotos?: unknown[] } | null;
+  return (p?.fotos?.length ?? 0) + (p?.envolvidos?.filter((e) => e.pessoa?.foto).length ?? 0);
 }
 
 /**

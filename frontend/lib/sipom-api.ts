@@ -5,6 +5,8 @@
 import { api } from "./api";
 import type { OpsOfficer, SipomOccurrence, SipomPending, SipomRef } from "./ops-reports-api";
 
+type SipomChange = { sipom: SipomOccurrence; officers: OpsOfficer[] };
+
 export type SipomNatureza = { id: number; nome: string; rotulo: string };
 
 export function listSipomNaturezas() {
@@ -65,7 +67,7 @@ export function setOpsSipomProcedimento(occId: string, input: SipomProcedimentoI
 }
 
 export type SipomMaterialInput =
-  | { kind: "armas"; tipo_id: number; marca_id: number; calibre_id: number }
+  | { kind: "armas"; tipo_id: number; marca_id?: number; calibre_id?: number }
   | { kind: "drogas"; droga_id: number; quantidade: number }
   | { kind: "veiculos"; tipo_codigo: number; cor_codigo: number; marca_modelo_codigo: number; situacao: 1 | 2 }
   | { kind: "armas" | "drogas" | "veiculos"; reset: true };
@@ -117,6 +119,7 @@ export function upsertSipomNatureRule(input: {
 
 export type SipomFieldInput =
   | { field: "area"; area_id: number | null }
+  | { field: "bairro"; bairro_id: number | null }
   | { field: "opm"; opm_id: number | null }
   | { field: "endereco"; logradouro: string; numeral: string }
   | { field: "endereco"; reset: true }
@@ -199,12 +202,52 @@ export function getSipomPayload(occId: string, withPhotos = false) {
 }
 
 /**
- * Marca (ou desmarca) a ocorrência como enviada ao SIPOM. Enquanto o SIPOM
- * não tem API, é o analista quem diz que já lançou por lá.
+ * Marca (ou desmarca) a ocorrência como lançada no SIPOM — só sem a API
+ * configurada, quando o analista lança por lá.
  */
 export function setSipomSent(occId: string, sent: boolean) {
   return api<{ sent_at: string | null }>(`/api/ops-occurrences/${encodeURIComponent(occId)}/sipom/sent`, {
     method: "PUT",
     body: JSON.stringify({ sent }),
+  });
+}
+
+// ─── API do SIPOM ───
+
+/**
+ * Envia a ocorrência ao SIPOM pela API. Reenviar é seguro: o SIPOM responde
+ * "sem_alteracao" quando nada mudou e "atualizado" quando a ficha mudou.
+ */
+export function enviarSipom(occId: string) {
+  return api<{ sipom: SipomOccurrence }>(`/api/ops-occurrences/${encodeURIComponent(occId)}/sipom/enviar`, {
+    method: "POST",
+  });
+}
+
+/** Testa as credenciais da API do SIPOM (não grava nada lá). */
+export function pingSipom() {
+  return api<{ configurado: boolean; ok?: boolean; cliente?: string; erro?: string; url?: string; ms?: number }>(
+    "/api/admin/sipom/ping",
+  );
+}
+
+/** Bairros do catálogo do SIPOM na cidade. */
+export function listSipomBairros(cidadeId: number) {
+  return api<{ items: SipomRef[] }>(`/api/sipom/bairros?cidade_id=${cidadeId}`);
+}
+
+/** Sexo do envolvido para o SIPOM, quando o dossiê não diz (0 limpa). */
+export function setSipomSexo(occId: string, personId: string, sexo: 0 | 1 | 2) {
+  return api<SipomChange>(
+    `/api/ops-occurrences/${encodeURIComponent(occId)}/sipom/pessoas/${encodeURIComponent(personId)}/sexo`,
+    { method: "PUT", body: JSON.stringify({ sexo }) },
+  );
+}
+
+/** Ano de fabricação e do modelo do veículo (pela posição na lista). */
+export function setSipomVehicleYears(occId: string, index: number, anoFabricacao: number | null, anoModelo: number | null) {
+  return api<SipomChange>(`/api/ops-occurrences/${encodeURIComponent(occId)}/sipom/veiculos/${index}/ano`, {
+    method: "PUT",
+    body: JSON.stringify({ ano_fabricacao: anoFabricacao, ano_modelo: anoModelo }),
   });
 }

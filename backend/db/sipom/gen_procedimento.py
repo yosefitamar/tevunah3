@@ -21,6 +21,8 @@ HEADER = """-- +goose Up
 -- Não editar à mão: regenere pelo script.
 """
 
+# Ids nossos: os do SIPOM vieram no dump de 2026-10-19 (droga_tipos) e a
+# 00067 (gen_drogas.py) remapeia o que estava gravado.
 # Modal "Material" > Droga: o nome na tela carrega a unidade ("Maconha -
 # gramas (g)"); aqui ficam separados. Não há tabela no SIPOM à vista: o id é
 # nosso, e o envio leva o texto como a tela mostra (nome + unidade).
@@ -39,7 +41,8 @@ DROGAS = [
     (12, "Solvente", "mililitros (ml)"),
 ]
 
-# Modal "Material" > Celular > Marca, na ordem da tela.
+# Modal "Material" > Celular > Marca, na ordem da tela. Ids nossos: os do
+# SIPOM vieram no dump de 2026-10-19 e a 00066 (gen_vinculos.py) os troca.
 CELULAR_MARCAS = [
     "Acer", "Alcatel", "Apple", "ASUS", "BlackBerry", "BLU", "HTC", "Huawei", "Lenovo",
     "LG", "Motorola", "Nokia", "OnePlus", "Outros", "Realme", "Samsung", "Sony", "TCL",

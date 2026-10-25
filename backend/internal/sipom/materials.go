@@ -25,8 +25,8 @@ type WeaponInput struct {
 	Manual                      bool
 }
 
-// WeaponResult é a arma nos códigos do SIPOM; OK = os três campos
-// obrigatórios resolvidos.
+// WeaponResult é a arma nos códigos do SIPOM; OK = o tipo (o único
+// obrigatório) resolvido.
 type WeaponResult struct {
 	TipoID, MarcaID, CalibreID *int
 	OK                         bool
@@ -44,7 +44,7 @@ var weaponKinds = map[string]string{
 func (c *Catalog) ResolveWeapon(in WeaponInput, terms *TermMap) WeaponResult {
 	if in.Manual {
 		r := WeaponResult{TipoID: in.TipoID, MarcaID: in.MarcaID, CalibreID: in.CalibreID}
-		r.OK = r.TipoID != nil && r.MarcaID != nil && r.CalibreID != nil
+		r.OK = r.TipoID != nil
 		return r
 	}
 	var r WeaponResult
@@ -86,7 +86,8 @@ func (c *Catalog) ResolveWeapon(in WeaponInput, terms *TermMap) WeaponResult {
 	} else if id, ok := c.matchCaliber(in.Caliber); ok {
 		r.CalibreID = &id
 	}
-	r.OK = r.TipoID != nil && r.MarcaID != nil && r.CalibreID != nil
+	// Só o tipo é obrigatório no SIPOM; marca e calibre vão quando houver.
+	r.OK = r.TipoID != nil
 	return r
 }
 

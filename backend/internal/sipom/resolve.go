@@ -18,17 +18,26 @@ const (
 	PendLogradouro = "logradouro"         // endereço sem logradouro
 	PendCidade     = "cidade"             // cidade fora do catálogo
 	PendBairro     = "bairro"             // bairro em branco
-	PendArea       = "area"               // área da unidade não resolvida
-	PendAreaAmbig  = "area_ambigua"
-	PendOPM        = "opm" // companhia que atendeu não está no catálogo
+	// PendBairroCatalogo: o bairro do relatório não casa com nenhum do
+	// catálogo da cidade — o SIPOM exige bairro_id.
+	PendBairroCatalogo = "bairro_catalogo"
+	PendArea           = "area" // área da unidade não resolvida
+	PendAreaAmbig      = "area_ambigua"
+	PendOPM            = "opm" // companhia que atendeu não está no catálogo
 
 	PendComposicao      = "composicao"        // equipe não reconhecida
 	PendComposicaoMulti = "composicao_multi"  // mais de uma equipe na ficha
 	PendPessoaSemDossie = "pessoa_sem_dossie" // identificado sem dossiê: vai só nome e mãe
-	// PendCoordenada: o endereço não foi localizado no mapa. Não é exigência
-	// do SIPOM (lá a coordenada é opcional), mas é pendência da ocorrência:
-	// ela fica fora das estatísticas e do mapa até ser localizada.
+	// PendPessoaSexo: envolvido identificado sem sexo (nem no dossiê nem
+	// informado na ficha) — o SIPOM exige sexo de toda pessoa.
+	PendPessoaSexo = "pessoa_sexo"
+	// PendCoordenada: o endereço não foi localizado no mapa. O SIPOM exige
+	// latitude e longitude.
 	PendCoordenada = "coordenada"
+
+	// Tabela de vínculos do SIPOM ausente (sipom.vinculos, 00066): sem ela
+	// não há vinculo_id para mandar.
+	PendCatalogoVinculo = "catalogo_vinculo"
 )
 
 // Notice diz se o código é só um aviso: não impede nada, mas a ocorrência
@@ -39,10 +48,9 @@ func Notice(code string) bool {
 		code == PendDelegado
 }
 
-// Blocking diz se a pendência impede o envio ao SIPOM. A coordenada é
-// pendência da ocorrência, não do envio.
+// Blocking diz se a pendência impede o envio ao SIPOM.
 func Blocking(code string) bool {
-	return !Notice(code) && code != PendCoordenada
+	return !Notice(code)
 }
 
 // Etapas da ficha da ocorrência em que cada pendência se resolve — o mesmo
@@ -59,11 +67,11 @@ const (
 // PendingStep diz a etapa de cada pendência.
 var PendingStep = map[string]string{
 	PendNatureza: StepFato, PendNatConfirm: StepFato, PendDataHora: StepFato, PendFicha: StepFato,
-	PendLogradouro: StepLocal, PendCidade: StepLocal, PendBairro: StepLocal, PendArea: StepLocal,
+	PendLogradouro: StepLocal, PendCidade: StepLocal, PendBairro: StepLocal, PendBairroCatalogo: StepLocal, PendArea: StepLocal,
 	PendAreaAmbig: StepLocal, PendCoordenada: StepLocal,
 	PendOPM: StepEfetivo, PendComposicao: StepEfetivo, PendComposicaoMulti: StepEfetivo,
-	PendPessoaSemDossie: StepPessoas,
-	PendProcedimento:    StepProcedimento, PendProcTipo: StepProcedimento, PendProcNumero: StepProcedimento,
+	PendPessoaSemDossie: StepPessoas, PendPessoaSexo: StepPessoas, PendCatalogoVinculo: StepPessoas,
+	PendProcedimento: StepProcedimento, PendProcTipo: StepProcedimento, PendProcNumero: StepProcedimento,
 	PendDelegacia: StepProcedimento, PendDelegado: StepProcedimento,
 	PendArma: StepApreensoes, PendDroga: StepApreensoes, PendVeiculo: StepApreensoes,
 }
@@ -101,19 +109,22 @@ var PendingLabel = map[string]string{
 	PendLogradouro:      "Endereço sem logradouro",
 	PendCidade:          "Cidade fora do catálogo do SIPOM",
 	PendBairro:          "Sem bairro",
+	PendBairroCatalogo:  "Bairro fora do catálogo do SIPOM — escolha o bairro da cidade",
 	PendArea:            "Área da unidade militar não encontrada para o local",
 	PendAreaAmbig:       "Mais de uma área possível para o local — escolha a correta",
 	PendOPM:             "Companhia que atendeu não existe (ativa) no SIPOM",
 	PendComposicao:      "Equipe não reconhecida (esperado VTRA ou RAIO)",
 	PendComposicaoMulti: "Mais de uma equipe na ficha — defina a equipe de cada policial",
 	PendPessoaSemDossie: "Envolvido identificado sem dossiê — vai ao SIPOM só com nome e mãe",
+	PendPessoaSexo:      "Envolvido identificado sem sexo — informe na ficha ou no dossiê",
 	PendCoordenada:      "Sem coordenada — o endereço não foi localizado no mapa",
+	PendCatalogoVinculo: "Tabela de vínculos do SIPOM não carregada — envolvidos não podem ir",
 	PendProcedimento:    "Sem procedimento no relatório",
 	PendProcTipo:        "Tipo de procedimento não reconhecido (IP, TCO, BO ou Ato Infracional)",
 	PendProcNumero:      "Número do procedimento fora do padrão (ex.: 939-7635/2026)",
 	PendDelegacia:       "Delegacia não identificada — escolha a do catálogo do SIPOM",
 	PendDelegado:        "Delegado não identificado pelo nome — escolha, se souber (não é obrigatório)",
-	PendArma:            "Arma sem tipo, marca ou calibre do SIPOM",
+	PendArma:            "Arma sem tipo do SIPOM",
 	PendDroga:           "Droga sem correspondência na lista do SIPOM, ou sem quantidade na unidade dela",
 	PendVeiculo:         "Veículo sem tipo, cor, marca/modelo ou situação do SIPOM",
 }
@@ -149,6 +160,9 @@ type Input struct {
 	Officers          int    // policiais na composição, em ordem
 	// UnlinkedPeople: envolvidos identificados sem dossiê vinculado.
 	UnlinkedPeople int
+	// People: envolvidos (identificados ou não); PeopleWithoutSex: os
+	// identificados sem sexo.
+	People, PeopleWithoutSex int
 	// GeoRequired: o geocodificador está ligado, então ocorrência sem
 	// coordenada (HasGeo) fica pendente.
 	GeoRequired bool
@@ -206,8 +220,11 @@ func (c *Catalog) Resolve(in Input) Result {
 	} else {
 		r.Pending = append(r.Pending, PendCidade)
 	}
-	if strings.TrimSpace(in.Neighborhood) == "" {
+	switch {
+	case strings.TrimSpace(in.Neighborhood) == "":
 		r.Pending = append(r.Pending, PendBairro)
+	case r.CidadeID != nil && r.BairroID == nil:
+		r.Pending = append(r.Pending, PendBairroCatalogo)
 	}
 
 	r.AreaOptions = c.areas(r.CidadeID, r.BairroID)
@@ -237,14 +254,22 @@ func (c *Catalog) Resolve(in Input) Result {
 	if in.UnlinkedPeople > 0 {
 		r.Pending = append(r.Pending, PendPessoaSemDossie)
 	}
+	if in.PeopleWithoutSex > 0 {
+		r.Pending = append(r.Pending, PendPessoaSexo)
+	}
+	if in.People > 0 && len(c.vinculos) == 0 {
+		r.Pending = append(r.Pending, PendCatalogoVinculo)
+	}
 	if in.GeoRequired && !in.HasGeo {
 		r.Pending = append(r.Pending, PendCoordenada)
 	}
 	return r
 }
 
-// areas devolve as companhias territoriais do local: a regra do bairro, se
+// Areas devolve as companhias territoriais do local: a regra do bairro, se
 // houver; senão a da cidade inteira.
+func (c *Catalog) Areas(cidadeID, bairroID *int) []int { return c.areas(cidadeID, bairroID) }
+
 func (c *Catalog) areas(cidadeID, bairroID *int) []int {
 	if bairroID != nil {
 		if ids := c.areaByBairro[*bairroID]; len(ids) > 0 {

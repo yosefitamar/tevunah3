@@ -53,6 +53,10 @@ type PersonInput struct {
 	// Sexo informado na ficha para o SIPOM (0 = não): vale quando o dossiê
 	// não diz.
 	Sexo int
+	// SexoSugerido e SexoFonte: a sugestão do recálculo (sexo.go), à espera
+	// da confirmação do analista.
+	SexoSugerido int
+	SexoFonte    string
 
 	OccurredOn time.Time
 }
@@ -73,6 +77,10 @@ type Person struct {
 	// SexoFicha: o sexo veio da ficha (informado pelo analista), não do
 	// dossiê.
 	SexoFicha bool
+	// SexoSugerido: sugestão ainda não confirmada (só quando Sexo == 0), e de
+	// onde veio. Não vai ao SIPOM.
+	SexoSugerido int
+	SexoFonte    string
 }
 
 // Linked diz se o envolvido tem dossiê — sem ele só vão nome e mãe.
@@ -101,6 +109,9 @@ func TranslatePerson(in PersonInput) Person {
 	}
 	if p.Sexo == 0 && (in.Sexo == SexoMasculino || in.Sexo == SexoFeminino) {
 		p.Sexo, p.SexoFicha = in.Sexo, true
+	}
+	if p.Sexo == 0 && (in.SexoSugerido == SexoMasculino || in.SexoSugerido == SexoFeminino) {
+		p.SexoSugerido, p.SexoFonte = in.SexoSugerido, in.SexoFonte
 	}
 
 	unidentified := Unidentified(p.Nome)

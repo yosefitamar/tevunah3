@@ -23,6 +23,7 @@ const (
 	TermVeiculoTipo       = "veiculo_tipo"         // tipo do veículo → código DENATRAN
 	TermVeiculoCor        = "veiculo_cor"          // cor → código DENATRAN
 	TermVeiculoMarcaModel = "veiculo_marca_modelo" // "marca/modelo" → código DENATRAN
+	TermSexoNome          = "sexo_nome"            // primeiro nome do envolvido → 1 (M) ou 2 (F)
 )
 
 var ErrEmptyTerm = errors.New("termo vazio: não há o que aprender")

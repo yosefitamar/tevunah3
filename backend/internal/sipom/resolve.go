@@ -31,6 +31,9 @@ const (
 	// PendPessoaSexo: envolvido identificado sem sexo (nem no dossiê nem
 	// informado na ficha) — o SIPOM exige sexo de toda pessoa.
 	PendPessoaSexo = "pessoa_sexo"
+	// PendPessoaSexoConfirm: há sexo sugerido (nome, termo aprendido ou
+	// histórico) esperando a confirmação do analista.
+	PendPessoaSexoConfirm = "pessoa_sexo_confirmar"
 	// PendCoordenada: o endereço não foi localizado no mapa. O SIPOM exige
 	// latitude e longitude.
 	PendCoordenada = "coordenada"
@@ -70,7 +73,7 @@ var PendingStep = map[string]string{
 	PendLogradouro: StepLocal, PendCidade: StepLocal, PendBairro: StepLocal, PendBairroCatalogo: StepLocal, PendArea: StepLocal,
 	PendAreaAmbig: StepLocal, PendCoordenada: StepLocal,
 	PendOPM: StepEfetivo, PendComposicao: StepEfetivo, PendComposicaoMulti: StepEfetivo,
-	PendPessoaSemDossie: StepPessoas, PendPessoaSexo: StepPessoas, PendCatalogoVinculo: StepPessoas,
+	PendPessoaSemDossie: StepPessoas, PendPessoaSexo: StepPessoas, PendPessoaSexoConfirm: StepPessoas, PendCatalogoVinculo: StepPessoas,
 	PendProcedimento: StepProcedimento, PendProcTipo: StepProcedimento, PendProcNumero: StepProcedimento,
 	PendDelegacia: StepProcedimento, PendDelegado: StepProcedimento,
 	PendArma: StepApreensoes, PendDroga: StepApreensoes, PendVeiculo: StepApreensoes,
@@ -102,31 +105,32 @@ func NoticeCodes() []string {
 
 // PendingLabel é o texto da pendência para a tela.
 var PendingLabel = map[string]string{
-	PendNatureza:        "Natureza SIPOM não definida — nenhuma natureza da ficha tem correspondência",
-	PendNatConfirm:      "Natureza SIPOM sugerida pelo de-para — confirme ou corrija",
-	PendDataHora:        "Sem hora do fato",
-	PendFicha:           "Sem nº da ocorrência (ficha CIOPS)",
-	PendLogradouro:      "Endereço sem logradouro",
-	PendCidade:          "Cidade fora do catálogo do SIPOM",
-	PendBairro:          "Sem bairro",
-	PendBairroCatalogo:  "Bairro fora do catálogo do SIPOM — escolha o bairro da cidade",
-	PendArea:            "Área da unidade militar não encontrada para o local",
-	PendAreaAmbig:       "Mais de uma área possível para o local — escolha a correta",
-	PendOPM:             "Companhia que atendeu não existe (ativa) no SIPOM",
-	PendComposicao:      "Equipe não reconhecida (esperado VTRA ou RAIO)",
-	PendComposicaoMulti: "Mais de uma equipe na ficha — defina a equipe de cada policial",
-	PendPessoaSemDossie: "Envolvido identificado sem dossiê — vai ao SIPOM só com nome e mãe",
-	PendPessoaSexo:      "Envolvido identificado sem sexo — informe na ficha ou no dossiê",
-	PendCoordenada:      "Sem coordenada — o endereço não foi localizado no mapa",
-	PendCatalogoVinculo: "Tabela de vínculos do SIPOM não carregada — envolvidos não podem ir",
-	PendProcedimento:    "Sem procedimento no relatório",
-	PendProcTipo:        "Tipo de procedimento não reconhecido (IP, TCO, BO ou Ato Infracional)",
-	PendProcNumero:      "Número do procedimento fora do padrão (ex.: 939-7635/2026)",
-	PendDelegacia:       "Delegacia não identificada — escolha a do catálogo do SIPOM",
-	PendDelegado:        "Delegado não identificado pelo nome — escolha, se souber (não é obrigatório)",
-	PendArma:            "Arma sem tipo do SIPOM",
-	PendDroga:           "Droga sem correspondência na lista do SIPOM, ou sem quantidade na unidade dela",
-	PendVeiculo:         "Veículo sem tipo, cor, marca/modelo ou situação do SIPOM",
+	PendNatureza:          "Natureza SIPOM não definida — nenhuma natureza da ficha tem correspondência",
+	PendNatConfirm:        "Natureza SIPOM sugerida pelo de-para — confirme ou corrija",
+	PendDataHora:          "Sem hora do fato",
+	PendFicha:             "Sem nº da ocorrência (ficha CIOPS)",
+	PendLogradouro:        "Endereço sem logradouro",
+	PendCidade:            "Cidade fora do catálogo do SIPOM",
+	PendBairro:            "Sem bairro",
+	PendBairroCatalogo:    "Bairro fora do catálogo do SIPOM — escolha o bairro da cidade",
+	PendArea:              "Área da unidade militar não encontrada para o local",
+	PendAreaAmbig:         "Mais de uma área possível para o local — escolha a correta",
+	PendOPM:               "Companhia que atendeu não existe (ativa) no SIPOM",
+	PendComposicao:        "Equipe não reconhecida (esperado VTRA ou RAIO)",
+	PendComposicaoMulti:   "Mais de uma equipe na ficha — defina a equipe de cada policial",
+	PendPessoaSemDossie:   "Envolvido identificado sem dossiê — vai ao SIPOM só com nome e mãe",
+	PendPessoaSexo:        "Envolvido identificado sem sexo — informe na ficha ou no dossiê",
+	PendPessoaSexoConfirm: "Sexo do envolvido sugerido (pelo nome ou pelo histórico) — confirme",
+	PendCoordenada:        "Sem coordenada — o endereço não foi localizado no mapa",
+	PendCatalogoVinculo:   "Tabela de vínculos do SIPOM não carregada — envolvidos não podem ir",
+	PendProcedimento:      "Sem procedimento no relatório",
+	PendProcTipo:          "Tipo de procedimento não reconhecido (IP, TCO, BO ou Ato Infracional)",
+	PendProcNumero:        "Número do procedimento fora do padrão (ex.: 939-7635/2026)",
+	PendDelegacia:         "Delegacia não identificada — escolha a do catálogo do SIPOM",
+	PendDelegado:          "Delegado não identificado pelo nome — escolha, se souber (não é obrigatório)",
+	PendArma:              "Arma sem tipo do SIPOM",
+	PendDroga:             "Droga sem correspondência na lista do SIPOM, ou sem quantidade na unidade dela",
+	PendVeiculo:           "Veículo sem tipo, cor, marca/modelo ou situação do SIPOM",
 }
 
 // Tipos de policiamento e funções do SIPOM (policiamentos_tipos/_funcoes).
@@ -161,8 +165,9 @@ type Input struct {
 	// UnlinkedPeople: envolvidos identificados sem dossiê vinculado.
 	UnlinkedPeople int
 	// People: envolvidos (identificados ou não); PeopleWithoutSex: os
-	// identificados sem sexo.
-	People, PeopleWithoutSex int
+	// identificados sem sexo nem sugestão; PeopleSexSuggested: os que só têm
+	// a sugestão, à espera da confirmação.
+	People, PeopleWithoutSex, PeopleSexSuggested int
 	// GeoRequired: o geocodificador está ligado, então ocorrência sem
 	// coordenada (HasGeo) fica pendente.
 	GeoRequired bool
@@ -256,6 +261,9 @@ func (c *Catalog) Resolve(in Input) Result {
 	}
 	if in.PeopleWithoutSex > 0 {
 		r.Pending = append(r.Pending, PendPessoaSexo)
+	}
+	if in.PeopleSexSuggested > 0 {
+		r.Pending = append(r.Pending, PendPessoaSexoConfirm)
 	}
 	if in.People > 0 && len(c.vinculos) == 0 {
 		r.Pending = append(r.Pending, PendCatalogoVinculo)

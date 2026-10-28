@@ -25,6 +25,28 @@ func TestSplitBase(t *testing.T) {
 	}
 }
 
+func TestIsNoisePrintMargins(t *testing.T) {
+	for _, s := range []string{
+		"09/01/26, 07:21 RELATÓRIO DE OCORRÊNCIAS",
+		"27/01/26, 7:31",
+		"https://sgr.pm.ce.gov.br/impressao_ocorrencia_operacional/ 15/33",
+		"HTTPS://SGR.PM.CE.GOV.BR/IMPRESSAO_OCORRENCIA_OPERACIONAL/",
+	} {
+		if !isNoise(s) {
+			t.Errorf("margem da impressão não reconhecida: %q", s)
+		}
+	}
+	for _, s := range []string{
+		"Data: 09/01/2026",
+		"FULANO DE TAL 32 RUA A, 10",
+		"Histórico: às 07:21 a equipe abordou o indivíduo",
+	} {
+		if isNoise(s) {
+			t.Errorf("linha do relatório tomada por margem: %q", s)
+		}
+	}
+}
+
 func TestUnitKey(t *testing.T) {
 	for _, s := range []string{"2º BPRAIO", "2ºBPRAIO", "2° BPRAIO", "2 bpraio"} {
 		if UnitKey(s) != "2BPRAIO" {

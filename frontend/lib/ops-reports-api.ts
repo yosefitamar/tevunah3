@@ -73,6 +73,11 @@ export type SipomPerson = {
   fonte: "dossie" | "relatorio";
   /** O sexo foi informado na ficha (o dossiê não diz). */
   sexo_ficha: boolean;
+  /** Sexo sugerido à espera de confirmação (0 = nenhum) — não vai ao SIPOM. */
+  sexo_sugerido: number;
+  /** De onde veio a sugestão: primeiro nome no censo, escolha anterior de
+   *  analista para o nome, ou histórico no feminino. */
+  sexo_fonte: "" | "nome" | "aprendido" | "historico";
 };
 
 /** Aviso do SIPOM num envio aceito (o item foi ignorado ou ficou vazio lá). */

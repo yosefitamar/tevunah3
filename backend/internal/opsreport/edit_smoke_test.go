@@ -617,3 +617,79 @@ func TestSmoke_SipomSendState(t *testing.T) {
 		}
 	}
 }
+
+// O recálculo sugere o sexo pelo nome e a pendência vira "confirmar"; a
+// confirmação em lote grava a sugestão e a pendência some. Restaura o que
+// havia.
+func TestSmoke_SexoSugerido(t *testing.T) {
+	db, _ := smokeDB(t)
+	ctx := context.Background()
+	cat, err := sipom.Load(ctx, db)
+	if err != nil {
+		t.Skipf("catálogo do SIPOM não carregado: %v", err)
+	}
+	r := New(db)
+	var id string
+	err = db.QueryRowContext(ctx, `
+		SELECT o.id FROM app.ops_occurrences o
+		 WHERE o.deleted_at IS NULL AND 'pessoa_sexo_confirmar' = ANY(o.sipom_pendencias)
+		 ORDER BY o.created_at, o.id LIMIT 1`).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		t.Skip("sem ocorrência com sexo sugerido no banco (rode o sipom-recompute)")
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	orig, err := r.FindByID(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sugeridos []StoredPerson
+	for _, p := range orig.People {
+		if p.SipomSexo == 0 && p.SipomSexoSugerido != 0 {
+			sugeridos = append(sugeridos, p)
+		}
+	}
+	if len(sugeridos) == 0 {
+		t.Fatal("pendência de confirmar sem envolvido com sugestão")
+	}
+	defer func() {
+		for _, p := range sugeridos {
+			if err := r.SetPersonSipomSexo(ctx, id, p.ID, 0); err != nil {
+				t.Errorf("restaurar sexo: %v", err)
+			}
+		}
+		if _, _, err := r.RecomputeSipom(ctx, cat, id); err != nil {
+			t.Errorf("restaurar tradução: %v", err)
+		}
+	}()
+
+	for _, p := range SipomPeople(orig) {
+		if p.ID == sugeridos[0].ID && (p.Sexo != 0 || p.SexoSugerido != sugeridos[0].SipomSexoSugerido || p.SexoFonte == "") {
+			t.Errorf("envolvido com sugestão: %+v", p)
+		}
+	}
+	done, n, err := r.ConfirmSipomSexos(ctx, []string{id})
+	if err != nil {
+		t.Fatalf("ConfirmSipomSexos: %v", err)
+	}
+	if len(done) != 1 || n != len(sugeridos) {
+		t.Errorf("confirmados: %v ocorrências, %d envolvidos (quer 1, %d)", done, n, len(sugeridos))
+	}
+	if _, _, err := r.RecomputeSipom(ctx, cat, id); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := r.FindByID(ctx, id)
+	for _, p := range got.People {
+		for _, s := range sugeridos {
+			if p.ID == s.ID && p.SipomSexo != s.SipomSexoSugerido {
+				t.Errorf("sexo confirmado de %s: %d, quer %d", p.ID, p.SipomSexo, s.SipomSexoSugerido)
+			}
+		}
+	}
+	for _, c := range got.Sipom.Pending {
+		if c == sipom.PendPessoaSexoConfirm {
+			t.Errorf("pendência de confirmar continua: %v", got.Sipom.Pending)
+		}
+	}
+}

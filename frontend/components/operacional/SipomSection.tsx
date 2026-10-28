@@ -390,10 +390,18 @@ export function OfficersTable({ officers }: { officers: OpsOfficer[] }) {
   );
 }
 
+const SEXO_LABEL: Record<number, string> = { 1: "MASCULINO", 2: "FEMININO" };
+const SEXO_FONTE_LABEL: Record<string, string> = {
+  nome: "PELO NOME",
+  aprendido: "ESCOLHA ANTERIOR",
+  historico: "PELO HISTÓRICO",
+};
+
 /**
  * Envolvidos como vão ao SIPOM (qualificação do dossiê, quando há vínculo).
  * O SIPOM exige o sexo de toda pessoa identificada: quando o dossiê não diz,
- * o analista informa aqui.
+ * o analista informa aqui — ou confirma o sugerido (pelo nome, por escolha
+ * anterior para o mesmo nome ou pelo histórico).
  */
 export function SipomEnvolvidos({ occ, ed }: { occ: OpsOccurrence; ed?: SipomEdit }) {
   const s = occ.sipom!;
@@ -424,16 +432,29 @@ export function SipomEnvolvidos({ occ, ed }: { occ: OpsOccurrence; ed?: SipomEdi
               <td className="mono">{p.cpf ? formatCPF(p.cpf) : "—"}</td>
               <td>
                 {canSetSex(p) ? (
-                  <Select
-                    value={p.sexo ? String(p.sexo) : ""}
-                    placeholder="INFORME"
-                    disabled={ed!.busy}
-                    onChange={(v) => ed!.run(() => setSipomSexo(occ.id!, p.id, Number(v) as 1 | 2))}
-                    options={[
-                      { value: "1", label: "MASCULINO" },
-                      { value: "2", label: "FEMININO" },
-                    ]}
-                  />
+                  <div className="ops-control-row">
+                    <Select
+                      value={p.sexo ? String(p.sexo) : ""}
+                      placeholder={p.sexo_sugerido ? `${SEXO_LABEL[p.sexo_sugerido]}?` : "INFORME"}
+                      disabled={ed!.busy}
+                      onChange={(v) => ed!.run(() => setSipomSexo(occ.id!, p.id, Number(v) as 1 | 2))}
+                      options={[
+                        { value: "1", label: "MASCULINO" },
+                        { value: "2", label: "FEMININO" },
+                      ]}
+                    />
+                    {!p.sexo && p.sexo_sugerido > 0 && (
+                      <button
+                        type="button"
+                        className="btn btn-primary btn-sm ops-nowrap"
+                        disabled={ed!.busy}
+                        title={`Sugerido ${SEXO_FONTE_LABEL[p.sexo_fonte]?.toLowerCase() ?? ""}`}
+                        onClick={() => ed!.run(() => setSipomSexo(occ.id!, p.id, p.sexo_sugerido as 1 | 2))}
+                      >
+                        <Check size={12} strokeWidth={2} /> {SEXO_LABEL[p.sexo_sugerido]} · {SEXO_FONTE_LABEL[p.sexo_fonte]}
+                      </button>
+                    )}
+                  </div>
                 ) : p.sexo === 1 ? (
                   "MASCULINO"
                 ) : p.sexo === 2 ? (

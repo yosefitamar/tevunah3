@@ -60,6 +60,7 @@ export const STEP_OF_PENDING: Record<string, OpsStep> = {
   composicao_multi: "efetivo",
   pessoa_sem_dossie: "pessoas",
   pessoa_sexo: "pessoas",
+  pessoa_sexo_confirmar: "pessoas",
   catalogo_vinculo: "pessoas",
   procedimento: "procedimento",
   procedimento_tipo: "procedimento",

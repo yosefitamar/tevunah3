@@ -35,6 +35,8 @@ export const PENDING_SHORT: Record<string, string> = {
   composicao: "COMPOSIÇÃO",
   composicao_multi: "DUAS EQUIPES",
   pessoa_sem_dossie: "PESSOA SEM DOSSIÊ",
+  pessoa_sexo: "SEM SEXO",
+  pessoa_sexo_confirmar: "CONFIRMAR SEXO",
   coordenada: "SEM COORDENADA",
   procedimento: "SEM PROCEDIMENTO",
   procedimento_tipo: "TIPO DO PROCED.",

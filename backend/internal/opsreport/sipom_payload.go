@@ -176,7 +176,11 @@ func BuildSipomPayload(cat *sipom.Catalog, so *StoredOccurrence, src PayloadSour
 			continue
 		}
 		if tp.Sexo == 0 {
-			pend = appendOnce(pend, sipom.PendPessoaSexo)
+			if tp.SexoSugerido != 0 {
+				pend = appendOnce(pend, sipom.PendPessoaSexoConfirm)
+			} else {
+				pend = appendOnce(pend, sipom.PendPessoaSexo)
+			}
 			continue
 		}
 		nome := tp.Nome
@@ -302,6 +306,7 @@ func personInput(so *StoredOccurrence, sp StoredPerson) sipom.PersonInput {
 		Linked: sp.EntityID != nil, EntName: sp.EntityName, EntMother: sp.EntityMother,
 		CPF: sp.EntityCPF, Gender: sp.EntityGender, BirthDate: sp.EntityBirthDate,
 		Deceased: sp.EntityDeceased, DeceasedOn: sp.EntityDeceasedOn, HasPhoto: sp.EntityHasPhoto,
-		Sexo: sp.SipomSexo, OccurredOn: so.OccurredOn,
+		Sexo: sp.SipomSexo, SexoSugerido: sp.SipomSexoSugerido, SexoFonte: sp.SipomSexoFonte,
+		OccurredOn: so.OccurredOn,
 	}
 }

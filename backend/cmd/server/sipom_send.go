@@ -242,7 +242,9 @@ func (a *app) handleSipomBairros(w http.ResponseWriter, r *http.Request) {
 
 // PUT /api/ops-occurrences/{id}/sipom/pessoas/{pid}/sexo {"sexo": 1 | 2 | 0}
 //
-// Sexo do envolvido para o SIPOM, quando o dossiê não diz. 0 limpa.
+// Sexo do envolvido para o SIPOM, quando o dossiê não diz. 0 limpa. Se o
+// censo não decide o primeiro nome, a escolha vira termo aprendido (nome →
+// sexo) e passa a ser sugerida nas outras ocorrências.
 func (a *app) handleSipomSetSexo(w http.ResponseWriter, r *http.Request) {
 	if !a.requirePerm(w, r, "opsreport.update") {
 		return
@@ -273,7 +275,67 @@ func (a *app) handleSipomSetSexo(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusInternalServerError, "erro ao gravar")
 		return
 	}
-	a.finishSipomChange(w, r, id, "opsreport.sipom.pessoa.sexo", before, nil)
+	learned := map[string]any{}
+	if req.Sexo != 0 {
+		a.learnSexoNome(r, learned, before, pid, req.Sexo)
+	}
+	a.finishSipomChange(w, r, id, "opsreport.sipom.pessoa.sexo", before, learned)
+}
+
+// learnSexoNome aprende o sexo do primeiro nome do envolvido — só quando o
+// censo não decide o nome: nome comum de um sexo só não precisa da
+// referência, e uma exceção (a pessoa, não o nome) não deve virar regra.
+func (a *app) learnSexoNome(r *http.Request, learned map[string]any, so *opsreport.StoredOccurrence, pid string, sexo int) {
+	names, err := a.opsReports.NameSex(r.Context())
+	if err != nil {
+		log.Printf("sipom nomes: %v", err)
+		return
+	}
+	for _, p := range so.People {
+		if p.ID != pid || p.EntityID != nil {
+			continue
+		}
+		if first := sipom.FirstName(p.Name); first != "" && names.Guess(first) == 0 {
+			a.learnTerm(r, learned, sipom.TermSexoNome, first, sexo, middleware.UserFrom(r.Context()).ID)
+		}
+		return
+	}
+}
+
+// POST /api/ops-occurrences/sipom/sexo/confirm {ids}
+//
+// Confirma em lote o sexo sugerido dos envolvidos das ocorrências.
+func (a *app) handleSipomConfirmSexos(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePerm(w, r, "opsreport.update") {
+		return
+	}
+	if a.sipom == nil {
+		httpx.Error(w, http.StatusServiceUnavailable, "catálogo do SIPOM não carregado")
+		return
+	}
+	var req struct {
+		IDs []string `json:"ids"`
+	}
+	if err := httpx.Decode(r, &req); err != nil || len(req.IDs) == 0 || len(req.IDs) > 500 {
+		httpx.Error(w, http.StatusBadRequest, "informe de 1 a 500 ocorrências")
+		return
+	}
+	done, people, err := a.opsReports.ConfirmSipomSexos(r.Context(), req.IDs)
+	if err != nil {
+		log.Printf("sipom confirm sexo: %v", err)
+		httpx.Error(w, http.StatusInternalServerError, "erro ao confirmar")
+		return
+	}
+	for _, id := range done {
+		a.sipomRecomputeOne(r.Context(), id)
+	}
+	aid, sid, ip, ua := a.actorInfo(r)
+	_ = a.audit.Log(r.Context(), audit.Entry{
+		ActorUserID: aid, ActorSessionID: sid, ActorIP: ip, ActorUserAgent: ua,
+		Action: "opsreport.sipom.sexo.confirm",
+		After:  map[string]any{"occurrence_ids": done, "pessoas": people},
+	})
+	httpx.OK(w, map[string]any{"confirmed": people, "occurrences": len(done)})
 }
 
 // PUT /api/ops-occurrences/{id}/sipom/veiculos/{pos}/ano

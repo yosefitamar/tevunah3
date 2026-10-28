@@ -190,6 +190,14 @@ export function confirmSipomNaturezas(ids: string[]) {
   });
 }
 
+/** Confirma em lote o sexo sugerido dos envolvidos das ocorrências. */
+export function confirmSipomSexos(ids: string[]) {
+  return api<{ confirmed: number; occurrences: number }>("/api/ops-occurrences/sipom/sexo/confirm", {
+    method: "POST",
+    body: JSON.stringify({ ids }),
+  });
+}
+
 /**
  * Corpo do POST ao SIPOM (contrato em docs/sipom-integracao.md). Sem
  * `withPhotos` as fotos vêm só com o tipo, sem o base64 — a leitura do

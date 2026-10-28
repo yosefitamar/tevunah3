@@ -33,8 +33,9 @@ func SipomInput(o *Occurrence) sipom.Input {
 		People:         len(o.People),
 		// Na importação o sexo ainda não existe (o vínculo ao dossiê vem
 		// depois): todo identificado conta como sem sexo.
-		PeopleWithoutSex: unlinkedPeople(o.People, o.peopleSexed),
-		HasGeo:           o.Geo.Located(),
+		PeopleWithoutSex:   withoutSex(o, false),
+		PeopleSexSuggested: withoutSex(o, true),
+		HasGeo:             o.Geo.Located(),
 	}
 }
 
@@ -67,6 +68,47 @@ func unlinkedPeople(people []Person, linked []bool) int {
 		}
 	}
 	return n
+}
+
+// withoutSex conta os identificados sem sexo: os que têm sugestão à espera
+// de confirmação (suggested) ou os que não têm nem ela.
+func withoutSex(o *Occurrence, suggested bool) int {
+	n := 0
+	for i, p := range o.People {
+		if sipom.Unidentified(p.Name) || (i < len(o.peopleSexed) && o.peopleSexed[i]) {
+			continue
+		}
+		has := i < len(o.peopleSexSug) && o.peopleSexSug[i] != 0
+		if has == suggested {
+			n++
+		}
+	}
+	return n
+}
+
+// suggestSexo refaz a sugestão de sexo dos identificados sem sexo e devolve
+// as que mudaram (índices em o.People).
+func suggestSexo(o *Occurrence, names *sipom.NameSex, terms *sipom.TermMap) []int {
+	identified := 0
+	for _, p := range o.People {
+		if !sipom.Unidentified(p.Name) {
+			identified++
+		}
+	}
+	var changed []int
+	for i, p := range o.People {
+		if i >= len(o.peopleSexSug) || (i < len(o.peopleSexed) && o.peopleSexed[i]) {
+			continue
+		}
+		s, fonte := sipom.SuggestSexo(sipom.SexoInput{
+			Name: p.Name, Role: p.Role, Narrative: o.Narrative, Single: identified == 1,
+		}, names, terms)
+		if s != o.peopleSexSug[i] || fonte != o.peopleSexSugFont[i] {
+			o.peopleSexSug[i], o.peopleSexSugFont[i] = s, fonte
+			changed = append(changed, i)
+		}
+	}
+	return changed
 }
 
 // SipomPeople monta os envolvidos da ocorrência gravada no formato do
@@ -303,6 +345,10 @@ func (r *Repo) RecomputeSipom(ctx context.Context, cat *sipom.Catalog, onlyID st
 	if err != nil {
 		return 0, 0, err
 	}
+	names, err := r.NameSex(ctx)
+	if err != nil {
+		return 0, 0, err
+	}
 	srcs, err := r.SipomSources(ctx, onlyID)
 	if err != nil {
 		return 0, 0, err
@@ -310,6 +356,11 @@ func (r *Repo) RecomputeSipom(ctx context.Context, cat *sipom.Catalog, onlyID st
 	for i := range srcs {
 		o := &srcs[i].Occurrence
 		o.Sipom.Manual = srcs[i].Manual
+		for _, k := range suggestSexo(o, names, terms) {
+			if err := r.savePersonSexoSugerido(ctx, o.peopleIDs[k], o.peopleSexSug[k], o.peopleSexSugFont[k]); err != nil {
+				return ready, pending, err
+			}
+		}
 		TranslateSipom(cat, SipomRefs{Natures: nm, Areas: ar, GeoRequired: r.GeoRequired, Terms: terms}, o)
 		if err := r.SaveSipomAll(ctx, srcs[i].ID, o.Sipom, o.Officers, o.Weapons, o.Drugs, o.Vehicles); err != nil {
 			return ready, pending, err

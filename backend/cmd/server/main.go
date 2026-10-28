@@ -304,6 +304,7 @@ func main() {
 	mux.Handle("GET /api/ops-occurrences/{id}/sipom/payload", auth(http.HandlerFunc(a.handleSipomPayload)))
 	mux.Handle("GET /api/ops-occurrences/sipom/queue", auth(http.HandlerFunc(a.handleSipomQueue)))
 	mux.Handle("POST /api/ops-occurrences/sipom/natureza/confirm", auth(http.HandlerFunc(a.handleSipomConfirmNaturezas)))
+	mux.Handle("POST /api/ops-occurrences/sipom/sexo/confirm", auth(http.HandlerFunc(a.handleSipomConfirmSexos)))
 	mux.Handle("GET /api/sipom/naturezas", auth(http.HandlerFunc(a.handleSipomNaturezas)))
 	mux.Handle("GET /api/admin/sipom/natureza-map", auth(http.HandlerFunc(a.handleSipomMapList)))
 	mux.Handle("PUT /api/admin/sipom/natureza-map", auth(http.HandlerFunc(a.handleSipomMapUpsert)))

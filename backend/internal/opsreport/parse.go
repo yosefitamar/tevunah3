@@ -103,6 +103,11 @@ type Occurrence struct {
 	// peopleSexed[i]: People[i] tem sexo para o SIPOM (dossiê ou ficha; só
 	// no recálculo).
 	peopleSexed []bool
+	// people* do recálculo: id da linha gravada e sugestão de sexo gravada
+	// (sexo.go no pacote sipom), para regravar só o que mudar.
+	peopleIDs        []string
+	peopleSexSug     []int
+	peopleSexSugFont []string
 
 	Warnings []string
 }
@@ -416,8 +421,17 @@ func afterPrefix(text, prefix string) string {
 
 var headerDateRE = regexp.MustCompile(`^Data:\s*(\d{2}/\d{2}/\d{4})$`)
 
-// isNoise reconhece o que se repete no topo de toda página com cabeçalho e o
-// fecho do documento.
+// Margens da impressão pelo navegador: no topo, data e hora da impressão
+// ("09/01/26, 07:21 RELATÓRIO DE OCORRÊNCIAS"); no rodapé, o endereço do
+// sistema e a página ("https://sgr.pm.ce.gov.br/... 15/33"). Aparecem em
+// toda página, inclusive no meio de uma lista de envolvidos.
+var (
+	printStampRE = regexp.MustCompile(`^\d{2}/\d{2}/\d{2},\s*\d{1,2}:\d{2}\b`)
+	printURLRE   = regexp.MustCompile(`(?i)^https?://\S+(\s+\d+\s*/\s*\d+)?$`)
+)
+
+// isNoise reconhece o que se repete no topo de toda página com cabeçalho, as
+// margens da impressão pelo navegador e o fecho do documento.
 func isNoise(t string) bool {
 	switch {
 	case hasPrefixFold(t, "Comando de Policiamento"),
@@ -425,6 +439,8 @@ func isNoise(t string) bool {
 		hasPrefixFold(t, "RELATÓRIO DIÁRIO DE OCORRÊNCIAS"),
 		hasPrefixFold(t, "Assinatura Oficial"),
 		hasPrefixFold(t, "Fiscal responsável"),
+		printStampRE.MatchString(t),
+		printURLRE.MatchString(t),
 		strings.Trim(t, "_ ") == "":
 		return true
 	}

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/belia/tevunah/backend/internal/sipom"
@@ -33,9 +34,28 @@ type Repo struct {
 	// GeoRequired: o geocodificador está ligado. No recálculo da tradução,
 	// ocorrência sem coordenada fica com a pendência "coordenada".
 	GeoRequired bool
+
+	// names: frequência dos primeiros nomes no censo (app.nomes_sexo), lida
+	// uma vez — a tabela só muda por migração.
+	namesMu sync.Mutex
+	names   *sipom.NameSex
 }
 
 func New(db *sql.DB) *Repo { return &Repo{db: db} }
+
+// NameSex devolve a tabela de nomes do censo, lida na primeira chamada.
+func (r *Repo) NameSex(ctx context.Context) (*sipom.NameSex, error) {
+	r.namesMu.Lock()
+	defer r.namesMu.Unlock()
+	if r.names == nil {
+		n, err := sipom.LoadNameSex(ctx, r.db)
+		if err != nil {
+			return nil, err
+		}
+		r.names = n
+	}
+	return r.names, nil
+}
 
 // ─────────────────────────── Importação ────────────────────────────
 
@@ -407,6 +427,10 @@ type StoredPerson struct {
 	// SipomSexo: sexo informado na ficha para o SIPOM (1 masculino, 2
 	// feminino, 0 = não informado); vale quando o dossiê não diz.
 	SipomSexo int
+	// SipomSexoSugerido e SipomSexoFonte: a sugestão do recálculo, à espera
+	// da confirmação (0 e "" = sem sugestão).
+	SipomSexoSugerido int
+	SipomSexoFonte    string
 }
 
 // ListOpts controla a listagem de ocorrências.
@@ -780,7 +804,7 @@ func (r *Repo) listPeople(ctx context.Context, occID string) ([]StoredPerson, er
 		       p.link_mode, p.linked_at,
 		       COALESCE(ep.cpf, ''), COALESCE(ep.gender, ''), COALESCE(ep.mother_name, ''),
 		       ep.date_of_birth, ep.deceased_on, COALESCE(ep.photo_path, '') <> '',
-		       COALESCE(p.sipom_sexo, 0)
+		       COALESCE(p.sipom_sexo, 0), COALESCE(p.sipom_sexo_sugerido, 0), p.sipom_sexo_fonte
 		  FROM app.ops_occurrence_people p
 		  LEFT JOIN app.entities e ON e.id = p.entity_id
 		  LEFT JOIN app.entity_persons ep ON ep.entity_id = p.entity_id
@@ -799,7 +823,8 @@ func (r *Repo) listPeople(ctx context.Context, occID string) ([]StoredPerson, er
 		if err := rows.Scan(&sp.ID, &sp.Role, &sp.Name, &sp.MotherName, &age, &sp.Address, &sp.Note,
 			&ent, &sp.EntityName, &sp.EntityDeceased, &sp.LinkMode, &linkedAt,
 			&sp.EntityCPF, &sp.EntityGender, &sp.EntityMother,
-			&sp.EntityBirthDate, &sp.EntityDeceasedOn, &sp.EntityHasPhoto, &sp.SipomSexo); err != nil {
+			&sp.EntityBirthDate, &sp.EntityDeceasedOn, &sp.EntityHasPhoto, &sp.SipomSexo,
+			&sp.SipomSexoSugerido, &sp.SipomSexoFonte); err != nil {
 			return nil, err
 		}
 		if age.Valid {
@@ -1066,6 +1091,46 @@ func (r *Repo) SetPersonSipomSexo(ctx context.Context, occID, personID string, s
 		occID, personID, sexo)
 }
 
+// savePersonSexoSugerido grava a sugestão de sexo do envolvido (0 limpa).
+func (r *Repo) savePersonSexoSugerido(ctx context.Context, personID string, sexo int, fonte string) error {
+	_, err := r.db.ExecContext(ctx, `
+		UPDATE app.ops_occurrence_people SET sipom_sexo_sugerido = NULLIF($2, 0), sipom_sexo_fonte = $3
+		 WHERE id = $1`, personID, sexo, fonte)
+	return err
+}
+
+// ConfirmSipomSexos confirma em lote o sexo sugerido dos envolvidos das
+// ocorrências informadas que ainda não têm sexo (nem na ficha nem no
+// dossiê). Devolve as ocorrências alteradas e quantos envolvidos.
+func (r *Repo) ConfirmSipomSexos(ctx context.Context, ids []string) ([]string, int, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		UPDATE app.ops_occurrence_people p SET sipom_sexo = p.sipom_sexo_sugerido
+		  FROM app.ops_occurrences o
+		 WHERE o.id = p.occurrence_id AND o.id::text = ANY($1) AND o.deleted_at IS NULL
+		   AND p.sipom_sexo IS NULL AND p.sipom_sexo_sugerido IS NOT NULL
+		   AND NOT EXISTS (SELECT 1 FROM app.entity_persons ep
+		                    WHERE ep.entity_id = p.entity_id AND upper(COALESCE(ep.gender, '')) IN ('M', 'F'))
+		RETURNING o.id`, ids)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	seen := map[string]bool{}
+	out, people := []string{}, 0
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, 0, err
+		}
+		people++
+		if !seen[id] {
+			seen[id] = true
+			out = append(out, id)
+		}
+	}
+	return out, people, rows.Err()
+}
+
 // SetVehicleYears grava ano de fabricação e do modelo do veículo (nil limpa).
 func (r *Repo) SetVehicleYears(ctx context.Context, id string, pos int, fabricacao, modelo *int) error {
 	return r.execOne(ctx, `
@@ -1216,7 +1281,7 @@ func (r *Repo) SipomSources(ctx context.Context, onlyID string) ([]SipomSource, 
 		       o.sipom_logradouro, o.sipom_numeral, o.sipom_area_id, o.sipom_opm_id, o.sipom_bairro_id,
 		       o.latitude, o.longitude,
 		       o.police_station, o.delegate, o.procedure_type, o.procedure_number,
-		       o.sipom_procedimento_id, o.sipom_delegacia_id, o.sipom_delegado_id
+		       o.sipom_procedimento_id, o.sipom_delegacia_id, o.sipom_delegado_id, o.narrative
 		  FROM app.ops_occurrences o
 		 WHERE o.deleted_at IS NULL AND ($1 = '' OR o.id::text = $1)
 		 ORDER BY o.occurred_on`, onlyID)
@@ -1236,7 +1301,7 @@ func (r *Repo) SipomSources(ctx context.Context, onlyID string) ([]SipomSource, 
 			&s.Sipom.Logradouro, &s.Sipom.Numeral, &s.Sipom.AreaID, &s.Sipom.OPMID, &s.Sipom.BairroID,
 			&s.Geo.Lat, &s.Geo.Lng,
 			&s.PoliceStation, &s.Delegate, &s.ProcedureType, &s.ProcedureNumber,
-			&s.Sipom.ProcedimentoID, &s.Sipom.DelegaciaID, &s.Sipom.DelegadoID); err != nil {
+			&s.Sipom.ProcedimentoID, &s.Sipom.DelegaciaID, &s.Sipom.DelegadoID, &s.Narrative); err != nil {
 			return nil, err
 		}
 		if err := decodeStrings(natures, &s.Natures); err != nil {
@@ -1259,7 +1324,8 @@ func (r *Repo) SipomSources(ctx context.Context, onlyID string) ([]SipomSource, 
 	}
 	prows, err := r.db.QueryContext(ctx, `
 		SELECT p.occurrence_id, COALESCE(NULLIF(e.name, ''), p.name), p.entity_id IS NOT NULL,
-		       p.sipom_sexo IS NOT NULL OR upper(COALESCE(ep.gender, '')) IN ('M', 'F')
+		       p.sipom_sexo IS NOT NULL OR upper(COALESCE(ep.gender, '')) IN ('M', 'F'),
+		       p.id, p.role, COALESCE(p.sipom_sexo_sugerido, 0), p.sipom_sexo_fonte
 		  FROM app.ops_occurrence_people p
 		  JOIN app.ops_occurrences o ON o.id = p.occurrence_id
 		  LEFT JOIN app.entities e ON e.id = p.entity_id
@@ -1271,15 +1337,20 @@ func (r *Repo) SipomSources(ctx context.Context, onlyID string) ([]SipomSource, 
 	}
 	defer prows.Close()
 	for prows.Next() {
-		var occID, name string
+		var occID, name, pid, role, fonte string
 		var linked, hasSex bool
-		if err := prows.Scan(&occID, &name, &linked, &hasSex); err != nil {
+		var sug int
+		if err := prows.Scan(&occID, &name, &linked, &hasSex, &pid, &role, &sug, &fonte); err != nil {
 			return nil, err
 		}
 		if i, ok := idx[occID]; ok {
-			out[i].People = append(out[i].People, Person{Name: name})
-			out[i].peopleLinked = append(out[i].peopleLinked, linked)
-			out[i].peopleSexed = append(out[i].peopleSexed, hasSex)
+			s := &out[i]
+			s.People = append(s.People, Person{Name: name, Role: role})
+			s.peopleLinked = append(s.peopleLinked, linked)
+			s.peopleSexed = append(s.peopleSexed, hasSex)
+			s.peopleIDs = append(s.peopleIDs, pid)
+			s.peopleSexSug = append(s.peopleSexSug, sug)
+			s.peopleSexSugFont = append(s.peopleSexSugFont, fonte)
 		}
 	}
 	if err := prows.Err(); err != nil {

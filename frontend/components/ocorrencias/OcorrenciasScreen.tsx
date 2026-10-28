@@ -25,7 +25,7 @@ import {
   type OccurrencesList,
 } from "@/lib/occurrences-api";
 import { getOpsFacets, type OpsFacets, type OpsReport } from "@/lib/ops-reports-api";
-import { confirmSipomNaturezas } from "@/lib/sipom-api";
+import { confirmSipomNaturezas, confirmSipomSexos } from "@/lib/sipom-api";
 import {
   canCreateIncidents,
   canImportOpsReports,
@@ -226,6 +226,9 @@ export default function OcorrenciasScreen() {
   // Naturezas que o de-para só sugeriu, entre as linhas à vista.
   const toConfirm = items.filter((x) => x.ops_id && x.pendencias.some((p) => p.code === "natureza_confirmar"));
 
+  // Sexos que só foram sugeridos (pelo nome, escolha anterior ou histórico).
+  const toConfirmSexo = items.filter((x) => x.ops_id && x.pendencias.some((p) => p.code === "pessoa_sexo_confirmar"));
+
   async function confirmAll() {
     setBusy(true);
     setError(null);
@@ -233,6 +236,21 @@ export default function OcorrenciasScreen() {
     try {
       const r = await confirmSipomNaturezas(toConfirm.map((x) => x.ops_id as string));
       setNotice(`${r.confirmed} natureza(s) confirmada(s).`);
+      await reload();
+    } catch (e) {
+      setError((e as ApiError).message || "Erro ao confirmar");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirmAllSexos() {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const r = await confirmSipomSexos(toConfirmSexo.map((x) => x.ops_id as string));
+      setNotice(`Sexo confirmado de ${r.confirmed} envolvido(s) em ${r.occurrences} ocorrência(s).`);
       await reload();
     } catch (e) {
       setError((e as ApiError).message || "Erro ao confirmar");
@@ -405,6 +423,18 @@ export default function OcorrenciasScreen() {
               title="Fixa a natureza sugerida pelo de-para nas ocorrências desta página"
             >
               <CheckCheck size={13} strokeWidth={1.8} /> CONFIRMAR NATUREZAS ({toConfirm.length})
+            </button>
+          )}
+          {canEditOps && toConfirmSexo.length > 0 && (
+            <button
+              type="button"
+              className="btn btn-sm"
+              style={toConfirm.length > 0 ? undefined : { marginLeft: "auto" }}
+              disabled={busy}
+              onClick={confirmAllSexos}
+              title="Fixa o sexo sugerido (pelo nome, escolha anterior ou histórico) dos envolvidos das ocorrências desta página"
+            >
+              <CheckCheck size={13} strokeWidth={1.8} /> CONFIRMAR SEXOS ({toConfirmSexo.length})
             </button>
           )}
         </SipomTrailLegend>

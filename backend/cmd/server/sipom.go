@@ -72,6 +72,10 @@ type sipomPersonJSON struct {
 	Fonte        string  `json:"fonte"`
 	// SexoFicha: o sexo foi informado na ficha (o dossiê não diz).
 	SexoFicha bool `json:"sexo_ficha"`
+	// SexoSugerido: sugestão à espera de confirmação (0 = nenhuma) e de onde
+	// veio (nome | aprendido | historico).
+	SexoSugerido int    `json:"sexo_sugerido"`
+	SexoFonte    string `json:"sexo_fonte"`
 }
 
 type sipomOccurrenceJSON struct {
@@ -140,7 +144,7 @@ func (a *app) sipomJSON(o *opsreport.Occurrence, people []sipom.Person) *sipomOc
 	}
 	for _, p := range people {
 		pj := sipomPersonJSON{
-			ID: p.ID, SexoFicha: p.SexoFicha,
+			ID: p.ID, SexoFicha: p.SexoFicha, SexoSugerido: p.SexoSugerido, SexoFonte: p.SexoFonte,
 			Vinculo: p.Vinculo, VinculoLabel: sipom.VinculoLabel[p.Vinculo],
 			Nome: p.Nome, CPF: p.CPF, Sexo: p.Sexo, Mae: p.Mae,
 			Morte: p.Morte, Foto: p.Foto, Fonte: p.Fonte,

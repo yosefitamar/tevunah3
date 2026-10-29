@@ -136,6 +136,20 @@ func SipomPeopleParsed(o *Occurrence) []sipom.Person {
 	return out
 }
 
+// LearnedArea acha a referência de área para o lugar: pela grafia do
+// relatório (cidade + bairro, ou a cidade inteira onde o catálogo não
+// distingue bairro) e, sem ela, pelo nome do bairro no catálogo — como as
+// referências inseridas pela tela ficam gravadas.
+func LearnedArea(cat *sipom.Catalog, ar *sipom.AreaRules, in sipom.Input, cidadeID, bairroID *int) (int, bool) {
+	if id, ok := ar.Find(in.City, in.Neighborhood, cat.CityWideAreas(cidadeID, bairroID)); ok {
+		return id, true
+	}
+	if bairroID != nil {
+		return ar.Lookup(in.City, cat.BairroNome(*bairroID))
+	}
+	return 0, false
+}
+
 // TranslateSipom preenche o.Sipom e a composição de o.Officers. A natureza
 // sai do de-para (nm), salvo se o analista a fixou ("natureza" em
 // Sipom.Manual). A área sai da referência aprendida das escolhas dos
@@ -172,7 +186,7 @@ func TranslateSipom(cat *sipom.Catalog, refs SipomRefs, o *Occurrence) {
 	// Vale sobre o catálogo (inclusive onde ele resolve sozinho — se alguém
 	// corrigiu, o catálogo estava errado ali), desde que a companhia siga
 	// ativa no SIPOM.
-	if id, ok := ar.Find(in.City, in.Neighborhood, cat.CityWideAreas(r.CidadeID, r.BairroID)); ok && cat.IsActiveCompany(id) {
+	if id, ok := LearnedArea(cat, ar, in, r.CidadeID, r.BairroID); ok && cat.IsActiveCompany(id) {
 		r.AreaID, r.AreaOptions = &id, nil
 		r.Pending = without(r.Pending, sipom.PendArea, sipom.PendAreaAmbig)
 	}

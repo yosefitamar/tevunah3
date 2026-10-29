@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"strings"
+	"time"
 )
 
 // Referência de área da unidade militar: cidade + bairro → companhia
@@ -134,4 +135,46 @@ func (r *AreaRuleRepo) Learn(ctx context.Context, city, neighborhood string, are
 		strings.ToUpper(strings.TrimSpace(city)), strings.ToUpper(strings.TrimSpace(neighborhood)),
 		ck, nk, areaID, actor)
 	return err == nil, err
+}
+
+// StoredAreaRule é a referência gravada, como a tela de referências mostra.
+type StoredAreaRule struct {
+	City, Neighborhood string // grafia de quem gravou
+	AreaID             int
+	UpdatedAt          time.Time
+	UpdatedByName      string
+}
+
+// List devolve as referências, por cidade e bairro.
+func (r *AreaRuleRepo) List(ctx context.Context) ([]StoredAreaRule, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT r.city, r.neighborhood, r.area_id, r.updated_at, COALESCE(u.display_name, '')
+		  FROM app.sipom_area_rules r
+		  LEFT JOIN app.users u ON u.id = r.updated_by
+		 ORDER BY r.city_key, r.neighborhood_key`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []StoredAreaRule{}
+	for rows.Next() {
+		var x StoredAreaRule
+		if err := rows.Scan(&x.City, &x.Neighborhood, &x.AreaID, &x.UpdatedAt, &x.UpdatedByName); err != nil {
+			return nil, err
+		}
+		out = append(out, x)
+	}
+	return out, rows.Err()
+}
+
+// Delete apaga a referência do lugar. Devolve false se não havia.
+func (r *AreaRuleRepo) Delete(ctx context.Context, city, neighborhood string) (bool, error) {
+	res, err := r.db.ExecContext(ctx, `
+		DELETE FROM app.sipom_area_rules WHERE city_key = $1 AND neighborhood_key = $2`,
+		key(city), key(neighborhood))
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
 }

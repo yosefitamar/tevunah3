@@ -5911,3 +5911,8 @@ body.session-locked > *:not(.session-overlay-root) {
 .sipom-batch-list { max-height: calc(100vh - 320px); overflow: auto; border: 1px solid var(--line); }
 .sipom-batch-list thead th { position: sticky; top: 0; }
 .sipom-batch-err { color: var(--crit); font-size: 11.5px; }
+.modal.sipom-areas { width: 900px; max-width: calc(100vw - 32px); }
+.sipom-areas .modal-bd { display: flex; flex-direction: column; gap: 10px; }
+.sipom-areas .modal-hd > span { display: inline-flex; align-items: center; gap: 6px; }
+.sipom-areas .sel-trigger { height: 28px; }
+.sipom-areas-new .sel { min-width: 200px; }

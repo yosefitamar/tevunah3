@@ -494,6 +494,22 @@ func (c *Catalog) Companhia(id int) (Companhia, bool) {
 
 // CidadeNome e BairroNome devolvem o nome oficial pelo id.
 func (c *Catalog) CidadeNome(id int) string { return c.cidadeNome[id] }
+
+// CidadeID acha a cidade do catálogo pelo nome (acentos e caixa à parte).
+func (c *Catalog) CidadeID(name string) (int, bool) {
+	ci, ok := c.cidadeByKey[key(name)]
+	return ci.id, ok
+}
+
+// Cidades devolve as cidades do catálogo, por nome.
+func (c *Catalog) Cidades() []Ref {
+	out := make([]Ref, 0, len(c.cidadeNome))
+	for id, n := range c.cidadeNome {
+		out = append(out, Ref{ID: id, Nome: n})
+	}
+	sort.Slice(out, func(i, j int) bool { return key(out[i].Nome) < key(out[j].Nome) })
+	return out
+}
 func (c *Catalog) BairroNome(id int) string { return c.bairroNome[id] }
 
 // BairroDaCidade diz se o bairro (ativo) é da cidade — o SIPOM recusa

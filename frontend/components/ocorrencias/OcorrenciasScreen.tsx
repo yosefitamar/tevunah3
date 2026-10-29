@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CheckCheck, FileUp, History, Plus, Search, Send, ShieldAlert, X } from "lucide-react";
+import { CheckCheck, FileUp, History, MapPinned, Plus, Search, Send, ShieldAlert, X } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   INCIDENT_MEANS,
@@ -48,6 +48,7 @@ import { BLOCKING_STEPS, PENDING_SHORT, SipomTrail, SipomTrailLegend } from "../
 import CreateOcorrenciaModal from "./CreateOcorrenciaModal";
 import OcorrenciaDrawer from "./OcorrenciaDrawer";
 import SipomBatchSendModal, { type BatchItem } from "./SipomBatchSendModal";
+import SipomAreaRefsModal from "./SipomAreaRefsModal";
 
 const PAGE_SIZE = 25;
 
@@ -139,6 +140,7 @@ export default function OcorrenciasScreen() {
   // páginas; troca de aba limpa).
   const [selected, setSelected] = useState<Map<string, BatchItem>>(new Map());
   const [batch, setBatch] = useState<BatchItem[] | null>(null);
+  const [areaRefs, setAreaRefs] = useState(false);
 
   // Cada fonte tem a sua permissão; o servidor recorta a listagem pelo que o
   // usuário lê.
@@ -483,6 +485,15 @@ export default function OcorrenciasScreen() {
                 type="button"
                 className="btn btn-sm"
                 style={{ marginLeft: "auto" }}
+                disabled={busy}
+                onClick={() => setAreaRefs(true)}
+                title="Referências de área da unidade militar: resolver os lugares sem área e manter as referências"
+              >
+                <MapPinned size={13} strokeWidth={1.8} /> REFERÊNCIAS DE ÁREA
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm"
                 disabled={busy || (sipom?.ready ?? 0) === 0}
                 onClick={selectAllReady}
                 title="Seleciona todas as ocorrências prontas do recorte atual, em todas as páginas"
@@ -624,6 +635,16 @@ export default function OcorrenciasScreen() {
           </div>
         </div>
       </div>
+
+      {areaRefs && (
+        <SipomAreaRefsModal
+          onClose={() => setAreaRefs(false)}
+          onChanged={() => {
+            reload();
+            reloadFacets();
+          }}
+        />
+      )}
 
       {batch && (
         <SipomBatchSendModal

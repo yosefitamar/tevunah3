@@ -150,6 +150,54 @@ export function setOpsSipomField(occId: string, input: SipomFieldInput) {
   );
 }
 
+// ─── Referências de área da unidade militar ───
+
+/** Referência gravada: cidade + bairro → área. neighborhood "" = cidade inteira (ou sem bairro). */
+export type SipomAreaRef = {
+  city: string;
+  neighborhood: string;
+  city_wide: boolean;
+  area: SipomRef | null;
+  updated_at: string;
+  updated_by_name: string;
+};
+
+/** Lugar da fila que ainda pede área: uma escolha resolve todas as fichas. */
+export type SipomAreaPending = {
+  city: string;
+  neighborhood: string;
+  city_wide: boolean;
+  cidade_id: number | null;
+  fichas: string[];
+  areas: SipomRef[];
+};
+
+export function listSipomAreaRefs() {
+  return api<{ items: SipomAreaRef[]; pending: SipomAreaPending[] }>("/api/sipom/area-refs");
+}
+
+export function setSipomAreaRef(city: string, neighborhood: string, areaId: number) {
+  return api<{ city_wide: boolean; resolved: number }>("/api/sipom/area-refs", {
+    method: "PUT",
+    body: JSON.stringify({ city, neighborhood, area_id: areaId }),
+  });
+}
+
+export function deleteSipomAreaRef(city: string, neighborhood: string) {
+  const q = new URLSearchParams({ city, neighborhood });
+  return api<void>(`/api/sipom/area-refs?${q}`, { method: "DELETE" });
+}
+
+export function listSipomAreaRefCities() {
+  return api<{ items: SipomRef[] }>("/api/sipom/area-refs/cidades");
+}
+
+export function getSipomAreaRefCity(cidadeId: number) {
+  return api<{ city_wide: boolean; bairros: SipomRef[]; areas: SipomRef[] }>(
+    `/api/sipom/area-refs/cidades/${cidadeId}`,
+  );
+}
+
 // ─── Composição da inteligência ───
 
 /** Agentes que podem entrar na composição (marcados no cadastro) e as funções do policiamento. */

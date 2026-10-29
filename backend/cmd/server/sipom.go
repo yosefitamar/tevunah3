@@ -689,7 +689,7 @@ func (a *app) learnArea(r *http.Request, o *opsreport.Occurrence, areaID int) ma
 	if cityWide {
 		nb = ""
 	}
-	changed, err := a.sipomAreas.Learn(ctx, in.City, nb, areaID, me.ID)
+	changed, resolved, err := a.saveAreaRule(ctx, in.City, nb, areaID, me.ID)
 	if err != nil {
 		if !errors.Is(err, sipom.ErrAreaRuleNoCity) {
 			log.Printf("sipom area rule: %v", err)
@@ -699,12 +699,6 @@ func (a *app) learnArea(r *http.Request, o *opsreport.Occurrence, areaID int) ma
 	if !changed {
 		return nil
 	}
-	areaCodes := []string{sipom.PendArea, sipom.PendAreaAmbig}
-	pendingBefore, _ := a.opsReports.CountPending(ctx, areaCodes...)
-	if _, _, err := a.opsReports.RecomputeSipom(ctx, a.sipom, ""); err != nil {
-		log.Printf("sipom recompute after area rule: %v", err)
-	}
-	pendingAfter, _ := a.opsReports.CountPending(ctx, areaCodes...)
 	co, _ := a.sipom.Companhia(areaID)
 	return map[string]any{
 		"city":         strings.ToUpper(strings.TrimSpace(in.City)),
@@ -713,8 +707,30 @@ func (a *app) learnArea(r *http.Request, o *opsreport.Occurrence, areaID int) ma
 		"area_id":      areaID,
 		"area":         co.Abreviado,
 		// Outras ocorrências que deixaram de ter pendência de área.
-		"resolved": max(pendingBefore-pendingAfter, 0),
+		"resolved": resolved,
 	}
+}
+
+// saveAreaRule grava a referência de área do lugar e, se ela mudou,
+// recalcula o acervo. resolved: quantas ocorrências deixaram de ter
+// pendência de área.
+func (a *app) saveAreaRule(ctx context.Context, city, neighborhood string, areaID int, actor string) (changed bool, resolved int, err error) {
+	if changed, err = a.sipomAreas.Learn(ctx, city, neighborhood, areaID, actor); err != nil || !changed {
+		return changed, 0, err
+	}
+	return true, a.recomputeAreas(ctx), nil
+}
+
+// recomputeAreas recalcula o acervo depois de uma mudança nas referências
+// de área e devolve quantas pendências de área deixaram de existir.
+func (a *app) recomputeAreas(ctx context.Context) int {
+	areaCodes := []string{sipom.PendArea, sipom.PendAreaAmbig}
+	before, _ := a.opsReports.CountPending(ctx, areaCodes...)
+	if _, _, err := a.opsReports.RecomputeSipom(ctx, a.sipom, ""); err != nil {
+		log.Printf("sipom recompute after area rule: %v", err)
+	}
+	after, _ := a.opsReports.CountPending(ctx, areaCodes...)
+	return max(before-after, 0)
 }
 
 // markAreaLearned diz, no bloco SIPOM da ficha, se a área veio da referência
@@ -729,8 +745,7 @@ func (a *app) markAreaLearned(ctx context.Context, o *opsreport.Occurrence, s *s
 		return
 	}
 	in := opsreport.SipomInput(o)
-	cityWide := a.sipom.CityWideAreas(o.Sipom.CidadeID, o.Sipom.BairroID)
-	if id, ok := rules.Find(in.City, in.Neighborhood, cityWide); ok && id == *o.Sipom.AreaID {
+	if id, ok := opsreport.LearnedArea(a.sipom, rules, in, o.Sipom.CidadeID, o.Sipom.BairroID); ok && id == *o.Sipom.AreaID {
 		s.AreaLearned = true
 	}
 }

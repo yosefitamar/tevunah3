@@ -15,14 +15,27 @@ const (
 	VeiculoRecuperado = 2
 )
 
-// VeiculoTipoMotoneta (código DENATRAN): o tipo do veículo de duas rodas
-// sem placa — na prática, o ciclomotor de 50cc. Regra do batalhão para o
-// SIPOM.
+// VeiculoTipoMotoneta (código DENATRAN): o tipo do ciclomotor sem placa.
+// Regra do batalhão para o SIPOM.
 const VeiculoTipoMotoneta = 3
 
-// TwoWheeler diz se o tipo DENATRAN é de duas rodas (ciclomotor, motoneta,
-// motocicleta).
-func TwoWheeler(code int) bool { return code == 2 || code == 3 || code == 4 }
+// PlatelessType diz se o tipo DENATRAN pode ir ao SIPOM sem placa:
+// ciclomotor e motoneta. Motocicleta e carro sem placa no relatório têm
+// placa — só não foi escrita ("ident. suprimida").
+func PlatelessType(code int) bool { return code == 2 || code == VeiculoTipoMotoneta }
+
+// mopedRE: o modelo diz 50 cilindradas ("50CC", "50 CC", "JL 50Q2").
+var mopedRE = regexp.MustCompile(`(^|[^0-9])50 ?(cc|q|$|[^0-9])`)
+
+// Moped diz se o veículo do relatório é um ciclomotor (a "cinquentinha"):
+// pelo tipo escrito ou pelos 50cc no modelo.
+func Moped(kind, brand, model string) bool {
+	switch key(kind) {
+	case "mobilete", "mobylete", "mobillete", "ciclomotor", "motoneta", "cinquentinha":
+		return true
+	}
+	return mopedRE.MatchString(key(brand + " " + model))
+}
 
 // ─── Armas ───
 

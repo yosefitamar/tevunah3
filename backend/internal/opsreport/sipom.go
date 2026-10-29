@@ -282,10 +282,9 @@ func translateMaterials(cat *sipom.Catalog, terms *sipom.TermMap, o *Occurrence)
 		}, terms)
 		v.SipomTipoCodigo, v.SipomCorCodigo, v.SipomMarcaModeloCodigo, v.SipomSituacao =
 			r.TipoCodigo, r.CorCodigo, r.MarcaModeloCodigo, r.Situacao
-		// Duas rodas sem placa vai como MOTONETA; tipo não reconhecido
-		// também (sem placa, é quase sempre o ciclomotor). Quatro rodas sem
-		// placa fica com o tipo do relatório — e pendente.
-		if plate(v.Plate) == "" && !v.SipomManual && (v.SipomTipoCodigo == nil || sipom.TwoWheeler(*v.SipomTipoCodigo)) {
+		// Ciclomotor sem placa vai como MOTONETA. Qualquer outro sem placa
+		// (moto, carro) fica com o tipo do relatório — e pendente.
+		if plate(v.Plate) == "" && !v.SipomManual && sipom.Moped(v.Kind, v.Brand, v.Model) {
 			moto := sipom.VeiculoTipoMotoneta
 			v.SipomTipoCodigo = &moto
 		}
@@ -382,9 +381,9 @@ func (r *Repo) RecomputeSipom(ctx context.Context, cat *sipom.Catalog, onlyID st
 }
 
 // VehicleSendable diz se o veículo já pode ir ao SIPOM. Com placa, bastam
-// ela e a situação: placa cadastrada lá é só vinculada. Sem placa, só o de
-// duas rodas vai (como MOTONETA), e precisa de cor e marca/modelo
-// (complete); o de quatro rodas espera a placa. Quando o
+// ela e a situação: placa cadastrada lá é só vinculada. Sem placa, só o
+// ciclomotor vai (como MOTONETA), e precisa de cor e marca/modelo
+// (complete); moto e carro esperam a placa. Quando o
 // SIPOM recusou o veículo (placa nova, sem cadastro), passam a valer tipo,
 // cor, marca/modelo e o ano de fabricação, que o relatório não traz.
 func VehicleSendable(v Vehicle, complete bool) bool {
@@ -394,7 +393,7 @@ func VehicleSendable(v Vehicle, complete bool) bool {
 	case v.SipomCadastroExigido:
 		return complete && v.SipomAnoFabricacao != nil
 	case plate(v.Plate) == "":
-		return complete && v.SipomTipoCodigo != nil && sipom.TwoWheeler(*v.SipomTipoCodigo)
+		return complete && v.SipomTipoCodigo != nil && sipom.PlatelessType(*v.SipomTipoCodigo)
 	}
 	return true
 }

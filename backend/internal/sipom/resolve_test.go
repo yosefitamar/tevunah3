@@ -155,3 +155,24 @@ func TestOPMRetired(t *testing.T) {
 		}
 	}
 }
+
+func TestMoped(t *testing.T) {
+	cases := []struct {
+		kind, brand, model string
+		want               bool
+	}{
+		{"MOBILETE", "KASINSKI", "", true},
+		{"MOTOCICLETA", "SHINERAY", "50CC", true},
+		{"MOTOCICLETA", "SHINERAY", "50 CC", true},
+		{"MOTOCICLETA", "SHINERAY", "TRAXX JL 50Q2", true},
+		{"MOTOCICLETA", "HONDA", "CG", false},
+		{"MOTOCICLETA", "HONDA", "CG 150", false},
+		{"MOTOCICLETA", "TRAXX", "WY180-2", false},
+		{"MOTOCICLETA", "YAMAHA", "FAZER 250", false},
+	}
+	for _, c := range cases {
+		if got := Moped(c.kind, c.brand, c.model); got != c.want {
+			t.Errorf("Moped(%q, %q, %q) = %v", c.kind, c.brand, c.model, got)
+		}
+	}
+}

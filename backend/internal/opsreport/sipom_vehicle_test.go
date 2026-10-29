@@ -9,7 +9,7 @@ import (
 
 func TestVehicleSendable(t *testing.T) {
 	ano := 2019
-	moto, carro := sipom.VeiculoTipoMotoneta, 6
+	motoneta, moto, carro := sipom.VeiculoTipoMotoneta, 4, 6
 	cases := []struct {
 		name     string
 		v        Vehicle
@@ -18,7 +18,8 @@ func TestVehicleSendable(t *testing.T) {
 	}{
 		{"placa e situação bastam", Vehicle{Plate: "ABC-1D23", SipomSituacao: 1}, false, true},
 		{"sem placa, incompleto", Vehicle{Plate: " ", SipomSituacao: 1}, false, false},
-		{"duas rodas sem placa", Vehicle{SipomSituacao: 1, SipomTipoCodigo: &moto}, true, true},
+		{"motoneta sem placa", Vehicle{SipomSituacao: 1, SipomTipoCodigo: &motoneta}, true, true},
+		{"motocicleta sem placa", Vehicle{SipomSituacao: 1, SipomTipoCodigo: &moto}, true, false},
 		{"quatro rodas sem placa", Vehicle{SipomSituacao: 1, SipomTipoCodigo: &carro}, true, false},
 		{"sem situação", Vehicle{Plate: "ABC1D23"}, true, false},
 		{"recusada, incompleta", Vehicle{Plate: "ABC1D23", SipomSituacao: 1, SipomCadastroExigido: true}, false, false},

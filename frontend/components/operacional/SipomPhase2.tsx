@@ -402,16 +402,16 @@ function VeiculoRow({ v, raw, cat, editable, busy, onSave }: RowProps<{ v: Sipom
   // Tipo, cor e marca/modelo só são obrigatórios sem placa (vai como
   // MOTONETA) ou depois que o SIPOM recusou a placa.
   const semPlaca = !raw?.plate?.trim();
-  // Tipos DENATRAN de duas rodas: ciclomotor, motoneta, motocicleta.
-  const duasRodas = !v.tipo || [2, 3, 4].includes(v.tipo.id);
+  // Sem placa, só ciclomotor/motoneta (tipos DENATRAN 2 e 3) vai ao SIPOM.
+  const ciclomotor = !!v.tipo && [2, 3].includes(v.tipo.id);
   const required = v.cadastro_exigido || semPlaca;
   return (
     <div className="sipom-material">
       <MaterialHead raw={rawText} ok={v.ok} manual={v.manual} />
-      {semPlaca && !v.cadastro_exigido && (duasRodas ? (
+      {semPlaca && !v.cadastro_exigido && (ciclomotor ? (
         <div className="banner banner-info">SEM PLACA: VAI AO SIPOM COMO MOTONETA — INFORME COR E MARCA/MODELO</div>
       ) : (
-        <div className="banner banner-error">⚠ SEM PLACA: VEÍCULO DE QUATRO RODAS SÓ VAI AO SIPOM COM A PLACA</div>
+        <div className="banner banner-error">⚠ SEM PLACA: SÓ CICLOMOTOR VAI AO SIPOM SEM PLACA — INFORME A PLACA DO VEÍCULO</div>
       ))}
       {v.cadastro_exigido && (
         <div className="banner banner-info">O SIPOM NÃO TEM ESTA PLACA: INFORME TIPO, COR, MARCA/MODELO E ANO DE FABRICAÇÃO E REENVIE</div>

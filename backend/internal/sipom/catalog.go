@@ -43,8 +43,11 @@ type Catalog struct {
 	companhias   map[int]Companhia
 	// companhia ativa por abreviado normalizado ("1 cia 2 bpraio").
 	companhiaByKey map[string]Companhia
-	cidadeByKey    map[string]cidade
-	cidadeNome     map[int]string
+	// companhiaRetired: as desativadas, que só valem como OPM citada no
+	// relatório (ver OPM).
+	companhiaRetired map[string]Companhia
+	cidadeByKey      map[string]cidade
+	cidadeNome       map[int]string
 	// bairro por cidade e nome normalizado.
 	bairroByKey map[int]map[string]int
 	bairroNome  map[int]string
@@ -160,23 +163,25 @@ func key(s string) string { return intel.Normalize(s) }
 
 // Load lê o catálogo do banco. Companhias desativadas no SIPOM ficam
 // conhecidas pelo id (para exibir o que já foi gravado), mas não entram nas
-// buscas: não se envia para unidade extinta.
+// buscas: não se envia para unidade extinta. A exceção é a OPM citada no
+// relatório (ver OPM).
 func Load(ctx context.Context, db *sql.DB) (*Catalog, error) {
 	c := &Catalog{
-		naturezas:      map[int]Natureza{},
-		companhias:     map[int]Companhia{},
-		companhiaByKey: map[string]Companhia{},
-		cidadeByKey:    map[string]cidade{},
-		cidadeNome:     map[int]string{},
-		bairroByKey:    map[int]map[string]int{},
-		bairroNome:     map[int]string{},
-		bairroCid:      map[int]int{},
-		areaByBairro:   map[int][]int{},
-		areaByCidade:   map[int][]int{},
-		policiamentos:  map[int]string{},
-		funcoes:        map[int]string{},
-		cidadeIBGE:     map[int]int{},
-		postoByKey:     map[string]int{},
+		naturezas:        map[int]Natureza{},
+		companhias:       map[int]Companhia{},
+		companhiaByKey:   map[string]Companhia{},
+		companhiaRetired: map[string]Companhia{},
+		cidadeByKey:      map[string]cidade{},
+		cidadeNome:       map[int]string{},
+		bairroByKey:      map[int]map[string]int{},
+		bairroNome:       map[int]string{},
+		bairroCid:        map[int]int{},
+		areaByBairro:     map[int][]int{},
+		areaByCidade:     map[int][]int{},
+		policiamentos:    map[int]string{},
+		funcoes:          map[int]string{},
+		cidadeIBGE:       map[int]int{},
+		postoByKey:       map[string]int{},
 
 		procedimentos: map[int]string{}, delegacias: map[int]Delegacia{}, delegaciaByCode: map[int]int{},
 		delegados: map[int]Delegado{},
@@ -206,7 +211,9 @@ func Load(ctx context.Context, db *sql.DB) (*Catalog, error) {
 				return err
 			}
 			c.companhias[co.ID] = co
-			if !deleted {
+			if deleted {
+				c.companhiaRetired[key(co.Abreviado)] = co
+			} else {
 				c.companhiaByKey[key(co.Abreviado)] = co
 			}
 			return nil

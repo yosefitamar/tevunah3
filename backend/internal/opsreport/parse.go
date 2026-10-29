@@ -766,7 +766,7 @@ func parseOccurrence(ls []line) Occurrence {
 	o.StartTime = parseTime(h["Hora Inicial:"])
 	o.EndTime = parseTime(h["Hora Final:"])
 	o.Teams = h["Equipe:"]
-	o.CIOPS = strings.ToUpper(strings.ReplaceAll(h["Ficha Ciops:"], " ", ""))
+	o.CIOPS = cleanCIOPS(h["Ficha Ciops:"])
 	o.PlaceAddress = h["Local Ocorrência:"]
 	o.PlaceNeighborhood = strings.ToUpper(h["Bairro Ocorrência:"])
 	o.PlaceCity = strings.ToUpper(h["Cidade Ocorrência:"])
@@ -1038,4 +1038,28 @@ func (r *Report) ForUnit(unit string) []Occurrence {
 		}
 	}
 	return out
+}
+
+// cleanCIOPS normaliza a ficha CIOPS ("M2026 0488349" → "M20260488349"): só
+// letras e algarismos, em maiúsculas. Sobra de digitação no relatório
+// ("´M20260556215") não pode virar outra ficha.
+func cleanCIOPS(s string) string {
+	var b strings.Builder
+	for _, r := range strings.ToUpper(s) {
+		if (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+// CIOPSNotAfter diz se a ficha é a de corte ou anterior a ela. A numeração
+// da CIOPS é sequencial ("M2026" + 7 dígitos), então fichas do mesmo prefixo
+// e tamanho se comparam como texto. comparable = false quando uma das duas
+// está vazia ou em outro formato.
+func CIOPSNotAfter(ficha, cut string) (notAfter, comparable bool) {
+	if ficha == "" || cut == "" || len(ficha) != len(cut) || len(ficha) < 5 || ficha[:5] != cut[:5] {
+		return false, false
+	}
+	return ficha <= cut, true
 }

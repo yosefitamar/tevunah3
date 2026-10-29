@@ -245,3 +245,30 @@ func TestParseRealReport(t *testing.T) {
 		t.Errorf("último policial = %q", w)
 	}
 }
+
+func TestCIOPS(t *testing.T) {
+	for in, want := range map[string]string{
+		"M20260488349": "M20260488349", "´M20260556215": "M20260556215", "m2026 0488349": "M20260488349", "": "",
+	} {
+		if got := cleanCIOPS(in); got != want {
+			t.Errorf("cleanCIOPS(%q) = %q, quer %q", in, got, want)
+		}
+	}
+	const cut = "M20260488349"
+	cases := []struct {
+		ficha              string
+		notAfter, comparab bool
+	}{
+		{"M20260488349", true, true},
+		{"M20260487304", true, true},
+		{"M20260489206", false, true},
+		{"M20250999999", false, false}, // outro ano
+		{"", false, false},
+	}
+	for _, c := range cases {
+		n, ok := CIOPSNotAfter(c.ficha, cut)
+		if n != c.notAfter || ok != c.comparab {
+			t.Errorf("CIOPSNotAfter(%q) = %v, %v", c.ficha, n, ok)
+		}
+	}
+}

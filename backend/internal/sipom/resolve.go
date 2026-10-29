@@ -292,12 +292,19 @@ func (c *Catalog) areas(cidadeID, bairroID *int) []int {
 
 // OPM acha a companhia que atendeu ("1ª CIA" + "2º BPRAIO" →
 // "1ªCIA/2ºBPRAIO"). O pelotão não existe como unidade no SIPOM: a
-// ocorrência vai para a companhia.
+// ocorrência vai para a companhia. Vale também a companhia já desativada no
+// SIPOM: se o relatório a cita, ela atendeu (a 3ª e a 4ª CIA do 2º BPRAIO
+// constam como desativadas desde julho/2026, mas atuaram até agosto, e o
+// próprio SIPOM registra assim as ocorrências delas).
 func (c *Catalog) OPM(cia, bpm string) (Companhia, bool) {
 	if strings.TrimSpace(cia) == "" || strings.TrimSpace(bpm) == "" {
 		return Companhia{}, false
 	}
-	co, ok := c.companhiaByKey[key(cia+"/"+bpm)]
+	k := key(cia + "/" + bpm)
+	if co, ok := c.companhiaByKey[k]; ok {
+		return co, true
+	}
+	co, ok := c.companhiaRetired[k]
 	return co, ok
 }
 

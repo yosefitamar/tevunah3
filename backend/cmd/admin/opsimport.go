@@ -33,17 +33,19 @@ const opsImportMaxBytes = 20 << 20
 // aplica o vínculo automático com os dossiês, guarda o PDF e registra na
 // auditoria, em nome do usuário informado.
 //
-//	admin ops-import -user <email> [-dry-run] <pasta|arquivo.pdf>...
+//	admin ops-import -user <email> [-dry-run] [-after <ficha>] <pasta|arquivo.pdf>...
 //
 // É seguro rodar de novo: PDF já importado é pulado (pelo hash), e ocorrência
-// cuja ficha CIOPS já existe não é duplicada.
+// cuja ficha CIOPS já existe não é duplicada. -after descarta a ficha
+// informada e as anteriores a ela: as que já foram lançadas no SIPOM à mão.
 func runOpsImport(args []string) {
 	fs := flag.NewFlagSet("ops-import", flag.ExitOnError)
 	email := fs.String("user", "", "e-mail do usuário em nome de quem a importação é registrada")
 	dry := fs.Bool("dry-run", false, "só lê e mostra o que seria importado, sem gravar")
+	after := fs.String("after", "", "ficha CIOPS de corte: ela e as anteriores não são importadas")
 	_ = fs.Parse(args)
 	if *email == "" || fs.NArg() == 0 {
-		fmt.Fprintln(os.Stderr, "uso: admin ops-import -user <email> [-dry-run] <pasta|arquivo.pdf>...")
+		fmt.Fprintln(os.Stderr, "uso: admin ops-import -user <email> [-dry-run] [-after <ficha>] <pasta|arquivo.pdf>...")
 		os.Exit(2)
 	}
 	files, err := opsImportFiles(fs.Args())
@@ -116,7 +118,15 @@ func runOpsImport(args []string) {
 		unit, me.Email, map[bool]string{true: "ligado", false: "desligado"}[geo.Enabled()],
 		len(files), map[bool]string{true: " · SIMULAÇÃO (nada é gravado)", false: ""}[*dry])
 
-	var tot struct{ files, skippedFiles, failed, occ, dupOcc, linked, located, unlocated, intel int }
+	cut := strings.ToUpper(strings.TrimSpace(*after))
+	if cut != "" {
+		if _, ok := opsreport.CIOPSNotAfter(cut, cut); !ok {
+			log.Fatalf("ficha de corte inválida: %q", *after)
+		}
+		fmt.Printf("Corte: fichas até %s (inclusive) não são importadas\n\n", cut)
+	}
+
+	var tot struct{ files, skippedFiles, failed, occ, dupOcc, cutOcc, linked, located, unlocated, intel int }
 	geoDown := false
 	for _, path := range files {
 		name := filepath.Base(path)
@@ -149,6 +159,30 @@ func runOpsImport(args []string) {
 		}
 		rep := opsreport.Parse(pages)
 		mine := rep.ForUnit(unit)
+		if cut != "" {
+			kept := mine[:0]
+			for _, o := range mine {
+				before, ok := opsreport.CIOPSNotAfter(o.CIOPS, cut)
+				if !ok {
+					// Sem ficha (ou em outro formato) não há como saber: entra, e
+					// a fila mostra a ficha para o analista conferir.
+					fmt.Printf("⚠ %-44s ficha %q não se compara com o corte — importada\n", name, o.CIOPS)
+				}
+				if before {
+					tot.cutOcc++
+					continue
+				}
+				kept = append(kept, o)
+			}
+			if len(kept) < len(mine) {
+				fmt.Printf("- %-44s %d ocorrência(s) até a ficha de corte, descartada(s)\n", name, len(mine)-len(kept))
+				if len(kept) == 0 {
+					tot.skippedFiles++
+					continue
+				}
+			}
+			mine = kept
+		}
 		if len(mine) == 0 {
 			tot.skippedFiles++
 			fmt.Printf("= %-44s %d ocorrência(s) no PDF, nenhuma do %s\n", name, len(rep.Occurrences), unit)
@@ -297,6 +331,9 @@ func runOpsImport(args []string) {
 	fmt.Printf("\nArquivos: %d %s, %d pulado(s), %d com erro\n", tot.files, verb, tot.skippedFiles, tot.failed)
 	fmt.Printf("Ocorrências: %d nova(s), %d já no acervo · %d vínculo(s) automático(s) · %d com inteligência\n",
 		tot.occ, tot.dupOcc, tot.linked, tot.intel)
+	if cut != "" {
+		fmt.Printf("Corte: %d ocorrência(s) até %s descartada(s)\n", tot.cutOcc, cut)
+	}
 	if geo.Enabled() {
 		fmt.Printf("Coordenada: %d localizada(s), %d sem coordenada (pendência)\n", tot.located, tot.unlocated)
 	}

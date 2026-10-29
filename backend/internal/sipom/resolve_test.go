@@ -143,3 +143,15 @@ func TestMatchBairro(t *testing.T) {
 		}
 	}
 }
+
+func TestOPMRetired(t *testing.T) {
+	c := &Catalog{
+		companhiaByKey:   map[string]Companhia{key("1ªCIA/2ºBPRAIO"): {ID: 92, Abreviado: "1ªCIA/2ºBPRAIO"}},
+		companhiaRetired: map[string]Companhia{key("4ªCIA/2ºBPRAIO"): {ID: 95, Abreviado: "4ªCIA/2ºBPRAIO"}},
+	}
+	for cia, want := range map[string]int{"1ª CIA": 92, "4ª CIA": 95, "3ª CIA": 0, "": 0} {
+		if co, _ := c.OPM(cia, "2º BPRAIO"); co.ID != want {
+			t.Errorf("OPM(%q) = %d, quer %d", cia, co.ID, want)
+		}
+	}
+}

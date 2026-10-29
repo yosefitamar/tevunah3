@@ -148,8 +148,9 @@ type opsOccurrenceJSON struct {
 	// GET /api/ops-occurrences/{id}/photos/{pid}.
 	Photos []opsPhotoJSON `json:"photos"`
 
-	// Só na prévia: "new" (será gravada) ou "duplicate" (ficha CIOPS já no
-	// acervo), e o id existente no segundo caso.
+	// Só na prévia: "new" (será gravada), "duplicate" (ficha CIOPS já no
+	// acervo, com o id existente) ou "discarded" (ficha descartada pelo
+	// analista — a importação não a traz de volta).
 	Status     string   `json:"status,omitempty"`
 	ExistingID string   `json:"existing_id,omitempty"`
 	Warnings   []string `json:"warnings"`
@@ -281,13 +282,15 @@ func nonNil(ss []string) []string {
 // ─────────────────────────── Upload + parse ────────────────────────────
 
 type parsedUpload struct {
-	sha      string
-	name     string
-	data     []byte
-	report   *opsreport.Report
-	mine     []opsreport.Occurrence
-	byUnit   map[string]int
-	existing map[string]string // ficha CIOPS → id já gravado
+	sha    string
+	name   string
+	data   []byte
+	report *opsreport.Report
+	mine   []opsreport.Occurrence
+	byUnit map[string]int
+	// ficha CIOPS → id já gravado; "" para a ficha descartada pelo analista,
+	// que a importação também pula.
+	existing map[string]string
 }
 
 // readOpsUpload lê o PDF do multipart, extrai e recorta o batalhão. Em erro,
@@ -350,6 +353,15 @@ func (a *app) readOpsUpload(w http.ResponseWriter, r *http.Request) (*parsedUplo
 		log.Printf("opsreport existing: %v", err)
 		httpx.Error(w, http.StatusInternalServerError, "erro ao consultar o acervo")
 		return nil, false
+	}
+	discarded, err := a.opsReports.DiscardedCIOPS(r.Context(), fichas)
+	if err != nil {
+		log.Printf("opsreport discarded: %v", err)
+		httpx.Error(w, http.StatusInternalServerError, "erro ao consultar o acervo")
+		return nil, false
+	}
+	for f := range discarded {
+		up.existing[f] = ""
 	}
 
 	// Participação da inteligência: termos configurados contra histórico e
@@ -476,7 +488,9 @@ func (a *app) handleOpsReportPreview(w http.ResponseWriter, r *http.Request) {
 		o := &up.mine[i]
 		j := a.toOpsOccurrenceJSON(o)
 		j.Status = "new"
-		if id, dup := up.existing[o.CIOPS]; dup {
+		if id, dup := up.existing[o.CIOPS]; dup && id == "" {
+			j.Status = "discarded"
+		} else if dup {
 			j.Status, j.ExistingID = "duplicate", id
 		} else {
 			newCount++

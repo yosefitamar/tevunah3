@@ -129,6 +129,55 @@ func (r *Repo) ExistingCIOPS(ctx context.Context, fichas []string) (map[string]s
 	return out, rows.Err()
 }
 
+// DiscardedCIOPS devolve, das fichas informadas, as de ocorrências
+// descartadas pelo analista (sem outra ativa com a mesma ficha). A
+// importação não as traz de volta.
+func (r *Repo) DiscardedCIOPS(ctx context.Context, fichas []string) (map[string]bool, error) {
+	return discardedCIOPS(ctx, r.db, fichas)
+}
+
+type queryer interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+}
+
+func discardedCIOPS(ctx context.Context, q queryer, fichas []string) (map[string]bool, error) {
+	out := map[string]bool{}
+	if len(fichas) == 0 {
+		return out, nil
+	}
+	rows, err := q.QueryContext(ctx, `
+		SELECT DISTINCT d.ciops_record FROM app.ops_occurrences d
+		 WHERE d.deleted_at IS NOT NULL AND d.ciops_record = ANY($1)
+		   AND NOT EXISTS (SELECT 1 FROM app.ops_occurrences a
+		                    WHERE a.deleted_at IS NULL AND a.ciops_record = d.ciops_record)`, fichas)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var f string
+		if err := rows.Scan(&f); err != nil {
+			return nil, err
+		}
+		out[f] = true
+	}
+	return out, rows.Err()
+}
+
+// Discard descarta a ocorrência (exclusão lógica, com o motivo).
+func (r *Repo) Discard(ctx context.Context, id, actor, reason string) error {
+	res, err := r.db.ExecContext(ctx, `UPDATE app.ops_occurrences
+		   SET deleted_at = now(), deleted_by = $2, deleted_reason = $3
+		 WHERE id = $1 AND deleted_at IS NULL`, id, actor, reason)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // PersonLink é o vínculo automático decidido antes da gravação: pessoa
 // Occurrences[Occ].People[Person] → EntityID.
 type PersonLink struct {
@@ -191,7 +240,23 @@ func (r *Repo) Import(ctx context.Context, in ImportInput) (*ImportResult, error
 		links[[2]int{l.Occ, l.Person}] = l.EntityID
 	}
 
+	// Ficha descartada pelo analista não volta pela reimportação.
+	fichas := make([]string, 0, len(in.Occurrences))
+	for _, o := range in.Occurrences {
+		if o.CIOPS != "" {
+			fichas = append(fichas, o.CIOPS)
+		}
+	}
+	discarded, err := discardedCIOPS(ctx, tx, fichas)
+	if err != nil {
+		return nil, fmt.Errorf("ops_occurrences (descartadas): %w", err)
+	}
+
 	for i, o := range in.Occurrences {
+		if discarded[o.CIOPS] {
+			res.Skipped = append(res.Skipped, o.CIOPS)
+			continue
+		}
 		var id string
 		err := tx.QueryRowContext(ctx, `
 			INSERT INTO app.ops_occurrences

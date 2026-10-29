@@ -68,6 +68,7 @@ var Catalog = []ActionDef{
 	{"opsreport.read", "Ver relatório operacional", "RELATÓRIO OPERACIONAL", "Listar e abrir as ocorrências importadas do relatório diário.", false},
 	{"opsreport.import", "Importar relatório operacional", "RELATÓRIO OPERACIONAL", "Enviar o PDF do relatório diário e gravar as ocorrências do batalhão.", false},
 	{"opsreport.update", "Editar ocorrência do relatório", "RELATÓRIO OPERACIONAL", "Vincular pessoas a dossiês e marcar a participação da inteligência.", false},
+	{"opsreport.delete", "Descartar ocorrência do relatório", "RELATÓRIO OPERACIONAL", "Descartar (soft delete) uma ocorrência importada que não deveria estar no acervo.", false},
 	{"sipom.mapping.manage", "Gerenciar de-para do SIPOM", "RELATÓRIO OPERACIONAL", "Ligar as naturezas do relatório às naturezas do SIPOM (destino do envio).", false},
 	{"intel.keywords.manage", "Gerenciar termos de inteligência", "RELATÓRIO OPERACIONAL", "Cadastrar os termos que marcam a participação da inteligência na importação.", false},
 

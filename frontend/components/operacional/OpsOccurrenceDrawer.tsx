@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { FileText, Link2, Search, Unlink, UserPlus, X } from "lucide-react";
+import { FileText, Link2, Search, Trash2, Unlink, UserPlus, X } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   getOpsOccurrence,
@@ -14,12 +14,13 @@ import {
 } from "@/lib/ops-reports-api";
 import { listEntities } from "@/lib/entities-api";
 import type { Entity, PersonAttrs } from "@/lib/entities-types";
-import { canCreateEntities, canLinkOpsPeople, canSetOpsIntel } from "@/lib/permissions";
+import { canCreateEntities, canDiscardOpsOccurrences, canLinkOpsPeople, canSetOpsIntel } from "@/lib/permissions";
 import type { ApiError } from "@/lib/api";
 import EntidadeDrawer from "../entidades/EntidadeDrawer";
 import CreateEntidadeModal from "../entidades/CreateEntidadeModal";
 import EditOpsOccurrenceModal from "./EditOpsOccurrenceModal";
 import EditOpsPersonModal from "./EditOpsPersonModal";
+import DiscardOpsOccurrenceModal from "./DiscardOpsOccurrenceModal";
 import OpsOccurrenceBody, { type OpsEditTab } from "./OpsOccurrenceBody";
 import { IntelPill, IntelSummary } from "./IntelStatus";
 import { SipomReadyPill } from "./SipomSection";
@@ -54,6 +55,8 @@ export default function OpsOccurrenceDrawer({ occurrenceId, onClose, onChanged }
   const [entityOverlayId, setEntityOverlayId] = useState<string | null>(null);
   const [editing, setEditing] = useState<OpsEditTab | null>(null);
   const [editingPerson, setEditingPerson] = useState<OpsPerson | null>(null);
+  const canDiscard = canDiscardOpsOccurrences(me);
+  const [discarding, setDiscarding] = useState(false);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -231,6 +234,12 @@ export default function OpsOccurrenceDrawer({ occurrenceId, onClose, onChanged }
                         <FileText size={13} strokeWidth={1.8} /> PDF ORIGINAL · PÁG. {data.page}
                       </a>
                     )}
+                    {/* A já enviada ao SIPOM continua existindo lá: não se descarta. */}
+                    {canDiscard && data.id && !data.sipom?.sent_at && (
+                      <button type="button" className="btn btn-sm btn-danger ops-nowrap" onClick={() => setDiscarding(true)}>
+                        <Trash2 size={13} strokeWidth={1.8} /> DESCARTAR
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -338,6 +347,17 @@ export default function OpsOccurrenceDrawer({ occurrenceId, onClose, onChanged }
             setEditingPerson(null);
             setData(occ);
             onChanged();
+          }}
+        />
+      )}
+      {discarding && data && (
+        <DiscardOpsOccurrenceModal
+          occ={data}
+          onClose={() => setDiscarding(false)}
+          onDiscarded={() => {
+            setDiscarding(false);
+            onChanged();
+            onClose();
           }}
         />
       )}

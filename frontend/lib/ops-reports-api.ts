@@ -292,7 +292,7 @@ export type OpsOccurrence = {
   sipom: SipomOccurrence | null;
   /** Fotos anexadas pelo analista (apreensão, prisão, local); vão ao SIPOM. */
   photos: OpsPhoto[];
-  status?: "new" | "duplicate";
+  status?: "new" | "duplicate" | "discarded";
   existing_id?: string;
   warnings: string[];
   /**
@@ -487,6 +487,17 @@ export function updateOpsOccurrence(id: string, input: OpsOccurrenceEdit) {
   return api<{ occurrence: OpsOccurrence }>(`/api/ops-occurrences/${encodeURIComponent(id)}`, {
     method: "PATCH",
     body: JSON.stringify(input),
+  });
+}
+
+/**
+ * Descarta a ocorrência (exclusão lógica, com o motivo na auditoria). A
+ * reimportação da mesma ficha CIOPS não a traz de volta.
+ */
+export function discardOpsOccurrence(id: string, motivo: string) {
+  return api<void>(`/api/ops-occurrences/${encodeURIComponent(id)}/descartar`, {
+    method: "POST",
+    body: JSON.stringify({ motivo }),
   });
 }
 

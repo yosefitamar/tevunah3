@@ -81,6 +81,8 @@ export const canImportOpsReports = (u: User | null) => can(u, "opsreport.import"
 export const canLinkOpsPeople = (u: User | null) => can(u, "opsreport.update");
 // Mesma ação do vínculo: editar a ocorrência importada.
 export const canSetOpsIntel = (u: User | null) => can(u, "opsreport.update");
+// Descartar a ocorrência importada (migration 00074).
+export const canDiscardOpsOccurrences = (u: User | null) => can(u, "opsreport.delete");
 // Termos de inteligência — só administrador (migration 00050).
 export const canManageIntelKeywords = (u: User | null) => can(u, "intel.keywords.manage");
 // De-para de naturezas relatório → SIPOM — só administrador (migration 00054).

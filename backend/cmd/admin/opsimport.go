@@ -199,6 +199,15 @@ func runOpsImport(args []string) {
 		if err != nil {
 			log.Fatalf("consultar o acervo: %v", err)
 		}
+		// Ficha descartada pelo analista conta como já no acervo: a
+		// importação não a traz de volta.
+		discarded, err := repo.DiscardedCIOPS(ctx, fichas)
+		if err != nil {
+			log.Fatalf("consultar o acervo: %v", err)
+		}
+		for f := range discarded {
+			existing[f] = ""
+		}
 
 		var links []opsreport.PersonLink
 		located, unlocated, intelMarked := 0, 0, 0

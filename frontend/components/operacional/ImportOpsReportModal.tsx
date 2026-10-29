@@ -202,14 +202,19 @@ export default function ImportOpsReportModal({ onClose, onImported }: Props) {
               <div className="ops-preview-list">
                 {preview.occurrences.map((o, i) => {
                   const isOpen = open.has(i);
-                  const dup = o.status === "duplicate";
+                  const dup = o.status === "duplicate" || o.status === "discarded";
                   const autos = o.people.filter((p) => p.link_mode === "auto").length;
                   const dups = o.possible_duplicates ?? [];
                   return (
                     <div key={i} className={"ops-preview-item" + (dup ? " ops-preview-item--dup" : "")}>
                       <button type="button" className="ops-preview-row" onClick={() => toggle(i)}>
                         {isOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-                        <span className={"pill " + (dup ? "cold" : "active")}>{dup ? "JÁ EXISTE" : "NOVA"}</span>
+                        <span
+                          className={"pill " + (dup ? "cold" : "active")}
+                          title={o.status === "discarded" ? "Ficha descartada pelo analista — não volta ao acervo" : undefined}
+                        >
+                          {o.status === "discarded" ? "DESCARTADA" : dup ? "JÁ EXISTE" : "NOVA"}
+                        </span>
                         <span className="ops-preview-when">
                           {formatBRDate(o.occurred_on)}
                           {opsTimeRange(o) && <span className="muted"> · {opsTimeRange(o)}</span>}

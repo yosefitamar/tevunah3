@@ -147,9 +147,9 @@ func BuildSipomPayload(cat *sipom.Catalog, so *StoredOccurrence, src PayloadSour
 	}
 	// Veículo vai com placa e situação e com o que mais estiver resolvido
 	// (o SIPOM ignora para placa já cadastrada; para placa nova, recusa se
-	// faltar — ver VehicleSendable).
+	// faltar — ver VehiclePending).
 	for _, v := range so.Vehicles {
-		if !VehicleSendable(v, VehicleComplete(v)) {
+		if VehiclePending(v) != "" {
 			continue
 		}
 		sit := v.SipomSituacao

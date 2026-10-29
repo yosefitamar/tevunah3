@@ -767,12 +767,12 @@ func (r *Repo) materials(ctx context.Context, id string) (weapons []Weapon, drug
 	}
 	if err := r.each(ctx, `SELECT id, kind, brand, model, plate, color,
 		       sipom_tipo_codigo, sipom_cor_codigo, sipom_marca_modelo_codigo, sipom_situacao, sipom_manual,
-		       sipom_ano_fabricacao, sipom_ano_modelo, sipom_cadastro_exigido
+		       sipom_ano_fabricacao, sipom_ano_modelo, sipom_cadastro_exigido, sipom_sem_placa_confirmada
 		  FROM app.ops_occurrence_vehicles WHERE occurrence_id = $1 ORDER BY position`, id, func(rows *sql.Rows) error {
 		var v Vehicle
 		if err := rows.Scan(&v.ID, &v.Kind, &v.Brand, &v.Model, &v.Plate, &v.Color,
 			&v.SipomTipoCodigo, &v.SipomCorCodigo, &v.SipomMarcaModeloCodigo, &v.SipomSituacao, &v.SipomManual,
-			&v.SipomAnoFabricacao, &v.SipomAnoModelo, &v.SipomCadastroExigido); err != nil {
+			&v.SipomAnoFabricacao, &v.SipomAnoModelo, &v.SipomCadastroExigido, &v.SipomSemPlacaConfirmada); err != nil {
 			return err
 		}
 		vehicles = append(vehicles, v)
@@ -1140,14 +1140,15 @@ func (r *Repo) SetVehicleYears(ctx context.Context, id string, pos int, fabricac
 		id, pos, nilInt(fabricacao), nilInt(modelo))
 }
 
-// SetVehiclePlate grava a placa do veículo ("" limpa) — a que o relatório
-// omitiu ou escreveu errado.
-func (r *Repo) SetVehiclePlate(ctx context.Context, id string, pos int, placa string) error {
+// SetVehiclePlate grava a placa do veículo — a que o relatório omitiu ou
+// escreveu errado — ou, com placa vazia, se o analista confirmou que ela
+// não pôde ser identificada. Com placa, a confirmação cai.
+func (r *Repo) SetVehiclePlate(ctx context.Context, id string, pos int, placa string, semPlaca bool) error {
 	return r.execOne(ctx, `
-		UPDATE app.ops_occurrence_vehicles v SET plate = $3
+		UPDATE app.ops_occurrence_vehicles v SET plate = $3, sipom_sem_placa_confirmada = $4 AND $3 = ''
 		  FROM app.ops_occurrences o
 		 WHERE v.occurrence_id = $1 AND v.position = $2 AND o.id = v.occurrence_id AND o.deleted_at IS NULL`,
-		id, pos, placa)
+		id, pos, placa, semPlaca)
 }
 
 // MarkVehiclesCadastroExigido marca os veículos que o SIPOM recusou por

@@ -697,7 +697,7 @@ func sipomAuditSnapshot(so *opsreport.StoredOccurrence) map[string]any {
 	}
 	veiculos := make([]map[string]any, 0, len(so.Vehicles))
 	for _, v := range so.Vehicles {
-		veiculos = append(veiculos, map[string]any{"placa": v.Plate, "tipo": v.SipomTipoCodigo, "cor": v.SipomCorCodigo,
+		veiculos = append(veiculos, map[string]any{"placa": v.Plate, "sem_placa_confirmada": v.SipomSemPlacaConfirmada, "tipo": v.SipomTipoCodigo, "cor": v.SipomCorCodigo,
 			"marca_modelo": v.SipomMarcaModeloCodigo, "situacao": v.SipomSituacao, "manual": v.SipomManual})
 	}
 	return map[string]any{

@@ -197,6 +197,8 @@ export type SipomVeiculo = {
    * situação — placa já cadastrada lá é só vinculada.
    */
   cadastro_exigido: boolean;
+  /** O analista confirmou que a placa não pôde ser identificada. */
+  sem_placa_confirmada: boolean;
   manual: boolean;
   ok: boolean;
 };

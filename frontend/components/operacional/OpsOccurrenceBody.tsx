@@ -70,6 +70,7 @@ export const STEP_OF_PENDING: Record<string, OpsStep> = {
   arma: "apreensoes",
   droga: "apreensoes",
   veiculo: "apreensoes",
+  veiculo_placa: "apreensoes",
 };
 
 type Props = {

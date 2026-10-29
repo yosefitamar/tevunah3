@@ -76,7 +76,7 @@ var PendingStep = map[string]string{
 	PendPessoaSemDossie: StepPessoas, PendPessoaSexo: StepPessoas, PendPessoaSexoConfirm: StepPessoas, PendCatalogoVinculo: StepPessoas,
 	PendProcedimento: StepProcedimento, PendProcTipo: StepProcedimento, PendProcNumero: StepProcedimento,
 	PendDelegacia: StepProcedimento, PendDelegado: StepProcedimento,
-	PendArma: StepApreensoes, PendDroga: StepApreensoes, PendVeiculo: StepApreensoes,
+	PendArma: StepApreensoes, PendDroga: StepApreensoes, PendVeiculo: StepApreensoes, PendVeiculoPlaca: StepApreensoes,
 }
 
 // StepCodes devolve as pendências da etapa; NoticeCodes, as que não impedem
@@ -130,7 +130,8 @@ var PendingLabel = map[string]string{
 	PendDelegado:          "Delegado não identificado pelo nome — escolha, se souber (não é obrigatório)",
 	PendArma:              "Arma sem tipo do SIPOM",
 	PendDroga:             "Droga sem correspondência na lista do SIPOM, ou sem quantidade na unidade dela",
-	PendVeiculo:           "Veículo sem situação, sem placa e sem cor ou marca/modelo, ou placa nova que o SIPOM recusou (tipo, cor, marca/modelo e ano de fabricação)",
+	PendVeiculo:           "Veículo sem situação; sem placa e sem tipo, cor ou marca/modelo; ou placa nova que o SIPOM recusou (tipo, cor, marca/modelo e ano de fabricação)",
+	PendVeiculoPlaca:      "Veículo sem placa — informe a placa ou confirme que não foi possível identificá-la",
 }
 
 // Tipos de policiamento e funções do SIPOM (policiamentos_tipos/_funcoes).

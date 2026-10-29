@@ -288,10 +288,9 @@ func translateMaterials(cat *sipom.Catalog, terms *sipom.TermMap, o *Occurrence)
 			moto := sipom.VeiculoTipoMotoneta
 			v.SipomTipoCodigo = &moto
 		}
-		okAll = okAll && VehicleSendable(*v, VehicleComplete(*v))
-	}
-	if !okAll {
-		pending = append(pending, sipom.PendVeiculo)
+		if p := VehiclePending(*v); p != "" {
+			pending = appendOnce(pending, p)
+		}
 	}
 	return pending
 }
@@ -380,22 +379,31 @@ func (r *Repo) RecomputeSipom(ctx context.Context, cat *sipom.Catalog, onlyID st
 	return ready, pending, nil
 }
 
-// VehicleSendable diz se o veículo já pode ir ao SIPOM. Com placa, bastam
-// ela e a situação: placa cadastrada lá é só vinculada. Sem placa, só o
-// ciclomotor vai (como MOTONETA), e precisa de cor e marca/modelo
-// (complete); moto e carro esperam a placa. Quando o
-// SIPOM recusou o veículo (placa nova, sem cadastro), passam a valer tipo,
-// cor, marca/modelo e o ano de fabricação, que o relatório não traz.
-func VehicleSendable(v Vehicle, complete bool) bool {
+// VehiclePending diz o que falta para o veículo ir ao SIPOM ("" = nada).
+// Com placa, bastam ela e a situação: placa cadastrada lá é só vinculada.
+// Sem placa, vão situação, tipo, marca/modelo e cor; e, se não for
+// ciclomotor, o analista antes confirma que a placa não pôde ser
+// identificada (o relatório costuma omiti-la quando ela existe). Quando o
+// SIPOM recusou o veículo (placa nova, sem cadastro), valem tipo, cor,
+// marca/modelo e o ano de fabricação, que o relatório não traz.
+func VehiclePending(v Vehicle) string {
+	complete := VehicleComplete(v)
 	switch {
 	case v.SipomSituacao == 0:
-		return false
+		return sipom.PendVeiculo
 	case v.SipomCadastroExigido:
-		return complete && v.SipomAnoFabricacao != nil
+		if !complete || v.SipomAnoFabricacao == nil {
+			return sipom.PendVeiculo
+		}
 	case plate(v.Plate) == "":
-		return complete && v.SipomTipoCodigo != nil && sipom.PlatelessType(*v.SipomTipoCodigo)
+		if !complete {
+			return sipom.PendVeiculo
+		}
+		if !sipom.PlatelessType(*v.SipomTipoCodigo) && !v.SipomSemPlacaConfirmada {
+			return sipom.PendVeiculoPlaca
+		}
 	}
-	return true
+	return ""
 }
 
 // VehicleComplete diz se o veículo tem tipo, cor e marca/modelo do SIPOM.

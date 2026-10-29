@@ -19,9 +19,9 @@ const (
 // Regra do batalhão para o SIPOM.
 const VeiculoTipoMotoneta = 3
 
-// PlatelessType diz se o tipo DENATRAN pode ir ao SIPOM sem placa:
-// ciclomotor e motoneta. Motocicleta e carro sem placa no relatório têm
-// placa — só não foi escrita ("ident. suprimida").
+// PlatelessType diz se o tipo DENATRAN vai ao SIPOM sem placa sem que o
+// analista confirme: ciclomotor e motoneta. Motocicleta e carro sem placa no
+// relatório costumam ter placa — só não foi escrita ("ident. suprimida").
 func PlatelessType(code int) bool { return code == 2 || code == VeiculoTipoMotoneta }
 
 // mopedRE: o modelo diz 50 cilindradas ("50CC", "50 CC", "JL 50Q2").

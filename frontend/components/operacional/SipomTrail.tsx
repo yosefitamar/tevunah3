@@ -46,6 +46,7 @@ export const PENDING_SHORT: Record<string, string> = {
   arma: "ARMA",
   droga: "DROGA",
   veiculo: "VEÍCULO",
+  veiculo_placa: "SEM PLACA",
 };
 
 /**

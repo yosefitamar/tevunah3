@@ -236,6 +236,9 @@ type Vehicle struct {
 	// SipomCadastroExigido: o SIPOM recusou o veículo (placa nova) — tipo,
 	// cor, marca/modelo e ano de fabricação passam a ser obrigatórios.
 	SipomCadastroExigido bool
+	// SipomSemPlacaConfirmada: o analista confirmou que a placa não pôde ser
+	// identificada — o veículo vai sem ela.
+	SipomSemPlacaConfirmada bool
 }
 
 // Officer é um policial da composição ("30079116-2SGT 22410 SOARES").

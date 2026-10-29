@@ -408,11 +408,13 @@ func (a *app) handleSipomSetVehicleYears(w http.ResponseWriter, r *http.Request)
 
 // PUT /api/ops-occurrences/{id}/sipom/veiculos/{pos}/placa
 //
-//	{"placa": "ABC1D23"}   ("" limpa)
+//	{"placa": "ABC1D23"}
+//	{"placa": "", "sem_placa": true}   (confirma: não foi possível identificar)
 //
-// O relatório às vezes omite a placa ("ident. suprimida"); sem ela, só o
-// ciclomotor vai ao SIPOM. Aceita o padrão antigo (ABC1234) e o Mercosul
-// (ABC1D23), com ou sem hífen.
+// O relatório às vezes omite a placa ("ident. suprimida"). Sem ela, moto e
+// carro só vão ao SIPOM depois que o analista confirma que a placa não pôde
+// ser identificada. Aceita o padrão antigo (ABC1234) e o Mercosul (ABC1D23),
+// com ou sem hífen.
 func (a *app) handleSipomSetVehiclePlate(w http.ResponseWriter, r *http.Request) {
 	if !a.requirePerm(w, r, "opsreport.update") {
 		return
@@ -428,7 +430,8 @@ func (a *app) handleSipomSetVehiclePlate(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	var req struct {
-		Placa string `json:"placa"`
+		Placa    string `json:"placa"`
+		SemPlaca bool   `json:"sem_placa"`
 	}
 	if err := httpx.Decode(r, &req); err != nil {
 		httpx.Error(w, http.StatusBadRequest, "corpo inválido")
@@ -448,7 +451,11 @@ func (a *app) handleSipomSetVehiclePlate(w http.ResponseWriter, r *http.Request)
 		httpx.Error(w, http.StatusNotFound, "veículo não encontrado")
 		return
 	}
-	if err := a.opsReports.SetVehiclePlate(r.Context(), id, pos, placa); err != nil {
+	if placa != "" && req.SemPlaca {
+		httpx.Error(w, http.StatusBadRequest, "informe a placa ou confirme que ela não foi identificada, não os dois")
+		return
+	}
+	if err := a.opsReports.SetVehiclePlate(r.Context(), id, pos, placa, req.SemPlaca); err != nil {
 		log.Printf("sipom set vehicle plate: %v", err)
 		httpx.Error(w, http.StatusInternalServerError, "erro ao gravar")
 		return

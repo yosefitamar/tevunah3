@@ -21,6 +21,9 @@ const (
 	PendArma         = "arma"                // alguma arma sem tipo, marca ou calibre do SIPOM
 	PendDroga        = "droga"               // alguma droga sem correspondência ou sem quantidade na unidade
 	PendVeiculo      = "veiculo"             // algum veículo sem tipo, cor, marca/modelo ou situação
+	// PendVeiculoPlaca: veículo sem placa (que não é ciclomotor) — o analista
+	// informa a placa ou confirma que não foi possível identificá-la.
+	PendVeiculoPlaca = "veiculo_placa"
 )
 
 // Tipos de procedimento (sipom.procedimentos).

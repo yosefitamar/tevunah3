@@ -432,8 +432,8 @@ func TestSmoke_ProcedureAndMaterials(t *testing.T) {
 	if SipomBlocked([]string{sipom.PendDelegado}) {
 		t.Errorf("delegado não é obrigatório: não pode travar o envio")
 	}
-	// Carro sem placa: fica com o tipo do relatório e pendente (só duas
-	// rodas sem placa vai, como MOTONETA).
+	// Carro sem placa: fica com o tipo do relatório (só o ciclomotor sem
+	// placa vira MOTONETA) e pendente até o analista confirmar.
 	v2 := o2.Vehicles[0]
 	if v2.SipomSituacao != sipom.VeiculoRecuperado || v2.SipomTipoCodigo == nil || *v2.SipomTipoCodigo != 6 ||
 		v2.SipomCorCodigo == nil || *v2.SipomCorCodigo != 15 {

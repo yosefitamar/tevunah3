@@ -197,10 +197,11 @@ export function SipomMateriais({ occ, ed }: PartProps) {
         <Fragment key={"v" + v.index}>
           <VeiculoRow v={v} raw={occ.vehicles[v.index]} cat={cat} editable={editable} busy={busy} onSave={(input) => setMat(v.index, input)} />
           <VeiculoPlaca
+            v={v}
             placa={occ.vehicles[v.index]?.plate ?? ""}
             editable={editable}
             busy={busy}
-            onSave={(placa) => !!occ.id && ed.run(() => setSipomVehiclePlate(occ.id!, v.index, placa))}
+            onSave={(placa, semPlaca) => !!occ.id && ed.run(() => setSipomVehiclePlate(occ.id!, v.index, placa, semPlaca))}
           />
           <VeiculoAnos
             v={v}
@@ -416,9 +417,11 @@ function VeiculoRow({ v, raw, cat, editable, busy, onSave }: RowProps<{ v: Sipom
     <div className="sipom-material">
       <MaterialHead raw={rawText} ok={v.ok} manual={v.manual} />
       {semPlaca && !v.cadastro_exigido && (ciclomotor ? (
-        <div className="banner banner-info">SEM PLACA: VAI AO SIPOM COMO MOTONETA — INFORME COR E MARCA/MODELO</div>
+        <div className="banner banner-info">CICLOMOTOR SEM PLACA: VAI AO SIPOM SEM ELA — INFORME TIPO, COR E MARCA/MODELO</div>
+      ) : v.sem_placa_confirmada ? (
+        <div className="banner banner-info">PLACA NÃO IDENTIFICADA (CONFIRMADO): VAI AO SIPOM SEM ELA — INFORME TIPO, COR E MARCA/MODELO</div>
       ) : (
-        <div className="banner banner-error">⚠ SEM PLACA: SÓ CICLOMOTOR VAI AO SIPOM SEM PLACA — INFORME A PLACA DO VEÍCULO</div>
+        <div className="banner banner-error">⚠ SEM PLACA: INFORME A PLACA OU CONFIRME QUE NÃO FOI POSSÍVEL IDENTIFICÁ-LA</div>
       ))}
       {v.cadastro_exigido && (
         <div className="banner banner-info">O SIPOM NÃO TEM ESTA PLACA: INFORME TIPO, COR, MARCA/MODELO E ANO DE FABRICAÇÃO E REENVIE</div>
@@ -501,28 +504,31 @@ function VeiculoRow({ v, raw, cat, editable, busy, onSave }: RowProps<{ v: Sipom
 }
 
 // Placa do veículo: o relatório às vezes a omite ("ident. suprimida") ou a
-// escreve errado. Sem ela, só o ciclomotor vai ao SIPOM.
+// escreve errado. Sem ela, moto e carro só vão ao SIPOM depois que o
+// analista confirma que a placa não pôde ser identificada.
 function VeiculoPlaca({
+  v,
   placa,
   editable,
   busy,
   onSave,
 }: {
+  v: SipomVeiculo;
   placa: string;
   editable: boolean;
   busy: boolean;
-  onSave: (placa: string) => void;
+  onSave: (placa: string, semPlaca: boolean) => void;
 }) {
   const norm = (x: string) => x.toUpperCase().replace(/[^A-Z0-9]/g, "");
   const [val, setVal] = useState(norm(placa));
   useEffect(() => setVal(norm(placa)), [placa]);
   const valid = val === "" || /^[A-Z]{3}[0-9][A-Z0-9][0-9]{2}$/.test(val);
   if (!editable) {
-    return <MaterialRead fields={[["PLACA", placa || undefined]]} />;
+    return <MaterialRead fields={[["PLACA", placa || (v.sem_placa_confirmada ? "NÃO IDENTIFICADA" : undefined)]]} />;
   }
   return (
     <OpsFields edit>
-      <OpsField label="PLACA" missing={!val}>
+      <OpsField label="PLACA" missing={!val && !v.sem_placa_confirmada}>
         <input
           className="ops-input mono"
           maxLength={8}
@@ -537,10 +543,20 @@ function VeiculoPlaca({
           type="button"
           className="btn btn-primary btn-sm"
           disabled={busy || val === norm(placa) || !valid}
-          onClick={() => onSave(val)}
+          onClick={() => onSave(val, false)}
         >
           <Check size={12} strokeWidth={2} /> GRAVAR PLACA
         </button>
+        {!placa && !v.sem_placa_confirmada && (
+          <button type="button" className="btn btn-sm" disabled={busy || val !== ""} onClick={() => onSave("", true)}>
+            PLACA NÃO IDENTIFICADA
+          </button>
+        )}
+        {!placa && v.sem_placa_confirmada && (
+          <button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={() => onSave("", false)}>
+            DESFAZER “NÃO IDENTIFICADA”
+          </button>
+        )}
       </OpsActions>
     </OpsFields>
   );

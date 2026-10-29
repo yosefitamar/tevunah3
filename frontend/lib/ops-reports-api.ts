@@ -131,6 +131,29 @@ export type SipomOccurrence = {
   /** Fase 2: procedimento e materiais (docs/sipom-materiais.md). */
   procedimento: SipomProcedimento;
   materiais: SipomMateriais;
+  /** Composição da inteligência: só com participação da inteligência. */
+  inteligencia: SipomIntel | null;
+};
+
+/** Agente da agência na composição (tipo de policiamento Inteligência). */
+export type SipomIntelOfficer = {
+  user_id: string;
+  name: string;
+  registration: string;
+  rank: string;
+  number: string;
+  war_name: string;
+  funcao_id: number;
+  funcao: string;
+  /** A matrícula já está na guarnição do relatório: não entra de novo. */
+  na_guarnicao?: boolean;
+};
+
+/** manual: lista gravada (analista ou envio); senão segue o cadastro dos agentes. */
+export type SipomIntel = {
+  manual: boolean;
+  policiamento: string;
+  agentes: SipomIntelOfficer[];
 };
 
 export type SipomProcItem = {

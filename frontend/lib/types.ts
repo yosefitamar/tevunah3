@@ -38,6 +38,12 @@ export type User = {
   // telas dedicadas (setup TOTP ou troca de senha forçada).
   must_change_password?: boolean;
   must_setup_totp?: boolean;
+  // Dados funcionais do policial (composição do SIPOM).
+  registration?: string;
+  rank_id?: number | null;
+  number?: string;
+  war_name?: string;
+  sipom_composition?: boolean;
 };
 
 // Dados da sessão corrente devolvidos por /api/auth/login e /api/auth/me.

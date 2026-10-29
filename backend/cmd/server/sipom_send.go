@@ -168,6 +168,10 @@ func (a *app) handleSipomEnviar(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusInternalServerError, "o SIPOM recebeu, mas houve erro ao gravar o resultado — envie de novo")
 		return
 	}
+	// A composição da inteligência que foi ao SIPOM fica gravada na ficha.
+	if err := a.opsReports.FreezeIntelComposition(r.Context(), so); err != nil {
+		log.Printf("sipom composição inteligência: %v", err)
+	}
 	meta["protocolo"], meta["situacao"], meta["identificador"], meta["avisos"] =
 		res.Protocolo, res.Situacao, res.Identificador, res.Avisos
 	_ = a.audit.Log(r.Context(), audit.Entry{

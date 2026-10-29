@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Ban, KeyRound, Pencil, Shield, ShieldOff, UserX, X } from "lucide-react";
+import { Ban, BadgeCheck, KeyRound, Pencil, Shield, ShieldOff, UserX, X } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   STATUS_LABEL,
@@ -16,9 +16,11 @@ import {
   changeOwnPassword,
   deactivateUser,
   getUser,
+  listSipomPostos,
   resetUserPassword,
   resetUserTOTP,
   updateUserProfile,
+  updateUserService,
 } from "@/lib/users-api";
 import {
   canCreateUsers,
@@ -44,6 +46,7 @@ type ActionMode =
   | "set_roles"
   | "set_clearance"
   | "edit_profile"
+  | "edit_service"
   | "reset_password"
   | "change_password"
   | "reset_totp";
@@ -55,6 +58,15 @@ export default function AgentDrawer({ userId, onClose, onChanged }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<ActionMode | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [postos, setPostos] = useState<{ id: number; nome: string }[]>([]);
+
+  // Posto/graduação vem do catálogo do SIPOM; sem ele, o cadastro mostra só
+  // o que está gravado.
+  useEffect(() => {
+    listSipomPostos()
+      .then((r) => setPostos(r.items))
+      .catch(() => setPostos([]));
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -137,6 +149,32 @@ export default function AgentDrawer({ userId, onClose, onChanged }: Props) {
                   <dt>ÚLTIMO LOGIN</dt>
                   <dd>{formatBR(data.last_login_at)}</dd>
                 </div>
+                <div>
+                  <dt>MATRÍCULA</dt>
+                  <dd className="mono">{data.registration || "—"}</dd>
+                </div>
+                <div>
+                  <dt>POSTO/GRAD.</dt>
+                  <dd>{postos.find((p) => p.id === data.rank_id)?.nome ?? "—"}</dd>
+                </div>
+                <div>
+                  <dt>NUMERAL</dt>
+                  <dd className="mono">{data.number || "—"}</dd>
+                </div>
+                <div>
+                  <dt>NOME DE GUERRA</dt>
+                  <dd>{data.war_name || "—"}</dd>
+                </div>
+                <div>
+                  <dt>COMPOSIÇÃO DO SIPOM</dt>
+                  <dd>
+                    {data.sipom_composition ? (
+                      <span className="pill active">ENTRA</span>
+                    ) : (
+                      <span className="pill cold">NÃO ENTRA</span>
+                    )}
+                  </dd>
+                </div>
               </dl>
 
               {notice && (
@@ -193,6 +231,18 @@ export default function AgentDrawer({ userId, onClose, onChanged }: Props) {
                   />
                 )}
 
+                {mode === "edit_service" && (
+                  <EditServiceBlock
+                    user={data}
+                    postos={postos}
+                    onCancel={closeAction}
+                    onDone={(u) => {
+                      setData(u);
+                      afterMutation("DADOS FUNCIONAIS ATUALIZADOS.");
+                    }}
+                  />
+                )}
+
                 {mode === "reset_password" && (
                   <ResetPasswordBlock
                     user={data}
@@ -232,6 +282,19 @@ export default function AgentDrawer({ userId, onClose, onChanged }: Props) {
                       }
                       disabled={!isSelf && (!isAdmin || !targetActive)}
                       onClick={() => setMode("edit_profile")}
+                    />
+                    <ActionRow
+                      icon={<BadgeCheck size={14} />}
+                      label="DADOS FUNCIONAIS"
+                      hint={
+                        !isAdmin
+                          ? "REQUER ADMINISTRADOR"
+                          : !targetActive
+                            ? "AGENTE DESATIVADO"
+                            : "ADMIN · MATRÍCULA, POSTO, NUMERAL, NOME DE GUERRA E COMPOSIÇÃO DO SIPOM"
+                      }
+                      disabled={!isAdmin || !targetActive}
+                      onClick={() => setMode("edit_service")}
                     />
                     <ActionRow
                       icon={<Shield size={14} />}
@@ -668,6 +731,114 @@ function EditProfileBlock({
         </button>
         <button type="button" className="btn btn-primary" onClick={doIt} disabled={acting}>
           <Pencil size={14} /> {acting ? "GRAVANDO…" : "GRAVAR"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────── EditServiceBlock ────────────────────────────
+
+/**
+ * Dados funcionais do agente. Marcado em "entrar na composição do SIPOM",
+ * ele vai, com o tipo de policiamento Inteligência, em toda ocorrência com
+ * participação da inteligência — o analista ainda pode retirá-lo na ficha.
+ */
+function EditServiceBlock({
+  user,
+  postos,
+  onCancel,
+  onDone,
+}: {
+  user: User;
+  postos: { id: number; nome: string }[];
+  onCancel: () => void;
+  onDone: (u: User) => void;
+}) {
+  const [registration, setRegistration] = useState(user.registration ?? "");
+  const [rankID, setRankID] = useState(user.rank_id ? String(user.rank_id) : "");
+  const [number, setNumber] = useState(user.number ?? "");
+  const [warName, setWarName] = useState(user.war_name ?? "");
+  const [composition, setComposition] = useState(!!user.sipom_composition);
+  const [acting, setActing] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function doIt() {
+    setErr(null);
+    if (composition && registration.trim() === "") {
+      setErr("Informe a matrícula para o agente entrar na composição do SIPOM");
+      return;
+    }
+    setActing(true);
+    try {
+      const r = await updateUserService(user.id, {
+        registration: registration.trim(),
+        rank_id: rankID ? Number(rankID) : null,
+        number: number.trim(),
+        war_name: warName.trim(),
+        sipom_composition: composition,
+      });
+      onDone(r.user);
+    } catch (e) {
+      setErr((e as ApiError).message || "Falha ao atualizar");
+    } finally {
+      setActing(false);
+    }
+  }
+
+  return (
+    <div className="confirm-block">
+      <div className="confirm-msg">
+        Dados funcionais de <b>{user.code} · {user.display_name.toUpperCase()}</b>. A ação é registrada no audit log.
+      </div>
+      <label className="form-field">
+        <span>MATRÍCULA</span>
+        <input
+          type="text"
+                    value={registration}
+          onChange={(e) => setRegistration(e.target.value.toUpperCase().replace(/[^0-9X]/g, ""))}
+          maxLength={12}
+          placeholder="COMO NO RELATÓRIO · EX.: 3055681X"
+        />
+      </label>
+      <div className="form-field">
+        <span>POSTO/GRAD.</span>
+        <Select
+          value={rankID}
+          placeholder={postos.length ? "ESCOLHA" : "CATÁLOGO DO SIPOM INDISPONÍVEL"}
+          disabled={postos.length === 0}
+          onChange={setRankID}
+          options={postos.map((p) => ({ value: String(p.id), label: p.nome }))}
+        />
+      </div>
+      <label className="form-field">
+        <span>NUMERAL</span>
+        <input type="text" value={number} onChange={(e) => setNumber(e.target.value)} maxLength={10} />
+      </label>
+      <label className="form-field">
+        <span>NOME DE GUERRA</span>
+        <input
+          type="text"
+          value={warName}
+          onChange={(e) => setWarName(e.target.value.toUpperCase())}
+          maxLength={40}
+        />
+      </label>
+      <label className="role-check">
+        <input type="checkbox" checked={composition} onChange={(e) => setComposition(e.target.checked)} />
+        <span>ENTRAR NA COMPOSIÇÃO DO SIPOM</span>
+      </label>
+      <div className="muted">
+        Marcado, o agente entra com o tipo de policiamento Inteligência nas ocorrências com participação da
+        inteligência.
+      </div>
+      {err && <div className="banner banner-error">⚠ {err}</div>}
+      <div className="confirm-actions">
+        <button type="button" className="btn btn-ghost" onClick={onCancel} disabled={acting}>
+          CANCELAR
+        </button>
+        <button type="button" className="btn btn-primary" onClick={doIt} disabled={acting}>
+          <BadgeCheck size={14} /> {acting ? "GRAVANDO…" : "GRAVAR"}
         </button>
       </div>
     </div>

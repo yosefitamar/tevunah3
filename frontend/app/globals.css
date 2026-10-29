@@ -5810,6 +5810,10 @@ body.session-locked > *:not(.session-overlay-root) {
 .sipom-material-hd .pill { flex: none; }
 .sipom-teams { display: flex; flex-direction: column; gap: 8px; }
 .sipom-teams .sel-trigger { height: 28px; }
+.sipom-intel { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+.sipom-intel .sel-trigger { height: 28px; }
+.sipom-intel .ops-control-row .sel { min-width: 280px; }
+.sipom-intel td .pill { margin-left: 8px; }
 
 /* Fotos da ocorrência */
 .ops-photo-drop {

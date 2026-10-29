@@ -85,6 +85,11 @@ type Occurrence struct {
 	Drugs    []Drug
 	Vehicles []Vehicle
 	Officers []Officer
+	// IntelOfficers: composição da inteligência (agentes da agência), só na
+	// ocorrência gravada com participação da inteligência. Manual = lista
+	// gravada (analista ou envio); sem ela, segue o cadastro dos agentes.
+	IntelOfficers          []IntelOfficer
+	IntelCompositionManual bool
 
 	// IntelMatched são os termos de inteligência encontrados no histórico ou
 	// na equipe (preenchido por quem importa, com os termos configurados).

@@ -176,6 +176,7 @@ func main() {
 	mux.Handle("POST /api/users/{id}/totp/reset", auth(http.HandlerFunc(a.handleUserTOTPReset)))
 	mux.Handle("POST /api/users/{id}/roles", auth(http.HandlerFunc(a.handleUserSetRoles)))
 	mux.Handle("POST /api/users/{id}/clearance", auth(http.HandlerFunc(a.handleUserSetClearance)))
+	mux.Handle("PUT /api/users/{id}/service", auth(http.HandlerFunc(a.handleUserSetService)))
 
 	mux.Handle("GET /api/dashboard", auth(http.HandlerFunc(a.handleDashboard)))
 
@@ -298,7 +299,10 @@ func main() {
 	mux.Handle("PUT /api/ops-occurrences/{id}/sipom/pessoas/{pid}/sexo", auth(http.HandlerFunc(a.handleSipomSetSexo)))
 	mux.Handle("PUT /api/ops-occurrences/{id}/sipom/veiculos/{pos}/ano", auth(http.HandlerFunc(a.handleSipomSetVehicleYears)))
 	mux.Handle("PUT /api/ops-occurrences/{id}/sipom/veiculos/{pos}/placa", auth(http.HandlerFunc(a.handleSipomSetVehiclePlate)))
+	mux.Handle("PUT /api/ops-occurrences/{id}/sipom/inteligencia", auth(http.HandlerFunc(a.handleSipomSetIntel)))
 	mux.Handle("PUT /api/ops-occurrences/{id}/sipom/{field}", auth(http.HandlerFunc(a.handleSipomSetField)))
+	mux.Handle("GET /api/sipom/inteligencia/agentes", auth(http.HandlerFunc(a.handleSipomIntelAgentes)))
+	mux.Handle("GET /api/sipom/postos", auth(http.HandlerFunc(a.handleSipomPostos)))
 	mux.Handle("GET /api/sipom/bairros", auth(http.HandlerFunc(a.handleSipomBairros)))
 	mux.Handle("GET /api/admin/sipom/ping", auth(http.HandlerFunc(a.handleSipomPing)))
 	mux.Handle("GET /api/sipom/catalogo", auth(http.HandlerFunc(a.handleSipomCatalogo)))
@@ -443,6 +447,12 @@ type publicUser struct {
 	LastLoginAt        *time.Time `json:"last_login_at,omitempty"`
 	MustChangePassword bool       `json:"must_change_password,omitempty"`
 	MustSetupTOTP      bool       `json:"must_setup_totp,omitempty"`
+	// Dados funcionais (composição do SIPOM).
+	Registration     string `json:"registration"`
+	RankID           *int   `json:"rank_id"`
+	Number           string `json:"number"`
+	WarName          string `json:"war_name"`
+	SipomComposition bool   `json:"sipom_composition"`
 }
 
 func toPublic(u *users.User) publicUser {
@@ -456,6 +466,9 @@ func toPublic(u *users.User) publicUser {
 		Roles: roles, LastLoginAt: u.LastLoginAt,
 		MustChangePassword: u.MustChangePassword,
 		MustSetupTOTP:      u.MustSetupTOTP,
+		Registration:       u.Service.Registration, RankID: u.Service.RankID,
+		Number: u.Service.Number, WarName: u.Service.WarName,
+		SipomComposition: u.Service.SipomComposition,
 	}
 }
 

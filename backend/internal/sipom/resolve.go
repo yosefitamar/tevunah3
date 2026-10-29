@@ -431,6 +431,20 @@ func nonEmpty(ss []string) []string {
 
 // ─── Composição ───
 
+// Composição da inteligência: tipo de policiamento Inteligência, com as
+// funções que o SIPOM aceita nele (policiamentos_tipos_funcoes).
+const (
+	PoliciamentoInteligencia = 8
+	FuncaoGestor             = 10
+	FuncaoAgente             = 11
+	FuncaoAnalista           = 12
+)
+
+// IntelFuncao diz se a função vale no policiamento de Inteligência.
+func IntelFuncao(id int) bool {
+	return id == FuncaoGestor || id == FuncaoAgente || id == FuncaoAnalista
+}
+
 // CompositionByTeam monta a composição quando o analista definiu a equipe
 // de cada policial (ficha com mais de uma equipe): a regra VTRA/RAIO vale
 // dentro de cada equipe, na ordem em que os policiais aparecem na lista.

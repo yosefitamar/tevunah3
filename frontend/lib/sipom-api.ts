@@ -3,7 +3,7 @@
 // de-para relatório → SIPOM (Admin).
 
 import { api } from "./api";
-import type { OpsOfficer, SipomOccurrence, SipomPending, SipomRef } from "./ops-reports-api";
+import type { OpsOfficer, SipomIntelOfficer, SipomOccurrence, SipomPending, SipomRef } from "./ops-reports-api";
 
 type SipomChange = { sipom: SipomOccurrence; officers: OpsOfficer[] };
 
@@ -145,6 +145,23 @@ export function setOpsSipomField(occId: string, input: SipomFieldInput) {
   return api<{ sipom: SipomOccurrence; officers: OpsOfficer[]; area_rule?: SipomAreaRule | null }>(
     `/api/ops-occurrences/${encodeURIComponent(occId)}/sipom/${field}`,
     { method: "PUT", body: JSON.stringify(body) },
+  );
+}
+
+// ─── Composição da inteligência ───
+
+/** Agentes que podem entrar na composição (marcados no cadastro) e as funções do policiamento. */
+export function listSipomIntelAgentes() {
+  return api<{ items: SipomIntelOfficer[]; funcoes: SipomRef[] }>("/api/sipom/inteligencia/agentes");
+}
+
+export type SipomIntelInput = { agentes: { user_id: string; funcao_id: number }[] } | { reset: true };
+
+/** Grava quem da agência entra na composição, ou volta ao cadastro dos agentes. */
+export function setSipomIntel(occId: string, input: SipomIntelInput) {
+  return api<{ sipom: SipomOccurrence; officers: OpsOfficer[] }>(
+    `/api/ops-occurrences/${encodeURIComponent(occId)}/sipom/inteligencia`,
+    { method: "PUT", body: JSON.stringify(input) },
   );
 }
 

@@ -108,6 +108,58 @@ type sipomOccurrenceJSON struct {
 	AreaCandidates []sipomRefJSON `json:"area_candidates"`
 	OPMCandidates  []sipomRefJSON `json:"opm_candidates"`
 	Equipes        []string       `json:"equipes"`
+	// Inteligencia: composição da inteligência (só com participação).
+	Inteligencia *sipomIntelJSON `json:"inteligencia"`
+}
+
+// sipomIntelJSON é a composição da inteligência na ficha. Manual: a lista
+// está gravada (analista ou envio); senão segue o cadastro dos agentes.
+type sipomIntelJSON struct {
+	Manual       bool                    `json:"manual"`
+	Policiamento string                  `json:"policiamento"`
+	Agentes      []sipomIntelOfficerJSON `json:"agentes"`
+}
+
+type sipomIntelOfficerJSON struct {
+	UserID       string `json:"user_id"`
+	Name         string `json:"name"`
+	Registration string `json:"registration"`
+	Rank         string `json:"rank"`
+	Number       string `json:"number"`
+	WarName      string `json:"war_name"`
+	FuncaoID     int    `json:"funcao_id"`
+	Funcao       string `json:"funcao"`
+	// NaGuarnicao: a matrícula já está na guarnição do relatório — não
+	// entra de novo.
+	NaGuarnicao bool `json:"na_guarnicao"`
+}
+
+func (a *app) intelOfficerJSON(x opsreport.IntelOfficer) sipomIntelOfficerJSON {
+	out := sipomIntelOfficerJSON{UserID: x.UserID, Name: x.Name, Registration: x.Registration,
+		Number: x.Number, WarName: x.WarName, FuncaoID: x.FuncaoID, Funcao: a.sipom.Funcao(x.FuncaoID)}
+	if x.RankID != nil {
+		out.Rank = a.sipom.PostoAbrev(*x.RankID)
+	}
+	return out
+}
+
+func (a *app) sipomIntelJSON(o *opsreport.Occurrence) *sipomIntelJSON {
+	if o.IntelOfficers == nil {
+		return nil
+	}
+	report := map[string]bool{}
+	for _, f := range o.Officers {
+		report[opsreport.RegistrationKey(f.Registration)] = true
+	}
+	out := &sipomIntelJSON{Manual: o.IntelCompositionManual,
+		Policiamento: a.sipom.Policiamento(sipom.PoliciamentoInteligencia),
+		Agentes:      make([]sipomIntelOfficerJSON, 0, len(o.IntelOfficers))}
+	for _, x := range o.IntelOfficers {
+		j := a.intelOfficerJSON(x)
+		j.NaGuarnicao = report[opsreport.RegistrationKey(x.Registration)]
+		out.Agentes = append(out.Agentes, j)
+	}
+	return out
 }
 
 // sipomJSON monta o bloco SIPOM da ficha. As áreas candidatas (local que cai
@@ -126,6 +178,7 @@ func (a *app) sipomJSON(o *opsreport.Occurrence, people []sipom.Person) *sipomOc
 		Equipes: splitTeams(o.Teams), SentAt: f.SentAt,
 		API: a.sipomClient != nil, Envio: sipomEnvio(f.Send),
 	}
+	out.Inteligencia = a.sipomIntelJSON(o)
 	if f.CidadeID != nil {
 		for _, id := range a.sipom.CityAreas(*f.CidadeID) {
 			co, _ := a.sipom.Companhia(id)
@@ -706,7 +759,20 @@ func sipomAuditSnapshot(so *opsreport.StoredOccurrence) map[string]any {
 		"equipes": equipes, "manual": nonNil(so.Sipom.Manual), "pendencias": nonNil(so.Sipom.Pending),
 		"procedimento_id": so.Sipom.ProcedimentoID, "delegacia_id": so.Sipom.DelegaciaID, "delegado_id": so.Sipom.DelegadoID,
 		"armas": armas, "drogas": drogas, "veiculos": veiculos,
+		"inteligencia": intelAudit(so),
 	}
+}
+
+// intelAudit resume a composição da inteligência para a auditoria.
+func intelAudit(so *opsreport.StoredOccurrence) map[string]any {
+	if !so.IntelParticipation {
+		return nil
+	}
+	agentes := make([]map[string]any, 0, len(so.IntelOfficers))
+	for _, x := range so.IntelOfficers {
+		agentes = append(agentes, map[string]any{"user_id": x.UserID, "matricula": x.Registration, "funcao": x.FuncaoID})
+	}
+	return map[string]any{"manual": so.IntelCompositionManual, "agentes": agentes}
 }
 
 // ─── Fila de envio ───

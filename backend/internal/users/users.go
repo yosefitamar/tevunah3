@@ -36,6 +36,20 @@ type User struct {
 	Roles              []string // codenames (agente | analista | gestor | administrador)
 	MustChangePassword bool     // admin resetou a senha → trocar no próximo login
 	MustSetupTOTP      bool     // admin resetou o TOTP → escanear novo QR no próximo login
+
+	// Dados funcionais do policial (composição do SIPOM).
+	Service Service
+}
+
+// Service são os dados funcionais do agente: entram na composição (tipo de
+// policiamento Inteligência) das ocorrências com participação da
+// inteligência, quando SipomComposition está marcado.
+type Service struct {
+	Registration     string // matrícula
+	RankID           *int   // sipom.postos_graduacoes.id
+	Number           string // numeral
+	WarName          string // nome de guerra
+	SipomComposition bool
 }
 
 // IsActive devolve true se o usuário está apto a logar.
@@ -100,7 +114,9 @@ func scanUser(row *sql.Row) (*User, error) {
 	var last sql.NullTime
 	if err := row.Scan(&u.ID, &u.Code, &u.Email, &u.DisplayName, &u.PasswordHash,
 		&totp, &u.ClearanceLevel, &u.Status, &last, &u.CreatedAt,
-		&u.MustChangePassword, &u.MustSetupTOTP); err != nil {
+		&u.MustChangePassword, &u.MustSetupTOTP,
+		&u.Service.Registration, &u.Service.RankID, &u.Service.Number, &u.Service.WarName,
+		&u.Service.SipomComposition); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
@@ -117,7 +133,8 @@ func scanUser(row *sql.Row) (*User, error) {
 const userSelectFields = `
 	id, code, email, display_name, password_hash,
 	COALESCE(totp_secret, ''), clearance_level, status, last_login_at, created_at,
-	must_change_password, must_setup_totp`
+	must_change_password, must_setup_totp,
+	registration, rank_id, number, war_name, sipom_composition`
 
 // FindByEmail busca um usuário ativo (não soft-deleted) por e-mail.
 func (r *Repo) FindByEmail(ctx context.Context, email string) (*User, error) {
@@ -307,6 +324,23 @@ func (r *Repo) UpdateProfile(ctx context.Context, id string, displayName, email 
 	}
 	n, _ := res.RowsAffected()
 	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// UpdateService grava os dados funcionais do agente.
+func (r *Repo) UpdateService(ctx context.Context, id string, s Service) error {
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE app.users
+		    SET registration = $2, rank_id = $3, number = $4, war_name = $5,
+		        sipom_composition = $6, updated_at = now()
+		  WHERE id = $1`,
+		id, s.Registration, s.RankID, s.Number, s.WarName, s.SipomComposition)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
 		return ErrNotFound
 	}
 	return nil

@@ -61,6 +61,10 @@ type Catalog struct {
 	cidadeIBGE    map[int]int
 	// Posto/graduação por abreviado normalizado ("3 sgt").
 	postoByKey map[string]int
+	// postos: posto/graduação por id (abreviado) e a lista em ordem
+	// hierárquica, para o cadastro dos agentes.
+	postos    map[int]string
+	postoList []Ref
 
 	// Procedimento: tipos, delegacias (por código de unidade e por id) e
 	// delegados ativos (por id e por nome normalizado).
@@ -182,6 +186,7 @@ func Load(ctx context.Context, db *sql.DB) (*Catalog, error) {
 		funcoes:          map[int]string{},
 		cidadeIBGE:       map[int]int{},
 		postoByKey:       map[string]int{},
+		postos:           map[int]string{},
 
 		procedimentos: map[int]string{}, delegacias: map[int]Delegacia{}, delegaciaByCode: map[int]int{},
 		delegados: map[int]Delegado{},
@@ -228,13 +233,15 @@ func Load(ctx context.Context, db *sql.DB) (*Catalog, error) {
 			c.cidadeIBGE[ci.id] = ci.codigo
 			return nil
 		}},
-		{"postos", `SELECT id, abreviado FROM sipom.postos_graduacoes`, func(r *sql.Rows) error {
+		{"postos", `SELECT id, abreviado FROM sipom.postos_graduacoes ORDER BY COALESCE(ordem, 0), id`, func(r *sql.Rows) error {
 			var id int
 			var ab string
 			if err := r.Scan(&id, &ab); err != nil {
 				return err
 			}
 			c.postoByKey[key(ab)] = id
+			c.postos[id] = ab
+			c.postoList = append(c.postoList, Ref{ID: id, Nome: ab})
 			return nil
 		}},
 		{"bairros", `SELECT id, cidade_id, nome FROM sipom.bairro WHERE deletado_em IS NULL`, func(r *sql.Rows) error {
@@ -530,6 +537,12 @@ func (c *Catalog) Posto(rank string) (int, bool) {
 	}
 	return 0, false
 }
+
+// PostoAbrev devolve o abreviado do posto/graduação ("3SGT"); "" se não há.
+func (c *Catalog) PostoAbrev(id int) string { return c.postos[id] }
+
+// Postos devolve os postos/graduações em ordem hierárquica (abreviados).
+func (c *Catalog) Postos() []Ref { return c.postoList }
 
 // ─── Procedimento e materiais: acesso ───
 

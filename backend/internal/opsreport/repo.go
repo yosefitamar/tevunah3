@@ -725,6 +725,11 @@ func (r *Repo) FindByID(ctx context.Context, id string) (*StoredOccurrence, erro
 	if so.Photos, err = r.ListPhotos(ctx, id); err != nil {
 		return nil, err
 	}
+	if so.IntelParticipation {
+		if so.IntelCompositionManual, so.IntelOfficers, err = r.intelComposition(ctx, id); err != nil {
+			return nil, err
+		}
+	}
 	return &so, nil
 }
 

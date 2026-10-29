@@ -488,3 +488,85 @@ func (a *app) handleUsersLookup(w http.ResponseWriter, r *http.Request) {
 	}
 	httpx.OK(w, map[string]any{"items": items})
 }
+
+// ─── PUT /api/users/{id}/service ─────────────────────────────────────────
+//
+// Dados funcionais do agente: matrícula, posto/graduação, numeral, nome de
+// guerra e se ele entra na composição (Inteligência) das ocorrências com
+// participação da inteligência enviadas ao SIPOM. Só administrador.
+
+type userServiceRequest struct {
+	Registration     string `json:"registration"`
+	RankID           *int   `json:"rank_id"`
+	Number           string `json:"number"`
+	WarName          string `json:"war_name"`
+	SipomComposition bool   `json:"sipom_composition"`
+}
+
+// Matrícula como no relatório: só dígitos, o último podendo ser X
+// ("30556810", "3055681X"). Hífen e ponto digitados saem.
+var registrationRE = regexp.MustCompile(`^[0-9]{5,11}[0-9X]$`)
+
+func (a *app) handleUserSetService(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePerm(w, r, "user.update.others") {
+		return
+	}
+	id := r.PathValue("id")
+	var req userServiceRequest
+	if err := httpx.Decode(r, &req); err != nil {
+		httpx.Error(w, http.StatusBadRequest, "corpo inválido")
+		return
+	}
+	svc := users.Service{
+		Registration:     strings.NewReplacer("-", "", ".", "", " ", "").Replace(strings.ToUpper(req.Registration)),
+		RankID:           req.RankID,
+		Number:           strings.TrimSpace(req.Number),
+		WarName:          strings.ToUpper(strings.Join(strings.Fields(req.WarName), " ")),
+		SipomComposition: req.SipomComposition,
+	}
+	if svc.Registration != "" && !registrationRE.MatchString(svc.Registration) {
+		httpx.Error(w, http.StatusBadRequest, "matrícula inválida (só números; o último dígito pode ser X)")
+		return
+	}
+	if svc.RankID != nil && (a.sipom == nil || a.sipom.PostoAbrev(*svc.RankID) == "") {
+		httpx.Error(w, http.StatusBadRequest, "posto/graduação inexistente no SIPOM")
+		return
+	}
+	if svc.SipomComposition && svc.Registration == "" {
+		httpx.Error(w, http.StatusBadRequest, "informe a matrícula para o agente entrar na composição do SIPOM")
+		return
+	}
+	target, err := a.users.FindByID(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, users.ErrNotFound) {
+			httpx.Error(w, http.StatusNotFound, "usuário não encontrado")
+			return
+		}
+		httpx.Error(w, http.StatusInternalServerError, "erro ao buscar usuário")
+		return
+	}
+	if err := a.users.UpdateService(r.Context(), id, svc); err != nil {
+		log.Printf("users service: %v", err)
+		httpx.Error(w, http.StatusInternalServerError, "erro ao atualizar")
+		return
+	}
+	snap := func(s users.Service) map[string]any {
+		return map[string]any{"registration": s.Registration, "rank_id": s.RankID, "number": s.Number,
+			"war_name": s.WarName, "sipom_composition": s.SipomComposition}
+	}
+	aid, sid, ip, ua := a.actorInfo(r)
+	_ = a.audit.Log(r.Context(), audit.Entry{
+		ActorUserID: aid, ActorSessionID: sid, ActorIP: ip, ActorUserAgent: ua,
+		Action:       "user.update.service",
+		ResourceType: audit.Ptr("user"),
+		ResourceID:   audit.Ptr(id),
+		Before:       snap(target.Service),
+		After:        snap(svc),
+	})
+	u, err := a.users.FindByID(r.Context(), id)
+	if err != nil {
+		httpx.Error(w, http.StatusInternalServerError, "erro ao recarregar usuário")
+		return
+	}
+	httpx.OK(w, map[string]any{"user": toPublic(u)})
+}

@@ -89,15 +89,20 @@ func BuildSipomPayload(cat *sipom.Catalog, so *StoredOccurrence, src PayloadSour
 		Envolvidos:    []sipom.PayloadEnvolvido{},
 	}
 
+	seen := map[string]bool{}
 	for _, o := range so.Officers {
 		if o.SipomPoliciamentoTipoID == nil || o.SipomFuncaoID == nil || strings.TrimSpace(o.Registration) == "" {
 			continue // composição pendente: vai sem a guarnição
 		}
+		seen[RegistrationKey(o.Registration)] = true
 		p.Composicao = append(p.Composicao, sipom.PayloadComposicao{
 			ID: o.ID, Matricula: strings.TrimSpace(o.Registration),
 			PoliciamentoTipoID: *o.SipomPoliciamentoTipoID, FuncaoID: *o.SipomFuncaoID,
 		})
 	}
+	// Participação da inteligência: os agentes da agência entram junto com a
+	// guarnição, no policiamento de Inteligência.
+	p.Composicao = append(p.Composicao, intelPayload(so, seen)...)
 
 	// Procedimentos: delegacia e delegado são os mesmos para todos; delegado
 	// é opcional. O id estável é o próprio procedimento (tipo, número, ano).

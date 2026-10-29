@@ -1,14 +1,24 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AlertTriangle, Braces, Check, CheckCircle2, Pencil, RotateCcw, Send, Undo2 } from "lucide-react";
-import type { OpsOccurrence, OpsOfficer, SipomOccurrence, SipomPending, SipomRef } from "@/lib/ops-reports-api";
+import { AlertTriangle, Braces, Check, CheckCircle2, Pencil, Plus, RotateCcw, Send, Undo2, X } from "lucide-react";
+import type {
+  OpsOccurrence,
+  OpsOfficer,
+  SipomIntel,
+  SipomIntelOfficer,
+  SipomOccurrence,
+  SipomPending,
+  SipomRef,
+} from "@/lib/ops-reports-api";
 import {
   enviarSipom,
   listSipomBairros,
+  listSipomIntelAgentes,
   listSipomNaturezas,
   setOpsSipomField,
   setOpsSipomNatureza,
+  setSipomIntel,
   setSipomSent,
   setSipomSexo,
   type SipomAreaRule,
@@ -353,7 +363,146 @@ export function SipomEfetivo({ occ, ed }: PartProps) {
       ) : (
         <OfficersTable officers={occ.officers} />
       )}
+      {s.inteligencia && <IntelComposition occ={occ} intel={s.inteligencia} ed={ed} />}
     </>
+  );
+}
+
+/**
+ * Composição da inteligência: com participação da inteligência, os agentes
+ * da agência marcados no cadastro entram junto com a guarnição do relatório,
+ * no tipo de policiamento Inteligência. O analista insere ou retira agentes
+ * e troca a função antes do envio; a escolha fica gravada na ficha.
+ */
+function IntelComposition({ occ, intel, ed }: { occ: OpsOccurrence; intel: SipomIntel; ed: SipomEdit }) {
+  const { editable, busy } = ed;
+  const [candidates, setCandidates] = useState<SipomIntelOfficer[]>([]);
+  const [funcoes, setFuncoes] = useState<SipomRef[]>([]);
+  const [adding, setAdding] = useState("");
+
+  useEffect(() => {
+    if (!editable) return;
+    listSipomIntelAgentes()
+      .then((r) => {
+        setCandidates(r.items);
+        setFuncoes(r.funcoes);
+      })
+      .catch(() => setCandidates([]));
+  }, [editable]);
+
+  const save = (agentes: { user_id: string; funcao_id: number }[]) =>
+    ed.run(() => setSipomIntel(occ.id!, { agentes }));
+  const current = intel.agentes.map((a) => ({ user_id: a.user_id, funcao_id: a.funcao_id }));
+  const available = candidates.filter((c) => !intel.agentes.some((a) => a.user_id === c.user_id));
+
+  return (
+    <div className="sipom-intel">
+      <div className="ops-sub">
+        INTELIGÊNCIA · AGENTES DA AGÊNCIA
+        <span className="muted">
+          {" "}
+          · {intel.policiamento.toUpperCase()} · {intel.manual ? "DEFINIDA NA FICHA" : "CONFORME O CADASTRO DE AGENTES"}
+        </span>
+      </div>
+      {intel.agentes.length === 0 ? (
+        <div className="ops-empty">
+          NENHUM AGENTE NA COMPOSIÇÃO DA INTELIGÊNCIA
+          {!intel.manual && " — MARQUE \"ENTRAR NA COMPOSIÇÃO DO SIPOM\" NO CADASTRO DOS AGENTES"}
+        </div>
+      ) : (
+        <table className="tbl ops-subtbl">
+          <thead>
+            <tr>
+              <th style={{ width: 36 }}>#</th>
+              <th>POSTO/GRAD.</th>
+              <th>NOME DE GUERRA</th>
+              <th>NÚMERO</th>
+              <th>MATRÍCULA</th>
+              <th style={{ width: editable ? 160 : undefined }}>FUNÇÃO</th>
+              {editable && <th style={{ width: 40 }} />}
+            </tr>
+          </thead>
+          <tbody>
+            {intel.agentes.map((a, i) => (
+              <tr key={a.user_id} className={a.na_guarnicao ? "muted" : undefined}>
+                <td className="mono">{i + 1}</td>
+                <td>{a.rank || "—"}</td>
+                <td className="ops-strong">
+                  {a.war_name || a.name.toUpperCase()}
+                  {a.na_guarnicao && (
+                    <span className="pill cold" title="A matrícula já está na guarnição do relatório: não entra de novo">
+                      JÁ NA GUARNIÇÃO
+                    </span>
+                  )}
+                </td>
+                <td className="mono">{a.number || "—"}</td>
+                <td className="mono">{a.registration || "—"}</td>
+                <td>
+                  {editable && funcoes.length > 0 ? (
+                    <Select
+                      value={String(a.funcao_id)}
+                      disabled={busy}
+                      onChange={(v) =>
+                        save(current.map((c) => (c.user_id === a.user_id ? { ...c, funcao_id: Number(v) } : c)))
+                      }
+                      options={funcoes.map((f) => ({ value: String(f.id), label: f.nome.toUpperCase() }))}
+                    />
+                  ) : (
+                    a.funcao.toUpperCase() || "—"
+                  )}
+                </td>
+                {editable && (
+                  <td>
+                    <button
+                      type="button"
+                      className="action-btn"
+                      disabled={busy}
+                      title="Retirar da composição"
+                      aria-label={`Retirar ${a.war_name || a.name} da composição`}
+                      onClick={() => save(current.filter((c) => c.user_id !== a.user_id))}
+                    >
+                      <X size={13} />
+                    </button>
+                  </td>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {editable && (
+        <OpsActions>
+          {available.length > 0 && (
+            <div className="ops-control-row">
+              <Select
+                value={adding}
+                placeholder="INSERIR AGENTE"
+                disabled={busy}
+                onChange={setAdding}
+                options={available.map((c) => ({
+                  value: c.user_id,
+                  label: [c.rank, c.war_name || c.name.toUpperCase(), c.registration].filter(Boolean).join(" · "),
+                }))}
+              />
+              <button
+                type="button"
+                className="btn btn-primary btn-sm ops-nowrap"
+                disabled={busy || !adding}
+                onClick={async () => {
+                  const c = available.find((x) => x.user_id === adding);
+                  if (c && (await save([...current, { user_id: c.user_id, funcao_id: c.funcao_id }]))) setAdding("");
+                }}
+              >
+                <Plus size={12} strokeWidth={2} /> INSERIR
+              </button>
+            </div>
+          )}
+          {intel.manual && (
+            <AutoButton busy={busy} label="CONFORME O CADASTRO" onClick={() => ed.run(() => setSipomIntel(occ.id!, { reset: true }))} />
+          )}
+        </OpsActions>
+      )}
+    </div>
   );
 }
 

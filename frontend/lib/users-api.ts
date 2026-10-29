@@ -81,6 +81,29 @@ export function updateUserProfile(id: string, input: UpdateUserProfileInput) {
   });
 }
 
+// Dados funcionais do agente (matrícula, posto, numeral, nome de guerra) e
+// se ele entra na composição do SIPOM nas ocorrências com participação da
+// inteligência. Só administrador.
+export type UserServiceInput = {
+  registration: string;
+  rank_id: number | null;
+  number: string;
+  war_name: string;
+  sipom_composition: boolean;
+};
+
+export function updateUserService(id: string, input: UserServiceInput) {
+  return api<{ user: User }>(`/api/users/${encodeURIComponent(id)}/service`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
+/** Postos/graduações do SIPOM (abreviados), em ordem hierárquica. */
+export function listSipomPostos() {
+  return api<{ items: { id: number; nome: string }[] }>("/api/sipom/postos");
+}
+
 export function deactivateUser(id: string, reason?: string) {
   return api<void>(`/api/users/${encodeURIComponent(id)}/deactivate`, {
     method: "POST",

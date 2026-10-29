@@ -109,8 +109,10 @@ export default function OpsOccurrenceDrawer({ occurrenceId, onClose, onChanged }
     setBusyIntel(true);
     setError(null);
     try {
-      const r = await setOpsIntel(data.id, value);
-      setData({ ...data, ...r });
+      await setOpsIntel(data.id, value);
+      // A ficha volta inteira: a composição da inteligência (aba Efetivo)
+      // entra ou sai com a marcação.
+      setData((await getOpsOccurrence(data.id)).occurrence);
       onChanged();
     } catch (e) {
       setError((e as ApiError).message || "Erro ao gravar a participação da inteligência");

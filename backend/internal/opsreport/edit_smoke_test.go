@@ -695,3 +695,53 @@ func TestSmoke_SexoSugerido(t *testing.T) {
 		}
 	}
 }
+
+func TestSmoke_UpdatePerson(t *testing.T) {
+	db, _ := smokeDB(t)
+	ctx := context.Background()
+	r := New(db)
+	var id, actor string
+	var updAt sql.NullTime
+	var updBy sql.NullString
+	err := db.QueryRowContext(ctx, `
+		SELECT o.id, o.created_by, o.updated_at, o.updated_by FROM app.ops_occurrences o
+		 WHERE o.deleted_at IS NULL AND EXISTS (SELECT 1 FROM app.ops_occurrence_people p WHERE p.occurrence_id = o.id)
+		 ORDER BY o.created_at, o.id LIMIT 1`).Scan(&id, &actor, &updAt, &updBy)
+	if errors.Is(err, sql.ErrNoRows) {
+		t.Skip("sem ocorrência com envolvido no banco")
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	orig, err := r.FindByID(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := orig.People[0]
+	defer func() {
+		name, mother := p.Name, p.MotherName
+		if err := r.UpdatePerson(ctx, id, p.ID, actor, PersonEdit{Name: &name, MotherName: &mother, Age: p.Age, AgeClear: p.Age == nil}); err != nil {
+			t.Errorf("restaurar pessoa: %v", err)
+		}
+		if _, err := db.ExecContext(ctx, `UPDATE app.ops_occurrences SET updated_at = $2, updated_by = $3 WHERE id = $1`,
+			id, updAt, updBy); err != nil {
+			t.Errorf("restaurar updated_at: %v", err)
+		}
+	}()
+
+	name, age := "  joão   pedro de souza ", 22
+	if err := r.UpdatePerson(ctx, id, p.ID, actor, PersonEdit{Name: &name, Age: &age}); err != nil {
+		t.Fatalf("UpdatePerson: %v", err)
+	}
+	got, _ := r.FindByID(ctx, id)
+	q := got.People[0]
+	if q.Name != "JOÃO PEDRO DE SOUZA" || q.Age == nil || *q.Age != 22 || q.MotherName != p.MotherName {
+		t.Errorf("pessoa corrigida: nome %q idade %v mãe %q", q.Name, q.Age, q.MotherName)
+	}
+	if got.UpdatedAt == nil {
+		t.Errorf("ocorrência deveria ficar marcada como corrigida")
+	}
+	if err := r.UpdatePerson(ctx, id, "00000000-0000-0000-0000-000000000000", actor, PersonEdit{Name: &name}); !errors.Is(err, ErrNotFound) {
+		t.Errorf("pessoa de outra ocorrência: %v, quer ErrNotFound", err)
+	}
+}

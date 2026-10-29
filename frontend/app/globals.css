@@ -5411,6 +5411,8 @@ body.session-locked > *:not(.session-overlay-root) {
   max-width: 55%;
 }
 .ops-person-link--col { flex-direction: column; align-items: flex-end; }
+/* Ações empilhadas (BUSCAR / CRIAR DOSSIÊ) com a mesma largura. */
+.ops-person-link--col > .btn { align-self: stretch; justify-content: center; }
 .ops-link { font-size: 11.5px; letter-spacing: 0.04em; display: inline-flex; align-items: center; gap: 5px; }
 .ops-link--auto { color: var(--info); }
 .ops-link--warn { color: var(--warn); text-align: right; }
@@ -5757,6 +5759,7 @@ body.session-locked > *:not(.session-overlay-root) {
 }
 .ops-field-btn:hover { text-decoration: underline; }
 .ops-block-title .ops-field-btn { margin-left: 0; }
+.ops-person-name .ops-field-btn { margin-left: 4px; font-weight: 400; }
 
 /* Controles dentro da ficha: mesma altura (32px) para tudo. */
 .ops-body .sel { flex: 1; min-width: 0; }

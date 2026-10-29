@@ -281,6 +281,7 @@ func main() {
 	mux.Handle("GET /api/ops-occurrences/facets", auth(http.HandlerFunc(a.handleOpsOccurrencesFacets)))
 	mux.Handle("GET /api/ops-occurrences/{id}", auth(http.HandlerFunc(a.handleOpsOccurrenceDetail)))
 	mux.Handle("PATCH /api/ops-occurrences/{id}", auth(http.HandlerFunc(a.handleOpsOccurrenceUpdate)))
+	mux.Handle("PATCH /api/ops-occurrences/{id}/people/{pid}", auth(http.HandlerFunc(a.handleOpsPersonUpdate)))
 	mux.Handle("PUT /api/ops-occurrences/{id}/people/{pid}/entity", auth(http.HandlerFunc(a.handleOpsPersonLink)))
 	mux.Handle("DELETE /api/ops-occurrences/{id}/people/{pid}/entity", auth(http.HandlerFunc(a.handleOpsPersonUnlink)))
 	mux.Handle("PUT /api/ops-occurrences/{id}/intel", auth(http.HandlerFunc(a.handleOpsOccurrenceIntel)))

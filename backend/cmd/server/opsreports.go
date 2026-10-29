@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -1023,6 +1024,106 @@ func (a *app) handleOpsOccurrenceUpdate(w http.ResponseWriter, r *http.Request) 
 		ResourceID:   &id,
 		Before:       changedBefore,
 		After:        changedAfter,
+	})
+	a.respondOpsOccurrence(w, r, id)
+}
+
+// ─────────── PATCH /api/ops-occurrences/{id}/people/{pid} ───────
+//
+//	{"name": "JOÃO PEDRO DE SOUZA SILVA", "mother_name": "...", "age": 22 | null}
+//
+// Correção do envolvido como o relatório o trouxe (o PDF erra letra de
+// nome). Campo ausente = não tocar; "age": null limpa a idade. O antes e o
+// depois vão para a auditoria; a tradução para o SIPOM é refeita.
+func (a *app) handleOpsPersonUpdate(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePerm(w, r, "opsreport.update") {
+		return
+	}
+	me := middleware.UserFrom(r.Context())
+	id, pid := r.PathValue("id"), r.PathValue("pid")
+	var req map[string]json.RawMessage
+	if err := httpx.Decode(r, &req); err != nil {
+		httpx.Error(w, http.StatusBadRequest, "corpo inválido")
+		return
+	}
+	var e opsreport.PersonEdit
+	for field, dst := range map[string]**string{"name": &e.Name, "mother_name": &e.MotherName} {
+		raw, ok := req[field]
+		if !ok {
+			continue
+		}
+		var s string
+		if err := json.Unmarshal(raw, &s); err != nil {
+			httpx.Error(w, http.StatusBadRequest, field+" inválido")
+			return
+		}
+		*dst = &s
+	}
+	if e.Name != nil && strings.TrimSpace(*e.Name) == "" {
+		httpx.Error(w, http.StatusBadRequest, "o nome não pode ficar vazio")
+		return
+	}
+	if raw, ok := req["age"]; ok {
+		if string(raw) == "null" {
+			e.AgeClear = true
+		} else {
+			var n int
+			if err := json.Unmarshal(raw, &n); err != nil || n < 0 || n > 120 {
+				httpx.Error(w, http.StatusBadRequest, "idade entre 0 e 120")
+				return
+			}
+			e.Age = &n
+		}
+	}
+
+	before, err := a.opsReports.FindByID(r.Context(), id)
+	if err != nil {
+		httpx.Error(w, http.StatusNotFound, "ocorrência não encontrada")
+		return
+	}
+	var was *opsreport.StoredPerson
+	for i := range before.People {
+		if before.People[i].ID == pid {
+			was = &before.People[i]
+		}
+	}
+	if was == nil {
+		httpx.Error(w, http.StatusNotFound, "pessoa não encontrada")
+		return
+	}
+	if err := a.opsReports.UpdatePerson(r.Context(), id, pid, me.ID, e); err != nil {
+		if errors.Is(err, opsreport.ErrNotFound) {
+			httpx.Error(w, http.StatusNotFound, "pessoa não encontrada")
+			return
+		}
+		log.Printf("opsreport person update: %v", err)
+		httpx.Error(w, http.StatusInternalServerError, "erro ao gravar")
+		return
+	}
+	a.sipomRecomputeOne(r.Context(), id)
+
+	after, err := a.opsReports.FindByID(r.Context(), id)
+	if err != nil {
+		httpx.Error(w, http.StatusInternalServerError, "gravado, mas houve erro ao ler o resultado")
+		return
+	}
+	snap := func(p opsreport.StoredPerson) map[string]any {
+		return map[string]any{"name": p.Name, "mother_name": p.MotherName, "age": p.Age}
+	}
+	var now map[string]any
+	for _, p := range after.People {
+		if p.ID == pid {
+			now = snap(p)
+		}
+	}
+	aid, sid, ip, ua := a.actorInfo(r)
+	_ = a.audit.Log(r.Context(), audit.Entry{
+		ActorUserID: aid, ActorSessionID: sid, ActorIP: ip, ActorUserAgent: ua,
+		Action:       "opsreport.person.update",
+		ResourceType: audit.Ptr("ops_occurrence"),
+		ResourceID:   &id,
+		Before:       map[string]any{"person_id": pid, "person": snap(*was)},
+		After:        map[string]any{"person_id": pid, "person": now},
 	})
 	a.respondOpsOccurrence(w, r, id)
 }

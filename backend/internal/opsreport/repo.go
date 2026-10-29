@@ -963,6 +963,51 @@ func (r *Repo) Update(ctx context.Context, id, actor string, e Edit) error {
 	return nil
 }
 
+// PersonEdit corrige o que o relatório trouxe de um envolvido — o PDF erra
+// letra de nome ("OÃO" por "JOÃO"). Campo nil = não tocar; AgeClear limpa a
+// idade.
+type PersonEdit struct {
+	Name, MotherName *string
+	Age              *int
+	AgeClear         bool
+}
+
+// UpdatePerson aplica a correção (nomes em MAIÚSCULAS, como na importação)
+// e marca a ocorrência como corrigida pelo analista. Quem chama refaz a
+// tradução para o SIPOM (a sugestão de sexo depende do nome).
+func (r *Repo) UpdatePerson(ctx context.Context, occID, personID, actor string, e PersonEdit) error {
+	upper := func(p *string) any {
+		if p == nil {
+			return nil
+		}
+		return strings.Join(strings.Fields(strings.ToUpper(*p)), " ")
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	res, err := tx.ExecContext(ctx, `
+		UPDATE app.ops_occurrence_people p SET
+		  name        = COALESCE($3::text, p.name),
+		  mother_name = COALESCE($4::text, p.mother_name),
+		  age         = CASE WHEN $6 THEN NULL ELSE COALESCE($5::smallint, p.age) END
+		  FROM app.ops_occurrences o
+		 WHERE p.id::text = $2 AND p.occurrence_id = $1 AND o.id = p.occurrence_id AND o.deleted_at IS NULL`,
+		occID, personID, upper(e.Name), upper(e.MotherName), nilInt(e.Age), e.AgeClear)
+	if err != nil {
+		return fmt.Errorf("ops_occurrence_people update: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE app.ops_occurrences SET updated_at = now(), updated_by = $2 WHERE id = $1`, occID, actor); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 // ─────────────────────────── Coordenada ────────────────────────────
 
 // SetGeo grava a coordenada da ocorrência — a do geocodificador ("auto", com

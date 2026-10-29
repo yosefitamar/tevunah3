@@ -92,6 +92,8 @@ type Props = {
   onPhotosChange?: (photos: OpsPhoto[]) => void;
   /** Abre a correção do texto do relatório, na aba da etapa. */
   onEdit?: (tab: OpsEditTab) => void;
+  /** Corrigir um envolvido (nome, mãe, idade) como o relatório o trouxe. */
+  onEditPerson?: (p: OpsPerson) => void;
 };
 
 /**
@@ -110,6 +112,7 @@ export default function OpsOccurrenceBody({
   onGeoChange,
   onPhotosChange,
   onEdit,
+  onEditPerson,
 }: Props) {
   const [step, setStep] = useState<OpsStep>("fato");
   const ed = useSipomEdit(occ, !!onSipomChange && !!occ.id, onSipomChange);
@@ -228,6 +231,16 @@ export default function OpsOccurrenceBody({
                   <div className="ops-person-name">
                     {p.name}
                     {p.note && <span className="pill crit ops-person-note">{p.note}</span>}
+                    {onEditPerson && p.id && (
+                      <button
+                        type="button"
+                        className="ops-field-btn"
+                        onClick={() => onEditPerson(p)}
+                        title="Corrigir o que o relatório trouxe"
+                      >
+                        <Pencil size={11} /> CORRIGIR
+                      </button>
+                    )}
                   </div>
                   <div className="ops-person-meta">
                     <span className={OPS_ROLE_TONE[p.role]}>{p.role}</span>

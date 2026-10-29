@@ -450,6 +450,16 @@ export function getOpsOccurrence(id: string) {
   return api<{ occurrence: OpsOccurrence }>(`/api/ops-occurrences/${encodeURIComponent(id)}`);
 }
 
+/** Correção do envolvido como o relatório o trouxe; `age: null` limpa a idade. */
+export type OpsPersonEdit = { name?: string; mother_name?: string; age?: number | null };
+
+export function updateOpsPerson(occId: string, personId: string, input: OpsPersonEdit) {
+  return api<{ occurrence: OpsOccurrence }>(
+    `/api/ops-occurrences/${encodeURIComponent(occId)}/people/${encodeURIComponent(personId)}`,
+    { method: "PATCH", body: JSON.stringify(input) },
+  );
+}
+
 export function updateOpsOccurrence(id: string, input: OpsOccurrenceEdit) {
   return api<{ occurrence: OpsOccurrence }>(`/api/ops-occurrences/${encodeURIComponent(id)}`, {
     method: "PATCH",

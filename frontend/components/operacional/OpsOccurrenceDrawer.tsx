@@ -19,6 +19,7 @@ import type { ApiError } from "@/lib/api";
 import EntidadeDrawer from "../entidades/EntidadeDrawer";
 import CreateEntidadeModal from "../entidades/CreateEntidadeModal";
 import EditOpsOccurrenceModal from "./EditOpsOccurrenceModal";
+import EditOpsPersonModal from "./EditOpsPersonModal";
 import OpsOccurrenceBody, { type OpsEditTab } from "./OpsOccurrenceBody";
 import { IntelPill, IntelSummary } from "./IntelStatus";
 import { SipomReadyPill } from "./SipomSection";
@@ -52,6 +53,7 @@ export default function OpsOccurrenceDrawer({ occurrenceId, onClose, onChanged }
   const [searchFor, setSearchFor] = useState<string | null>(null);
   const [entityOverlayId, setEntityOverlayId] = useState<string | null>(null);
   const [editing, setEditing] = useState<OpsEditTab | null>(null);
+  const [editingPerson, setEditingPerson] = useState<OpsPerson | null>(null);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -234,6 +236,7 @@ export default function OpsOccurrenceDrawer({ occurrenceId, onClose, onChanged }
                   occ={data}
                   steps
                   onEdit={canLink && data.id ? setEditing : undefined}
+                  onEditPerson={canLink && data.id ? setEditingPerson : undefined}
                   renderPerson={renderPerson}
                   onSipomChange={
                     canIntel
@@ -321,6 +324,18 @@ export default function OpsOccurrenceDrawer({ occurrenceId, onClose, onChanged }
             // Vincula a este envolvido mesmo que o nome tenha sido corrigido
             // no cadastro (a busca automática do servidor não o acharia).
             await link(p, id);
+          }}
+        />
+      )}
+      {editingPerson && data?.id && (
+        <EditOpsPersonModal
+          occId={data.id}
+          person={editingPerson}
+          onClose={() => setEditingPerson(null)}
+          onSaved={(occ) => {
+            setEditingPerson(null);
+            setData(occ);
+            onChanged();
           }}
         />
       )}

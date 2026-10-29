@@ -122,6 +122,17 @@ func (a *app) handleSipomEnviar(w http.ResponseWriter, r *http.Request) {
 		if err := a.opsReports.SaveSipomSendError(r.Context(), id, sendErr.Error(), excluded); err != nil {
 			log.Printf("sipom send error save: %v", err)
 		}
+		// Placa nova: o SIPOM pede tipo, cor, marca/modelo e ano. O veículo
+		// passa a exigi-los e a ocorrência volta à fila com a pendência.
+		if ae != nil && ae.Status == http.StatusUnprocessableEntity {
+			if vs := opsreport.RejectedVehicles(payload, ae.Erros); len(vs) > 0 {
+				if err := a.opsReports.MarkVehiclesCadastroExigido(r.Context(), id, vs); err != nil {
+					log.Printf("sipom veículo recusado: %v", err)
+				}
+				a.sipomRecomputeOne(r.Context(), id)
+				meta["veiculos_recusados"] = vs
+			}
+		}
 		meta["erro"] = sendErr.Error()
 		_ = a.audit.Log(r.Context(), audit.Entry{
 			ActorUserID: aid, ActorSessionID: sid, ActorIP: ip, ActorUserAgent: ua,

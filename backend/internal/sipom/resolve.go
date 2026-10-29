@@ -130,7 +130,7 @@ var PendingLabel = map[string]string{
 	PendDelegado:          "Delegado não identificado pelo nome — escolha, se souber (não é obrigatório)",
 	PendArma:              "Arma sem tipo do SIPOM",
 	PendDroga:             "Droga sem correspondência na lista do SIPOM, ou sem quantidade na unidade dela",
-	PendVeiculo:           "Veículo sem tipo, cor, marca/modelo ou situação do SIPOM",
+	PendVeiculo:           "Veículo sem situação, sem placa e sem cor ou marca/modelo, ou placa nova que o SIPOM recusou (tipo, cor, marca/modelo e ano de fabricação)",
 }
 
 // Tipos de policiamento e funções do SIPOM (policiamentos_tipos/_funcoes).

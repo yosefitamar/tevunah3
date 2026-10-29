@@ -233,6 +233,9 @@ type Vehicle struct {
 	// Ano de fabricação (obrigatório no SIPOM para placa nova) e do modelo:
 	// o relatório não traz, o analista informa.
 	SipomAnoFabricacao, SipomAnoModelo *int
+	// SipomCadastroExigido: o SIPOM recusou o veículo (placa nova) — tipo,
+	// cor, marca/modelo e ano de fabricação passam a ser obrigatórios.
+	SipomCadastroExigido bool
 }
 
 // Officer é um policial da composição ("30079116-2SGT 22410 SOARES").

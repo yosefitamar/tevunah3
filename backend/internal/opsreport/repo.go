@@ -767,12 +767,12 @@ func (r *Repo) materials(ctx context.Context, id string) (weapons []Weapon, drug
 	}
 	if err := r.each(ctx, `SELECT id, kind, brand, model, plate, color,
 		       sipom_tipo_codigo, sipom_cor_codigo, sipom_marca_modelo_codigo, sipom_situacao, sipom_manual,
-		       sipom_ano_fabricacao, sipom_ano_modelo
+		       sipom_ano_fabricacao, sipom_ano_modelo, sipom_cadastro_exigido
 		  FROM app.ops_occurrence_vehicles WHERE occurrence_id = $1 ORDER BY position`, id, func(rows *sql.Rows) error {
 		var v Vehicle
 		if err := rows.Scan(&v.ID, &v.Kind, &v.Brand, &v.Model, &v.Plate, &v.Color,
 			&v.SipomTipoCodigo, &v.SipomCorCodigo, &v.SipomMarcaModeloCodigo, &v.SipomSituacao, &v.SipomManual,
-			&v.SipomAnoFabricacao, &v.SipomAnoModelo); err != nil {
+			&v.SipomAnoFabricacao, &v.SipomAnoModelo, &v.SipomCadastroExigido); err != nil {
 			return err
 		}
 		vehicles = append(vehicles, v)
@@ -1138,6 +1138,18 @@ func (r *Repo) SetVehicleYears(ctx context.Context, id string, pos int, fabricac
 		  FROM app.ops_occurrences o
 		 WHERE v.occurrence_id = $1 AND v.position = $2 AND o.id = v.occurrence_id AND o.deleted_at IS NULL`,
 		id, pos, nilInt(fabricacao), nilInt(modelo))
+}
+
+// MarkVehiclesCadastroExigido marca os veículos que o SIPOM recusou por
+// falta de cadastro (placa nova).
+func (r *Repo) MarkVehiclesCadastroExigido(ctx context.Context, occID string, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	_, err := r.db.ExecContext(ctx, `
+		UPDATE app.ops_occurrence_vehicles SET sipom_cadastro_exigido = true
+		 WHERE occurrence_id = $1 AND id::text = ANY($2)`, occID, textArray(ids))
+	return err
 }
 
 // UnlinkedPerson é um envolvido ainda sem dossiê, com o mínimo da ocorrência

@@ -188,9 +188,15 @@ export type SipomVeiculo = {
   marca_modelo_candidates: SipomRef[];
   /** 1 apreendido, 2 recuperado, 0 indefinida. */
   situacao: 0 | 1 | 2;
-  /** Ano de fabricação (obrigatório no SIPOM) e do modelo — o analista informa. */
+  /** Ano de fabricação e do modelo — o analista informa. */
   ano_fabricacao: number | null;
   ano_modelo: number | null;
+  /**
+   * O SIPOM recusou a placa (nova, sem cadastro): tipo, cor, marca/modelo e
+   * ano de fabricação passam a ser obrigatórios. Sem isso, bastam placa e
+   * situação — placa já cadastrada lá é só vinculada.
+   */
+  cadastro_exigido: boolean;
   manual: boolean;
   ok: boolean;
 };

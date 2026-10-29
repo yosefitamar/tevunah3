@@ -68,8 +68,11 @@ type sipomVeiculoJSON struct {
 	Situacao              int            `json:"situacao"` // 1 apreendido, 2 recuperado, 0 indefinida
 	AnoFabricacao         *int           `json:"ano_fabricacao"`
 	AnoModelo             *int           `json:"ano_modelo"`
-	Manual                bool           `json:"manual"`
-	OK                    bool           `json:"ok"`
+	// CadastroExigido: o SIPOM recusou a placa (nova) — tipo, cor,
+	// marca/modelo e ano de fabricação passam a ser obrigatórios.
+	CadastroExigido bool `json:"cadastro_exigido"`
+	Manual          bool `json:"manual"`
+	OK              bool `json:"ok"`
 }
 
 type sipomMateriaisJSON struct {
@@ -155,7 +158,7 @@ func (a *app) sipomMateriaisJSON(o *opsreport.Occurrence, terms *sipom.TermMap) 
 	for i, v := range o.Vehicles {
 		j := sipomVeiculoJSON{
 			Index: i, Manual: v.SipomManual, Situacao: v.SipomSituacao, MarcaModeloCandidates: []sipomRefJSON{},
-			AnoFabricacao: v.SipomAnoFabricacao, AnoModelo: v.SipomAnoModelo,
+			AnoFabricacao: v.SipomAnoFabricacao, AnoModelo: v.SipomAnoModelo, CadastroExigido: v.SipomCadastroExigido,
 			Tipo: ref(v.SipomTipoCodigo, a.sipom.VeiculoTipoNome),
 			Cor:  ref(v.SipomCorCodigo, a.sipom.VeiculoCorNome),
 		}
@@ -170,7 +173,7 @@ func (a *app) sipomMateriaisJSON(o *opsreport.Occurrence, terms *sipom.TermMap) 
 				j.MarcaModeloCandidates = append(j.MarcaModeloCandidates, sipomRefJSON{ID: m.Codigo, Nome: m.Descricao})
 			}
 		}
-		j.OK = j.Tipo != nil && j.Cor != nil && j.MarcaModelo != nil && j.Situacao != 0 && j.AnoFabricacao != nil
+		j.OK = opsreport.VehicleSendable(v, j.Tipo != nil && j.Cor != nil && j.MarcaModelo != nil)
 		out.Veiculos = append(out.Veiculos, j)
 	}
 	return out

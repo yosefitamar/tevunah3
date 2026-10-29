@@ -145,9 +145,11 @@ func BuildSipomPayload(cat *sipom.Catalog, so *StoredOccurrence, src PayloadSour
 			ID: d.ID, TipoID: sipom.MaterialDroga, DrogaTipoID: &id, Quantidade: &q,
 		})
 	}
+	// Veículo vai com placa e situação e com o que mais estiver resolvido
+	// (o SIPOM ignora para placa já cadastrada; para placa nova, recusa se
+	// faltar — ver VehicleSendable).
 	for _, v := range so.Vehicles {
-		if v.SipomTipoCodigo == nil || v.SipomCorCodigo == nil || v.SipomMarcaModeloCodigo == nil ||
-			v.SipomSituacao == 0 || v.SipomAnoFabricacao == nil {
+		if !VehicleSendable(v, VehicleComplete(v)) {
 			continue
 		}
 		sit := v.SipomSituacao

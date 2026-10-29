@@ -399,16 +399,30 @@ function VeiculoRow({ v, raw, cat, editable, busy, onSave }: RowProps<{ v: Sipom
   }, [q]);
   const rawText = raw ? [raw.kind, raw.brand, raw.model, raw.color, raw.plate].filter(Boolean).join(" · ") : "";
   const choices = found.length > 0 ? found : v.marca_modelo_candidates;
+  // Tipo, cor e marca/modelo só são obrigatórios sem placa (vai como
+  // MOTONETA) ou depois que o SIPOM recusou a placa.
+  const semPlaca = !raw?.plate?.trim();
+  // Tipos DENATRAN de duas rodas: ciclomotor, motoneta, motocicleta.
+  const duasRodas = !v.tipo || [2, 3, 4].includes(v.tipo.id);
+  const required = v.cadastro_exigido || semPlaca;
   return (
     <div className="sipom-material">
       <MaterialHead raw={rawText} ok={v.ok} manual={v.manual} />
+      {semPlaca && !v.cadastro_exigido && (duasRodas ? (
+        <div className="banner banner-info">SEM PLACA: VAI AO SIPOM COMO MOTONETA — INFORME COR E MARCA/MODELO</div>
+      ) : (
+        <div className="banner banner-error">⚠ SEM PLACA: VEÍCULO DE QUATRO RODAS SÓ VAI AO SIPOM COM A PLACA</div>
+      ))}
+      {v.cadastro_exigido && (
+        <div className="banner banner-info">O SIPOM NÃO TEM ESTA PLACA: INFORME TIPO, COR, MARCA/MODELO E ANO DE FABRICAÇÃO E REENVIE</div>
+      )}
       {editable ? (
         <>
           <OpsFields edit>
-            <OpsField label="TIPO" missing={!tipo}>
+            <OpsField label="TIPO" missing={required && !tipo}>
               <Select value={tipo} placeholder="TIPO" disabled={busy || !cat} onChange={setTipo} options={opts(cat?.veiculo_tipos, v.tipo)} />
             </OpsField>
-            <OpsField label="COR" missing={!cor}>
+            <OpsField label="COR" missing={required && !cor}>
               <Select value={cor} placeholder="COR" disabled={busy || !cat} onChange={setCor} options={opts(cat?.veiculo_cores, v.cor)} />
             </OpsField>
             <OpsField label="SITUAÇÃO" span={2}>
@@ -428,7 +442,7 @@ function VeiculoRow({ v, raw, cat, editable, busy, onSave }: RowProps<{ v: Sipom
                 ))}
               </div>
             </OpsField>
-            <OpsField label="MARCA / MODELO (TABELA DENATRAN)" span={2} missing={!mm} value={mm?.nome ?? "NÃO ESCOLHIDO"} />
+            <OpsField label="MARCA / MODELO (TABELA DENATRAN)" span={2} missing={required && !mm} value={mm?.nome ?? "NÃO ESCOLHIDO"} />
             <OpsField label="BUSCAR MARCA / MODELO" span={2}>
               <div className="toolbar-search ops-search">
                 <Search size={13} strokeWidth={1.6} />
@@ -480,7 +494,8 @@ function VeiculoRow({ v, raw, cat, editable, busy, onSave }: RowProps<{ v: Sipom
 }
 
 // Ano de fabricação e do modelo do veículo: o relatório não traz, e o SIPOM
-// exige o de fabricação para placa que ainda não está cadastrada lá.
+// exige o de fabricação para placa que ainda não está cadastrada lá — só
+// falta de verdade depois que ele recusou a placa (cadastro_exigido).
 function VeiculoAnos({
   v,
   editable,
@@ -512,7 +527,7 @@ function VeiculoAnos({
   }
   return (
     <OpsFields edit>
-      <OpsField label="ANO DE FABRICAÇÃO" missing={!v.ano_fabricacao}>
+      <OpsField label="ANO DE FABRICAÇÃO" missing={v.cadastro_exigido && !v.ano_fabricacao}>
         <input
           className="ops-input mono"
           inputMode="numeric"

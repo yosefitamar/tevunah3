@@ -2,6 +2,8 @@ package opsreport
 
 import (
 	"context"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/belia/tevunah/backend/internal/sipom"
@@ -280,9 +282,14 @@ func translateMaterials(cat *sipom.Catalog, terms *sipom.TermMap, o *Occurrence)
 		}, terms)
 		v.SipomTipoCodigo, v.SipomCorCodigo, v.SipomMarcaModeloCodigo, v.SipomSituacao =
 			r.TipoCodigo, r.CorCodigo, r.MarcaModeloCodigo, r.Situacao
-		// O ano de fabricação o relatório não traz: é o analista quem
-		// informa (obrigatório no SIPOM para placa nova).
-		okAll = okAll && r.OK && v.SipomAnoFabricacao != nil
+		// Duas rodas sem placa vai como MOTONETA; tipo não reconhecido
+		// também (sem placa, é quase sempre o ciclomotor). Quatro rodas sem
+		// placa fica com o tipo do relatório — e pendente.
+		if plate(v.Plate) == "" && !v.SipomManual && (v.SipomTipoCodigo == nil || sipom.TwoWheeler(*v.SipomTipoCodigo)) {
+			moto := sipom.VeiculoTipoMotoneta
+			v.SipomTipoCodigo = &moto
+		}
+		okAll = okAll && VehicleSendable(*v, VehicleComplete(*v))
 	}
 	if !okAll {
 		pending = append(pending, sipom.PendVeiculo)
@@ -373,3 +380,47 @@ func (r *Repo) RecomputeSipom(ctx context.Context, cat *sipom.Catalog, onlyID st
 	}
 	return ready, pending, nil
 }
+
+// VehicleSendable diz se o veículo já pode ir ao SIPOM. Com placa, bastam
+// ela e a situação: placa cadastrada lá é só vinculada. Sem placa, só o de
+// duas rodas vai (como MOTONETA), e precisa de cor e marca/modelo
+// (complete); o de quatro rodas espera a placa. Quando o
+// SIPOM recusou o veículo (placa nova, sem cadastro), passam a valer tipo,
+// cor, marca/modelo e o ano de fabricação, que o relatório não traz.
+func VehicleSendable(v Vehicle, complete bool) bool {
+	switch {
+	case v.SipomSituacao == 0:
+		return false
+	case v.SipomCadastroExigido:
+		return complete && v.SipomAnoFabricacao != nil
+	case plate(v.Plate) == "":
+		return complete && v.SipomTipoCodigo != nil && sipom.TwoWheeler(*v.SipomTipoCodigo)
+	}
+	return true
+}
+
+// VehicleComplete diz se o veículo tem tipo, cor e marca/modelo do SIPOM.
+func VehicleComplete(v Vehicle) bool {
+	return v.SipomTipoCodigo != nil && v.SipomCorCodigo != nil && v.SipomMarcaModeloCodigo != nil
+}
+
+// RejectedVehicles devolve os veículos a que o 422 do SIPOM se refere: os
+// erros vêm por campo ("materiais.2.codigo_tipo"), indexados pelos
+// materiais do corpo enviado.
+func RejectedVehicles(p *sipom.Payload, erros map[string]string) []string {
+	var ids []string
+	for campo := range erros {
+		m := materialFieldRE.FindStringSubmatch(campo)
+		if m == nil {
+			continue
+		}
+		i, err := strconv.Atoi(m[1])
+		if err != nil || i >= len(p.Materiais) || p.Materiais[i].TipoID != sipom.MaterialVeiculo {
+			continue
+		}
+		ids = appendOnce(ids, p.Materiais[i].ID)
+	}
+	return ids
+}
+
+var materialFieldRE = regexp.MustCompile(`^materiais\.(\d+)(\.|$)`)

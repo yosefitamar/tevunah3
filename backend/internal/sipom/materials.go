@@ -15,6 +15,15 @@ const (
 	VeiculoRecuperado = 2
 )
 
+// VeiculoTipoMotoneta (código DENATRAN): o tipo do veículo de duas rodas
+// sem placa — na prática, o ciclomotor de 50cc. Regra do batalhão para o
+// SIPOM.
+const VeiculoTipoMotoneta = 3
+
+// TwoWheeler diz se o tipo DENATRAN é de duas rodas (ciclomotor, motoneta,
+// motocicleta).
+func TwoWheeler(code int) bool { return code == 2 || code == 3 || code == 4 }
+
 // ─── Armas ───
 
 // WeaponInput é a arma como o relatório a descreve, mais o que o analista

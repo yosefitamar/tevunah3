@@ -47,6 +47,7 @@ import OpsReportsHistoryModal from "../operacional/OpsReportsHistoryModal";
 import { BLOCKING_STEPS, PENDING_SHORT, SipomTrail, SipomTrailLegend } from "../operacional/SipomTrail";
 import CreateOcorrenciaModal from "./CreateOcorrenciaModal";
 import OcorrenciaDrawer from "./OcorrenciaDrawer";
+import SipomBatchSendModal, { type BatchItem } from "./SipomBatchSendModal";
 
 const PAGE_SIZE = 25;
 
@@ -134,6 +135,10 @@ export default function OcorrenciasScreen() {
   const [open, setOpen] = useState<OpenTarget | null>(null);
   const [facets, setFacets] = useState<OpsFacets | null>(null);
   const [busy, setBusy] = useState(false);
+  // Fila do SIPOM: as prontas escolhidas para o envio em lote (vale entre
+  // páginas; troca de aba limpa).
+  const [selected, setSelected] = useState<Map<string, BatchItem>>(new Map());
+  const [batch, setBatch] = useState<BatchItem[] | null>(null);
 
   // Cada fonte tem a sua permissão; o servidor recorta a listagem pelo que o
   // usuário lê.
@@ -163,14 +168,10 @@ export default function OcorrenciasScreen() {
 
   const bounds = useMemo(() => periodBounds(period), [period]);
 
-  const reload = useCallback(async () => {
-    if (!canRead) return;
-    setLoading(true);
-    setError(null);
+  // O recorte da listagem (abas, filtros, busca), sem a paginação.
+  const listOpts = useCallback((): ListOccurrencesOpts => {
     const opts: ListOccurrencesOpts = {
       category: tab,
-      limit: PAGE_SIZE,
-      offset: page * PAGE_SIZE,
       city: filters.city,
       neighborhood: filters.neighborhood,
       date_from: bounds.from,
@@ -195,14 +196,21 @@ export default function OcorrenciasScreen() {
         report_id: report?.id,
       } satisfies ListOccurrencesOpts);
     }
+    return opts;
+  }, [tab, filters, status, report?.id, bounds.from, bounds.to, debouncedSearch, sort]);
+
+  const reload = useCallback(async () => {
+    if (!canRead) return;
+    setLoading(true);
+    setError(null);
     try {
-      setData(await listOccurrences(opts));
+      setData(await listOccurrences({ ...listOpts(), limit: PAGE_SIZE, offset: page * PAGE_SIZE }));
     } catch (e) {
       setError((e as ApiError).message || "Erro ao carregar");
     } finally {
       setLoading(false);
     }
-  }, [canRead, tab, filters, status, report?.id, bounds.from, bounds.to, debouncedSearch, page, sort]);
+  }, [canRead, listOpts, page]);
 
   useEffect(() => {
     reload();
@@ -217,6 +225,7 @@ export default function OcorrenciasScreen() {
     setStatus("");
     setReport(null);
     setSort({ field: "occurred_on", dir: "desc" });
+    setSelected(new Map());
     // Some com as linhas da outra aba já na troca — as colunas mudam.
     setData((d) => (d ? { ...d, items: [], total: 0 } : d));
     setLoading(true);
@@ -259,6 +268,49 @@ export default function OcorrenciasScreen() {
     }
   }
 
+  // Envio em lote: só na fila, para quem pode enviar, e só o que está pronto.
+  const selectable = tab === "fila" && canEditOps;
+  const pageReady = items.filter(sendable);
+  const pageAllSelected = pageReady.length > 0 && pageReady.every((x) => selected.has(x.ops_id as string));
+
+  function toggle(rows: OccurrenceRow[], on: boolean) {
+    setSelected((cur) => {
+      const next = new Map(cur);
+      for (const r of rows) {
+        if (on) next.set(r.ops_id as string, batchItem(r));
+        else next.delete(r.ops_id as string);
+      }
+      return next;
+    });
+  }
+
+  // Todas as prontas do recorte atual, de todas as páginas (o servidor
+  // devolve no máximo 100 por vez).
+  async function selectAllReady() {
+    setBusy(true);
+    setError(null);
+    try {
+      const all: OccurrenceRow[] = [];
+      for (let offset = 0; ; offset += 100) {
+        const r = await listOccurrences({ ...listOpts(), status: "ready", limit: 100, offset });
+        all.push(...r.items.filter(sendable));
+        if (r.items.length < 100 || offset + 100 >= r.total) break;
+      }
+      toggle(all, true);
+      setNotice(`${all.length} ocorrência(s) pronta(s) selecionada(s).`);
+    } catch (e) {
+      setError((e as ApiError).message || "Erro ao selecionar");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function openBatch() {
+    // Em ordem do fato: a mais antiga primeiro.
+    const list = [...selected.values()].sort((a, b) => a.sort.localeCompare(b.sort));
+    setBatch(list);
+  }
+
   if (!canRead) {
     return (
       <div className="placeholder">
@@ -290,7 +342,7 @@ export default function OcorrenciasScreen() {
           filters.intel,
         ]
   ).filter(Boolean).length;
-  const cols = 5;
+  const cols = selectable ? 6 : 5;
   const resetPage = () => setPage(0);
 
   return (
@@ -425,11 +477,35 @@ export default function OcorrenciasScreen() {
               <CheckCheck size={13} strokeWidth={1.8} /> CONFIRMAR NATUREZAS ({toConfirm.length})
             </button>
           )}
+          {selectable && (
+            <>
+              <button
+                type="button"
+                className="btn btn-sm"
+                style={{ marginLeft: "auto" }}
+                disabled={busy || (sipom?.ready ?? 0) === 0}
+                onClick={selectAllReady}
+                title="Seleciona todas as ocorrências prontas do recorte atual, em todas as páginas"
+              >
+                <CheckCheck size={13} strokeWidth={1.8} /> SELECIONAR TODAS AS PRONTAS
+              </button>
+              {selected.size > 0 && (
+                <>
+                  <button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={() => setSelected(new Map())}>
+                    LIMPAR SELEÇÃO
+                  </button>
+                  <button type="button" className="btn btn-primary btn-sm" disabled={busy} onClick={openBatch}>
+                    <Send size={13} strokeWidth={1.8} /> ENVIAR SELECIONADAS ({selected.size})
+                  </button>
+                </>
+              )}
+            </>
+          )}
           {canEditOps && toConfirmSexo.length > 0 && (
             <button
               type="button"
               className="btn btn-sm"
-              style={toConfirm.length > 0 ? undefined : { marginLeft: "auto" }}
+              style={toConfirm.length > 0 || selectable ? undefined : { marginLeft: "auto" }}
               disabled={busy}
               onClick={confirmAllSexos}
               title="Fixa o sexo sugerido (pelo nome, escolha anterior ou histórico) dos envolvidos das ocorrências desta página"
@@ -465,6 +541,18 @@ export default function OcorrenciasScreen() {
                   </>
                 ) : (
                   <>
+                    {selectable && (
+                      <th style={{ width: 34 }} className="tbl-check">
+                        <input
+                          type="checkbox"
+                          checked={pageAllSelected}
+                          disabled={pageReady.length === 0}
+                          onChange={(e) => toggle(pageReady, e.target.checked)}
+                          aria-label="Selecionar as prontas desta página"
+                          title="Selecionar as prontas desta página"
+                        />
+                      </th>
+                    )}
                     <SortHeader field="pending" label="ETAPAS" sort={sort} onChange={setSort} width={172} />
                     <SortHeader field="occurred_on" label="DATA" sort={sort} onChange={setSort} width={150} />
                     <SortHeader field="ciops_record" label="FICHA" sort={sort} onChange={setSort} width={150} />
@@ -495,6 +583,11 @@ export default function OcorrenciasScreen() {
                     key={(it.incident_id ?? "") + ":" + (it.ops_id ?? "")}
                     row={it}
                     homicides={homicides}
+                    selection={
+                      selectable
+                        ? { checked: selected.has(it.ops_id ?? ""), onToggle: (on) => toggle([it], on) }
+                        : undefined
+                    }
                     onOpen={() =>
                       setOpen(
                         it.incident_id
@@ -531,6 +624,18 @@ export default function OcorrenciasScreen() {
           </div>
         </div>
       </div>
+
+      {batch && (
+        <SipomBatchSendModal
+          items={batch}
+          onClose={() => setBatch(null)}
+          onDone={() => {
+            setSelected(new Map());
+            reload();
+            reloadFacets();
+          }}
+        />
+      )}
 
       {showFilters && (
         <FiltersModal
@@ -747,7 +852,32 @@ function Seg({ value, onChange }: { value: "" | "1" | "0"; onChange: (v: "" | "1
   );
 }
 
-function Row({ row, homicides, onOpen }: { row: OccurrenceRow; homicides: boolean; onOpen: () => void }) {
+/** Pronta para o envio em lote: do relatório, não enviada, sem pendência que impeça. */
+function sendable(r: OccurrenceRow) {
+  return !!r.ops_id && !r.sipom_sent_at && !r.pendencias.some((p) => p.blocking);
+}
+
+function batchItem(r: OccurrenceRow): BatchItem {
+  return {
+    id: r.ops_id as string,
+    ficha: r.ciops_record,
+    date: formatBRDate(r.occurred_on) + (r.time ? " " + r.time : ""),
+    sort: r.occurred_on + " " + (r.time ?? "") + " " + r.ciops_record,
+  };
+}
+
+function Row({
+  row,
+  homicides,
+  onOpen,
+  selection,
+}: {
+  row: OccurrenceRow;
+  homicides: boolean;
+  onOpen: () => void;
+  /** Fila do SIPOM: caixa de seleção para o envio em lote. */
+  selection?: { checked: boolean; onToggle: (on: boolean) => void };
+}) {
   const date = (
     <td style={{ whiteSpace: "nowrap" }}>
       {formatBRDate(row.occurred_on)}
@@ -788,6 +918,18 @@ function Row({ row, homicides, onOpen }: { row: OccurrenceRow; homicides: boolea
   const nature = row.sipom_natureza || natures || (row.type ? INCIDENT_TYPE_LABEL[row.type] : "—");
   return (
     <tr onClick={onOpen} className="row-clickable">
+      {selection && (
+        <td className="tbl-check" onClick={(e) => e.stopPropagation()}>
+          <input
+            type="checkbox"
+            checked={selection.checked}
+            disabled={!sendable(row)}
+            onChange={(e) => selection.onToggle(e.target.checked)}
+            aria-label="Selecionar para envio"
+            title={sendable(row) ? "Selecionar para o envio em lote" : "Tem pendência que impede o envio"}
+          />
+        </td>
+      )}
       <td>
         {row.ops_id ? (
           <SipomTrail pendencias={row.pendencias} sentAt={row.sipom_sent_at} />

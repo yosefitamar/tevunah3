@@ -5897,3 +5897,13 @@ body.session-locked > *:not(.session-overlay-root) {
 .ops-edit-ft { align-items: center; }
 .ops-edit-ft .ops-edit-note { margin-right: auto; }
 .ops-edit-ft .btn { flex: none; white-space: nowrap; }
+
+/* ───────── Envio em lote ao SIPOM (fila) ───────── */
+.tbl-check { text-align: center; }
+.tbl-check input { accent-color: var(--accent); cursor: pointer; }
+.tbl-check input:disabled { cursor: not-allowed; opacity: 0.35; }
+.modal.sipom-batch { width: 820px; max-width: calc(100vw - 32px); }
+.sipom-batch .modal-bd { display: flex; flex-direction: column; gap: 10px; }
+.sipom-batch-list { max-height: calc(100vh - 320px); overflow: auto; border: 1px solid var(--line); }
+.sipom-batch-list thead th { position: sticky; top: 0; }
+.sipom-batch-err { color: var(--crit); font-size: 11.5px; }

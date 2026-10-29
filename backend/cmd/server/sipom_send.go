@@ -145,7 +145,20 @@ func (a *app) handleSipomEnviar(w http.ResponseWriter, r *http.Request) {
 		if ae != nil && len(ae.Erros) > 0 {
 			errs = ae.Erros
 		}
-		httpx.WriteJSON(w, http.StatusBadGateway, httpx.Envelope{Message: sipomSendMessage(sendErr), Errors: errs})
+		// O envio em lote da fila decide pelo status: 429 espera o
+		// Retry-After e tenta de novo; 503 (SIPOM fora) também; 502 é recusa
+		// desta ocorrência e o lote segue.
+		status := http.StatusBadGateway
+		switch {
+		case ae != nil && ae.Status == http.StatusTooManyRequests:
+			if s := int(ae.RetryAfter.Seconds()); s > 0 {
+				w.Header().Set("Retry-After", strconv.Itoa(s))
+			}
+			status = http.StatusTooManyRequests
+		case ae == nil || ae.Status == 0 || ae.Status >= 500:
+			status = http.StatusServiceUnavailable
+		}
+		httpx.WriteJSON(w, status, httpx.Envelope{Message: sipomSendMessage(sendErr), Errors: errs})
 		return
 	}
 	if err := a.opsReports.SaveSipomSend(r.Context(), id, me.ID, res, bodySHA); err != nil {

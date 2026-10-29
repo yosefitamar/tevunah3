@@ -299,8 +299,14 @@ export function SipomLocal({ occ, ed }: PartProps) {
       </OpsFields>
       {areaRule && (
         <div className="banner banner-info">
-          REFERÊNCIA GRAVADA: {[areaRule.neighborhood || "SEM BAIRRO", areaRule.city].join(" · ")} → {areaRule.area}.
-          AS PRÓXIMAS OCORRÊNCIAS DESTE LOCAL JÁ ENTRAM COM ESTA ÁREA
+          REFERÊNCIA GRAVADA:{" "}
+          {areaRule.city_wide
+            ? `${areaRule.city} (CIDADE INTEIRA)`
+            : [areaRule.neighborhood || "SEM BAIRRO", areaRule.city].join(" · ")}{" "}
+          → {areaRule.area}.{" "}
+          {areaRule.city_wide
+            ? "AS PRÓXIMAS OCORRÊNCIAS DESTA CIDADE, EM QUALQUER BAIRRO, JÁ ENTRAM COM ESTA ÁREA"
+            : "AS PRÓXIMAS OCORRÊNCIAS DESTE LOCAL JÁ ENTRAM COM ESTA ÁREA"}
           {areaRule.resolved > 0 &&
             ` — ${areaRule.resolved} OUTRA${areaRule.resolved > 1 ? "S" : ""} DO ACERVO ${
               areaRule.resolved > 1 ? "FORAM RESOLVIDAS" : "FOI RESOLVIDA"

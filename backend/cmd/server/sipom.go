@@ -682,7 +682,14 @@ func (a *app) learnArea(r *http.Request, o *opsreport.Occurrence, areaID int) ma
 	ctx := r.Context()
 	me := middleware.UserFrom(ctx)
 	in := opsreport.SipomInput(o)
-	changed, err := a.sipomAreas.Learn(ctx, in.City, in.Neighborhood, areaID, me.ID)
+	// Áreas da cidade inteira (sem regra por bairro no catálogo): a escolha
+	// vale para a cidade, e não só para este bairro.
+	cityWide := a.sipom.CityWideAreas(o.Sipom.CidadeID, o.Sipom.BairroID)
+	nb := in.Neighborhood
+	if cityWide {
+		nb = ""
+	}
+	changed, err := a.sipomAreas.Learn(ctx, in.City, nb, areaID, me.ID)
 	if err != nil {
 		if !errors.Is(err, sipom.ErrAreaRuleNoCity) {
 			log.Printf("sipom area rule: %v", err)
@@ -701,7 +708,8 @@ func (a *app) learnArea(r *http.Request, o *opsreport.Occurrence, areaID int) ma
 	co, _ := a.sipom.Companhia(areaID)
 	return map[string]any{
 		"city":         strings.ToUpper(strings.TrimSpace(in.City)),
-		"neighborhood": strings.ToUpper(strings.TrimSpace(in.Neighborhood)),
+		"neighborhood": strings.ToUpper(strings.TrimSpace(nb)),
+		"city_wide":    cityWide,
 		"area_id":      areaID,
 		"area":         co.Abreviado,
 		// Outras ocorrências que deixaram de ter pendência de área.
@@ -721,7 +729,8 @@ func (a *app) markAreaLearned(ctx context.Context, o *opsreport.Occurrence, s *s
 		return
 	}
 	in := opsreport.SipomInput(o)
-	if id, ok := rules.Lookup(in.City, in.Neighborhood); ok && id == *o.Sipom.AreaID {
+	cityWide := a.sipom.CityWideAreas(o.Sipom.CidadeID, o.Sipom.BairroID)
+	if id, ok := rules.Find(in.City, in.Neighborhood, cityWide); ok && id == *o.Sipom.AreaID {
 		s.AreaLearned = true
 	}
 }

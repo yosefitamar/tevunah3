@@ -172,7 +172,7 @@ func TranslateSipom(cat *sipom.Catalog, refs SipomRefs, o *Occurrence) {
 	// Vale sobre o catálogo (inclusive onde ele resolve sozinho — se alguém
 	// corrigiu, o catálogo estava errado ali), desde que a companhia siga
 	// ativa no SIPOM.
-	if id, ok := ar.Lookup(in.City, in.Neighborhood); ok && cat.IsActiveCompany(id) {
+	if id, ok := ar.Find(in.City, in.Neighborhood, cat.CityWideAreas(r.CidadeID, r.BairroID)); ok && cat.IsActiveCompany(id) {
 		r.AreaID, r.AreaOptions = &id, nil
 		r.Pending = without(r.Pending, sipom.PendArea, sipom.PendAreaAmbig)
 	}

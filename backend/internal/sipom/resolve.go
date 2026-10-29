@@ -279,6 +279,16 @@ func (c *Catalog) Resolve(in Input) Result {
 // houver; senão a da cidade inteira.
 func (c *Catalog) Areas(cidadeID, bairroID *int) []int { return c.areas(cidadeID, bairroID) }
 
+// CityWideAreas diz se as áreas possíveis do lugar são as da cidade inteira
+// (o bairro não tem regra própria no catálogo): aí a área escolhida para um
+// bairro vale para toda a cidade.
+func (c *Catalog) CityWideAreas(cidadeID, bairroID *int) bool {
+	if cidadeID == nil || len(c.areaByCidade[*cidadeID]) == 0 {
+		return false
+	}
+	return bairroID == nil || len(c.areaByBairro[*bairroID]) == 0
+}
+
 func (c *Catalog) areas(cidadeID, bairroID *int) []int {
 	if bairroID != nil {
 		if ids := c.areaByBairro[*bairroID]; len(ids) > 0 {

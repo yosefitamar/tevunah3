@@ -137,6 +137,8 @@ export type SipomAreaRule = {
   area_id: number;
   area: string;
   resolved: number;
+  /** A escolha vale para a cidade inteira (o catálogo não distingue bairro). */
+  city_wide?: boolean;
 };
 
 /** Fixa um campo da tradução (ou devolve ao automático com null/reset). */

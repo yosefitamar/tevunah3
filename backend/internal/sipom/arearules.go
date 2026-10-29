@@ -18,6 +18,10 @@ var ErrAreaRuleNoCity = errors.New("ocorrência sem cidade: a área não vira re
 // AreaRules são as referências em memória, por lugar.
 type AreaRules struct {
 	byPlace map[string]int
+	// byCity: área de cada cidade em que todas as referências concordam
+	// (as de bairro e a da cidade inteira) — vale onde o catálogo do SIPOM
+	// põe mais de uma companhia na cidade toda, sem distinguir bairro.
+	byCity map[string]int
 }
 
 func placeKey(city, neighborhood string) string {
@@ -32,6 +36,47 @@ func (m *AreaRules) Lookup(city, neighborhood string) (int, bool) {
 	}
 	id, ok := m.byPlace[placeKey(city, neighborhood)]
 	return id, ok
+}
+
+// Find é o Lookup que também usa a cidade inteira quando cityWide: o
+// catálogo atribui as áreas da cidade sem distinguir bairro (ex.: a
+// companhia do BPM e a do BPRAIO em toda a cidade), então a escolha feita
+// para um bairro vale para os outros — desde que as referências da cidade
+// não se contradigam.
+func (m *AreaRules) Find(city, neighborhood string, cityWide bool) (int, bool) {
+	if id, ok := m.Lookup(city, neighborhood); ok {
+		return id, true
+	}
+	if m == nil || !cityWide || key(city) == "" {
+		return 0, false
+	}
+	id, ok := m.byCity[key(city)]
+	return id, ok
+}
+
+// AreaRule é uma referência gravada (cidade e bairro já normalizados).
+type AreaRule struct {
+	City, Neighborhood string
+	AreaID             int
+}
+
+// NewAreaRules monta as referências em memória. A cidade só ganha área
+// própria (byCity) se todas as referências dela apontam para a mesma.
+func NewAreaRules(list []AreaRule) *AreaRules {
+	m := &AreaRules{byPlace: map[string]int{}, byCity: map[string]int{}}
+	conflict := map[string]bool{}
+	for _, x := range list {
+		c, n := key(x.City), key(x.Neighborhood)
+		m.byPlace[c+"\x00"+n] = x.AreaID
+		if prev, ok := m.byCity[c]; ok && prev != x.AreaID {
+			conflict[c] = true
+		}
+		m.byCity[c] = x.AreaID
+	}
+	for c := range conflict {
+		delete(m.byCity, c)
+	}
+	return m
 }
 
 // AreaRuleRepo encapsula app.sipom_area_rules.
@@ -49,16 +94,18 @@ func (r *AreaRuleRepo) Load(ctx context.Context) (*AreaRules, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	m := &AreaRules{byPlace: map[string]int{}}
+	var list []AreaRule
 	for rows.Next() {
-		var c, n string
-		var id int
-		if err := rows.Scan(&c, &n, &id); err != nil {
+		var x AreaRule
+		if err := rows.Scan(&x.City, &x.Neighborhood, &x.AreaID); err != nil {
 			return nil, err
 		}
-		m.byPlace[c+"\x00"+n] = id
+		list = append(list, x)
 	}
-	return m, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return NewAreaRules(list), nil
 }
 
 // Learn grava (ou substitui) a referência do lugar. Devolve true quando a

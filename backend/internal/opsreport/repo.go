@@ -1140,6 +1140,16 @@ func (r *Repo) SetVehicleYears(ctx context.Context, id string, pos int, fabricac
 		id, pos, nilInt(fabricacao), nilInt(modelo))
 }
 
+// SetVehiclePlate grava a placa do veículo ("" limpa) — a que o relatório
+// omitiu ou escreveu errado.
+func (r *Repo) SetVehiclePlate(ctx context.Context, id string, pos int, placa string) error {
+	return r.execOne(ctx, `
+		UPDATE app.ops_occurrence_vehicles v SET plate = $3
+		  FROM app.ops_occurrences o
+		 WHERE v.occurrence_id = $1 AND v.position = $2 AND o.id = v.occurrence_id AND o.deleted_at IS NULL`,
+		id, pos, placa)
+}
+
 // MarkVehiclesCadastroExigido marca os veículos que o SIPOM recusou por
 // falta de cadastro (placa nova).
 func (r *Repo) MarkVehiclesCadastroExigido(ctx context.Context, occID string, ids []string) error {

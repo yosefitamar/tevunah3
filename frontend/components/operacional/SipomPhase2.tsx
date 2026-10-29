@@ -9,6 +9,7 @@ import {
   searchSipomMarcasModelos,
   setOpsSipomMaterial,
   setOpsSipomProcedimento,
+  setSipomVehiclePlate,
   setSipomVehicleYears,
   type SipomCatalogo,
   type SipomMaterialInput,
@@ -195,6 +196,12 @@ export function SipomMateriais({ occ, ed }: PartProps) {
       {veiculos.map((v) => (
         <Fragment key={"v" + v.index}>
           <VeiculoRow v={v} raw={occ.vehicles[v.index]} cat={cat} editable={editable} busy={busy} onSave={(input) => setMat(v.index, input)} />
+          <VeiculoPlaca
+            placa={occ.vehicles[v.index]?.plate ?? ""}
+            editable={editable}
+            busy={busy}
+            onSave={(placa) => !!occ.id && ed.run(() => setSipomVehiclePlate(occ.id!, v.index, placa))}
+          />
           <VeiculoAnos
             v={v}
             editable={editable}
@@ -490,6 +497,52 @@ function VeiculoRow({ v, raw, cat, editable, busy, onSave }: RowProps<{ v: Sipom
         />
       )}
     </div>
+  );
+}
+
+// Placa do veículo: o relatório às vezes a omite ("ident. suprimida") ou a
+// escreve errado. Sem ela, só o ciclomotor vai ao SIPOM.
+function VeiculoPlaca({
+  placa,
+  editable,
+  busy,
+  onSave,
+}: {
+  placa: string;
+  editable: boolean;
+  busy: boolean;
+  onSave: (placa: string) => void;
+}) {
+  const norm = (x: string) => x.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const [val, setVal] = useState(norm(placa));
+  useEffect(() => setVal(norm(placa)), [placa]);
+  const valid = val === "" || /^[A-Z]{3}[0-9][A-Z0-9][0-9]{2}$/.test(val);
+  if (!editable) {
+    return <MaterialRead fields={[["PLACA", placa || undefined]]} />;
+  }
+  return (
+    <OpsFields edit>
+      <OpsField label="PLACA" missing={!val}>
+        <input
+          className="ops-input mono"
+          maxLength={8}
+          value={val}
+          placeholder="ABC1D23"
+          disabled={busy}
+          onChange={(e) => setVal(norm(e.target.value))}
+        />
+      </OpsField>
+      <OpsActions>
+        <button
+          type="button"
+          className="btn btn-primary btn-sm"
+          disabled={busy || val === norm(placa) || !valid}
+          onClick={() => onSave(val)}
+        >
+          <Check size={12} strokeWidth={2} /> GRAVAR PLACA
+        </button>
+      </OpsActions>
+    </OpsFields>
   );
 }
 

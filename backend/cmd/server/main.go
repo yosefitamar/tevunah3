@@ -296,6 +296,7 @@ func main() {
 	mux.Handle("POST /api/ops-occurrences/{id}/sipom/enviar", auth(http.HandlerFunc(a.handleSipomEnviar)))
 	mux.Handle("PUT /api/ops-occurrences/{id}/sipom/pessoas/{pid}/sexo", auth(http.HandlerFunc(a.handleSipomSetSexo)))
 	mux.Handle("PUT /api/ops-occurrences/{id}/sipom/veiculos/{pos}/ano", auth(http.HandlerFunc(a.handleSipomSetVehicleYears)))
+	mux.Handle("PUT /api/ops-occurrences/{id}/sipom/veiculos/{pos}/placa", auth(http.HandlerFunc(a.handleSipomSetVehiclePlate)))
 	mux.Handle("PUT /api/ops-occurrences/{id}/sipom/{field}", auth(http.HandlerFunc(a.handleSipomSetField)))
 	mux.Handle("GET /api/sipom/bairros", auth(http.HandlerFunc(a.handleSipomBairros)))
 	mux.Handle("GET /api/admin/sipom/ping", auth(http.HandlerFunc(a.handleSipomPing)))

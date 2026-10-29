@@ -13,7 +13,9 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/belia/tevunah/backend/internal/audit"
@@ -403,3 +405,56 @@ func (a *app) handleSipomSetVehicleYears(w http.ResponseWriter, r *http.Request)
 	}
 	a.finishSipomChange(w, r, id, "opsreport.sipom.veiculo.ano", before, nil)
 }
+
+// PUT /api/ops-occurrences/{id}/sipom/veiculos/{pos}/placa
+//
+//	{"placa": "ABC1D23"}   ("" limpa)
+//
+// O relatório às vezes omite a placa ("ident. suprimida"); sem ela, só o
+// ciclomotor vai ao SIPOM. Aceita o padrão antigo (ABC1234) e o Mercosul
+// (ABC1D23), com ou sem hífen.
+func (a *app) handleSipomSetVehiclePlate(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePerm(w, r, "opsreport.update") {
+		return
+	}
+	if a.sipom == nil {
+		httpx.Error(w, http.StatusServiceUnavailable, "catálogo do SIPOM não carregado")
+		return
+	}
+	id := r.PathValue("id")
+	pos, err := strconv.Atoi(r.PathValue("pos"))
+	if err != nil || pos < 0 {
+		httpx.Error(w, http.StatusBadRequest, "posição inválida")
+		return
+	}
+	var req struct {
+		Placa string `json:"placa"`
+	}
+	if err := httpx.Decode(r, &req); err != nil {
+		httpx.Error(w, http.StatusBadRequest, "corpo inválido")
+		return
+	}
+	placa := strings.ToUpper(strings.NewReplacer("-", "", " ", "").Replace(strings.TrimSpace(req.Placa)))
+	if placa != "" && !placaRE.MatchString(placa) {
+		httpx.Error(w, http.StatusBadRequest, "placa inválida (ABC1234 ou ABC1D23)")
+		return
+	}
+	before, err := a.opsReports.FindByID(r.Context(), id)
+	if err != nil {
+		httpx.Error(w, http.StatusNotFound, "ocorrência não encontrada")
+		return
+	}
+	if pos >= len(before.Vehicles) {
+		httpx.Error(w, http.StatusNotFound, "veículo não encontrado")
+		return
+	}
+	if err := a.opsReports.SetVehiclePlate(r.Context(), id, pos, placa); err != nil {
+		log.Printf("sipom set vehicle plate: %v", err)
+		httpx.Error(w, http.StatusInternalServerError, "erro ao gravar")
+		return
+	}
+	a.finishSipomChange(w, r, id, "opsreport.sipom.veiculo.placa", before, nil)
+}
+
+// placaRE: placa antiga (ABC1234) ou Mercosul (ABC1D23).
+var placaRE = regexp.MustCompile(`^[A-Z]{3}[0-9][A-Z0-9][0-9]{2}$`)

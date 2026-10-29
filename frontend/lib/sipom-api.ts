@@ -253,6 +253,14 @@ export function setSipomSexo(occId: string, personId: string, sexo: 0 | 1 | 2) {
 }
 
 /** Ano de fabricação e do modelo do veículo (pela posição na lista). */
+/** Placa do veículo que o relatório omitiu ou escreveu errado ("" limpa). */
+export function setSipomVehiclePlate(occId: string, index: number, placa: string) {
+  return api<SipomChange>(`/api/ops-occurrences/${encodeURIComponent(occId)}/sipom/veiculos/${index}/placa`, {
+    method: "PUT",
+    body: JSON.stringify({ placa }),
+  });
+}
+
 export function setSipomVehicleYears(occId: string, index: number, anoFabricacao: number | null, anoModelo: number | null) {
   return api<SipomChange>(`/api/ops-occurrences/${encodeURIComponent(occId)}/sipom/veiculos/${index}/ano`, {
     method: "PUT",

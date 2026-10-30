@@ -395,6 +395,7 @@ func (r *Repo) RecomputeSipom(ctx context.Context, cat *sipom.Catalog, onlyID st
 
 // VehiclePending diz o que falta para o veículo ir ao SIPOM ("" = nada).
 // Com placa, bastam ela e a situação: placa cadastrada lá é só vinculada.
+// Com placa, cor e marca/modelo (o SIPOM recusa a placa nova sem eles).
 // Sem placa, vão situação, tipo, marca/modelo e cor; e, se não for
 // ciclomotor, o analista antes confirma que a placa não pôde ser
 // identificada (o relatório costuma omiti-la quando ela existe). Quando o
@@ -416,6 +417,8 @@ func VehiclePending(v Vehicle) string {
 		if !sipom.PlatelessType(*v.SipomTipoCodigo) && !v.SipomSemPlacaConfirmada {
 			return sipom.PendVeiculoPlaca
 		}
+	case v.SipomCorCodigo == nil || v.SipomMarcaModeloCodigo == nil:
+		return sipom.PendVeiculo
 	}
 	return ""
 }

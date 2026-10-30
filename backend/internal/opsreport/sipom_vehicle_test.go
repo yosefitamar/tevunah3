@@ -19,7 +19,9 @@ func TestVehiclePending(t *testing.T) {
 		v    Vehicle
 		want string
 	}{
-		{"placa e situação bastam", Vehicle{Plate: "ABC-1D23", SipomSituacao: 1}, ""},
+		{"placa sem cor nem marca/modelo", Vehicle{Plate: "ABC-1D23", SipomSituacao: 1}, sipom.PendVeiculo},
+		{"placa sem marca/modelo", Vehicle{Plate: "ABC-1D23", SipomSituacao: 1, SipomCorCodigo: &cor}, sipom.PendVeiculo},
+		{"placa, cor e marca/modelo", Vehicle{Plate: "ABC-1D23", SipomSituacao: 1, SipomCorCodigo: &cor, SipomMarcaModeloCodigo: &mm}, ""},
 		{"sem situação", Vehicle{Plate: "ABC1D23"}, sipom.PendVeiculo},
 		{"recusada, sem ano", func() Vehicle { v := completo(&moto); v.Plate, v.SipomCadastroExigido = "ABC1D23", true; return v }(), sipom.PendVeiculo},
 		{"recusada, completa", func() Vehicle {

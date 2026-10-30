@@ -322,7 +322,7 @@ function DrogaRow({ d, raw, cat, editable, busy, onSave }: RowProps<{ d: SipomDr
         .filter(Boolean)
         .join(" · ")
     : "";
-  const q = Number(qtd.replace(",", "."));
+  const q = Number(qtd);
   return (
     <div className="sipom-material">
       <MaterialHead raw={rawText} ok={d.ok} manual={d.manual} />
@@ -346,10 +346,11 @@ function DrogaRow({ d, raw, cat, editable, busy, onSave }: RowProps<{ d: SipomDr
               <input
                 className="ops-input"
                 type="text"
-                inputMode="decimal"
+                inputMode="numeric"
                 value={qtd}
-                onChange={(e) => setQtd(e.target.value)}
+                onChange={(e) => setQtd(e.target.value.replace(/\D/g, ""))}
                 placeholder="0"
+                title="Número inteiro — o SIPOM não aceita fração"
                 disabled={busy}
               />
             </OpsField>
@@ -407,12 +408,13 @@ function VeiculoRow({ v, raw, cat, editable, busy, onSave }: RowProps<{ v: Sipom
   }, [q]);
   const rawText = raw ? [raw.kind, raw.brand, raw.model, raw.color, raw.plate].filter(Boolean).join(" · ") : "";
   const choices = found.length > 0 ? found : v.marca_modelo_candidates;
-  // Tipo, cor e marca/modelo só são obrigatórios sem placa (vai como
+  // Cor e marca/modelo são sempre obrigatórios; o tipo, sem placa (vai como
   // MOTONETA) ou depois que o SIPOM recusou a placa.
   const semPlaca = !raw?.plate?.trim();
   // Sem placa, só ciclomotor/motoneta (tipos DENATRAN 2 e 3) vai ao SIPOM.
   const ciclomotor = !!v.tipo && [2, 3].includes(v.tipo.id);
   const required = v.cadastro_exigido || semPlaca;
+  const comPlacaIncompleto = !semPlaca && !v.cadastro_exigido && (!v.cor || !v.marca_modelo);
   return (
     <div className="sipom-material">
       <MaterialHead raw={rawText} ok={v.ok} manual={v.manual} />
@@ -423,6 +425,9 @@ function VeiculoRow({ v, raw, cat, editable, busy, onSave }: RowProps<{ v: Sipom
       ) : (
         <div className="banner banner-error">⚠ SEM PLACA: INFORME A PLACA OU CONFIRME QUE NÃO FOI POSSÍVEL IDENTIFICÁ-LA</div>
       ))}
+      {comPlacaIncompleto && (
+        <div className="banner banner-error">⚠ INFORME COR E MARCA/MODELO DO VEÍCULO</div>
+      )}
       {v.cadastro_exigido && (
         <div className="banner banner-info">O SIPOM NÃO TEM ESTA PLACA: INFORME TIPO, COR, MARCA/MODELO E ANO DE FABRICAÇÃO E REENVIE</div>
       )}
@@ -432,7 +437,7 @@ function VeiculoRow({ v, raw, cat, editable, busy, onSave }: RowProps<{ v: Sipom
             <OpsField label="TIPO" missing={required && !tipo}>
               <Select value={tipo} placeholder="TIPO" disabled={busy || !cat} onChange={setTipo} options={opts(cat?.veiculo_tipos, v.tipo)} />
             </OpsField>
-            <OpsField label="COR" missing={required && !cor}>
+            <OpsField label="COR" missing={!cor}>
               <Select value={cor} placeholder="COR" disabled={busy || !cat} onChange={setCor} options={opts(cat?.veiculo_cores, v.cor)} />
             </OpsField>
             <OpsField label="SITUAÇÃO" span={2}>
@@ -452,7 +457,7 @@ function VeiculoRow({ v, raw, cat, editable, busy, onSave }: RowProps<{ v: Sipom
                 ))}
               </div>
             </OpsField>
-            <OpsField label="MARCA / MODELO (TABELA DENATRAN)" span={2} missing={required && !mm} value={mm?.nome ?? "NÃO ESCOLHIDO"} />
+            <OpsField label="MARCA / MODELO (TABELA DENATRAN)" span={2} missing={!mm} value={mm?.nome ?? "NÃO ESCOLHIDO"} />
             <OpsField label="BUSCAR MARCA / MODELO" span={2}>
               <div className="toolbar-search ops-search">
                 <Search size={13} strokeWidth={1.6} />

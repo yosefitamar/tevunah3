@@ -1,6 +1,7 @@
 package sipom
 
 import (
+	"math"
 	"regexp"
 	"strings"
 )
@@ -226,12 +227,23 @@ func (c *Catalog) ResolveDrug(in DrugInput, terms *TermMap) DrugResult {
 	// gramas. Comprimido, dose ou ml ficam para o analista.
 	if r.DrogaID != nil && in.Grams != nil {
 		if d := c.drogas[*r.DrogaID]; strings.HasPrefix(key(d.Unidade), "gramas") {
-			g := *in.Grams
-			r.Quantidade = &g
+			r.Quantidade = WholeQuantity(*in.Grams)
 		}
 	}
 	r.OK = r.DrogaID != nil && r.Quantidade != nil
 	return r
+}
+
+// WholeQuantity leva a quantidade ao inteiro que o SIPOM aceita: arredonda
+// (29,3 → 29; 2,6 → 3) e o que fica abaixo de 1 vira 1 (0,03 g de cocaína é
+// apreensão, não nada). Zero ou negativo é peso não informado: nil, e o
+// analista informa.
+func WholeQuantity(q float64) *float64 {
+	if q <= 0 {
+		return nil
+	}
+	w := math.Max(1, math.Round(q))
+	return &w
 }
 
 // ─── Veículos ───

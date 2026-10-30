@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"log"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -401,6 +402,10 @@ func (a *app) handleSipomSetMaterial(w http.ResponseWriter, r *http.Request) {
 		}
 		if !req.Reset && (req.DrogaID == nil || req.Quantidade == nil || *req.Quantidade <= 0) {
 			httpx.Error(w, http.StatusBadRequest, "informe droga_id e quantidade")
+			return
+		}
+		if !req.Reset && *req.Quantidade != math.Trunc(*req.Quantidade) {
+			httpx.Error(w, http.StatusBadRequest, "a quantidade da droga é um número inteiro (o SIPOM não aceita fração)")
 			return
 		}
 		if !req.Reset {

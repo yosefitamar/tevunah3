@@ -109,7 +109,7 @@ type ListOpts struct {
 	// Recortes da ocorrência do relatório operacional (aba de produtividade).
 	// As pendências são as do envio ao SIPOM; NoticeCodes diz quais delas são
 	// só aviso — as demais impedem o envio.
-	Status      string   // "" | StatusPending (alguma impede o envio) | StatusReady | StatusSent
+	Status      string   // "" | StatusPending (alguma impede o envio) | StatusReady | StatusSent | StatusRefused
 	StepCodes   []string // só as que têm, entre estas, uma que impede o envio
 	Code        string   // só as que têm esta pendência
 	Notes       string   // "1" = só com aviso | "0" = só sem aviso
@@ -125,6 +125,9 @@ const (
 	StatusPending = "pending"
 	StatusReady   = "ready"
 	StatusSent    = "sent"
+	// StatusRefused: o SIPOM recusou o último envio (pendência
+	// envio_recusado) — é um recorte das pendentes.
+	StatusRefused = "refused"
 )
 
 // PendingSummary conta as ocorrências do relatório no recorte comum, por
@@ -272,7 +275,8 @@ const tabWhere = `
 	  AND ($14 = '' OR (u.ops_id IS NOT NULL AND (
 	         ($14 = 'pending' AND u.sent_at IS NULL AND ` + blockingCount + ` > 0)
 	      OR ($14 = 'ready'   AND u.sent_at IS NULL AND ` + blockingCount + ` = 0)
-	      OR ($14 = 'sent'    AND u.sent_at IS NOT NULL))))
+	      OR ($14 = 'sent'    AND u.sent_at IS NOT NULL)
+	      OR ($14 = 'refused' AND u.sent_at IS NULL AND 'envio_recusado' = ANY(u.pending)))))
 	  AND (cardinality($15::text[]) = 0 OR EXISTS (
 	         SELECT 1 FROM unnest(u.pending) p
 	          WHERE p = ANY($15::text[]) AND p <> ALL($22::text[])))

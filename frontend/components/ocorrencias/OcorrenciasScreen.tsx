@@ -327,6 +327,8 @@ export default function OcorrenciasScreen() {
   const total = data?.total ?? 0;
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const sipom = data?.sipom;
+  // Recusadas pelo SIPOM no último envio (no recorte atual, fora o filtro de situação).
+  const refusedCount = sipom?.by_code?.envio_recusado ?? 0;
   const codes = Object.entries(sipom?.by_code ?? {}).sort((a, b) => b[1] - a[1]);
   const activeCount = (
     homicides
@@ -432,6 +434,7 @@ export default function OcorrenciasScreen() {
                 { value: "", label: "TODAS AS SITUAÇÕES" },
                 { value: "pending", label: sipom ? `PENDENTES · ${sipom.pending}` : "PENDENTES" },
                 { value: "ready", label: sipom ? `PRONTAS · ${sipom.ready}` : "PRONTAS" },
+                { value: "refused", label: sipom ? `ERRO NO ENVIO · ${refusedCount}` : "ERRO NO ENVIO" },
                 // Na fila só há o que não foi enviado.
                 ...(tab === "fila"
                   ? []
@@ -462,6 +465,25 @@ export default function OcorrenciasScreen() {
               <X size={11} />
             </button>
           </span>
+        </div>
+      )}
+
+      {!homicides && canOps && refusedCount > 0 && status !== "refused" && (
+        <div className="banner banner-error ops-refused-banner">
+          <span>
+            ⚠ {refusedCount} OCORRÊNCIA{refusedCount > 1 ? "S" : ""} RECUSADA{refusedCount > 1 ? "S" : ""} PELO SIPOM NO ÚLTIMO
+            ENVIO — CORRIJA E REENVIE PELA FICHA
+          </span>
+          <button
+            type="button"
+            className="btn btn-sm"
+            onClick={() => {
+              setStatus("refused");
+              resetPage();
+            }}
+          >
+            VER
+          </button>
         </div>
       )}
 

@@ -5929,3 +5929,4 @@ body.session-locked > *:not(.session-overlay-root) {
   white-space: nowrap;
 }
 .sipom-legend .sipom-err { height: auto; padding: 1px 6px; font-weight: 400; }
+.ops-refused-banner { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 10px; }

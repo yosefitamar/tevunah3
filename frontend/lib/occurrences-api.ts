@@ -63,7 +63,7 @@ export type OccurrenceRow = {
 };
 
 /** Situação da ocorrência do relatório quanto ao envio ao SIPOM. */
-export type OccurrenceStatus = "" | "pending" | "ready" | "sent";
+export type OccurrenceStatus = "" | "pending" | "ready" | "sent" | "refused";
 
 /**
  * Ocorrências do relatório no recorte comum (busca, período, território), por

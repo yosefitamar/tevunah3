@@ -684,7 +684,7 @@ const occSelect = `
 	o.sipom_procedimento_id, o.sipom_delegacia_id, o.sipom_delegado_id, o.sipom_sent_at,
 	COALESCE(o.sipom_protocolo::text, ''), o.sipom_identificador, o.sipom_situacao, o.sipom_avisos::text,
 	o.sipom_body_sha256, o.sipom_erro, o.sipom_tentativa_em, o.sipom_excluida_em,
-	o.intel_history`
+	o.intel_history, o.sipom_recusada_em`
 
 // occArrays recebe as colunas de array de occSelect, que chegam como JSON
 // (to_jsonb) e são decodificadas por decode.
@@ -735,7 +735,7 @@ func occDest(so *StoredOccurrence, arr *occArrays) []any {
 		&o.Sipom.ProcedimentoID, &o.Sipom.DelegaciaID, &o.Sipom.DelegadoID, &o.Sipom.SentAt,
 		&o.Sipom.Send.Protocolo, &o.Sipom.Send.Identificador, &o.Sipom.Send.Situacao, &arr.sipomAvisos,
 		&o.Sipom.Send.BodySHA256, &o.Sipom.Send.Erro, &o.Sipom.Send.TentativaEm, &o.Sipom.Send.ExcluidaEm,
-		&so.IntelHistory,
+		&so.IntelHistory, &o.Sipom.Send.RecusadaEm,
 	}
 }
 
@@ -1186,19 +1186,22 @@ func (r *Repo) SaveSipomSend(ctx context.Context, id, actor string, res *sipom.R
 		   SET sipom_sent_at = now(), sipom_sent_by = $2,
 		       sipom_protocolo = NULLIF($3, '')::uuid, sipom_identificador = $4, sipom_situacao = $5,
 		       sipom_avisos = $6::jsonb, sipom_body_sha256 = $7,
-		       sipom_erro = '', sipom_tentativa_em = now()
+		       sipom_erro = '', sipom_tentativa_em = now(), sipom_recusada_em = NULL
 		 WHERE id = $1 AND deleted_at IS NULL`,
 		id, actor, res.Protocolo, res.Identificador, res.Situacao, string(js), bodySHA)
 }
 
 // SaveSipomSendError grava a tentativa que falhou. excluded: o SIPOM disse
-// que a ocorrência foi excluída lá (409) — não adianta reenviar.
-func (r *Repo) SaveSipomSendError(ctx context.Context, id, msg string, excluded bool) error {
+// que a ocorrência foi excluída lá (409) — não adianta reenviar. refused: o
+// SIPOM recusou a ocorrência (não foi falha passageira) — ela sai das
+// prontas até um envio dar certo.
+func (r *Repo) SaveSipomSendError(ctx context.Context, id, msg string, excluded, refused bool) error {
 	return r.execOne(ctx, `
 		UPDATE app.ops_occurrences
 		   SET sipom_erro = $2, sipom_tentativa_em = now(),
-		       sipom_excluida_em = CASE WHEN $3 THEN COALESCE(sipom_excluida_em, now()) ELSE sipom_excluida_em END
-		 WHERE id = $1 AND deleted_at IS NULL`, id, msg, excluded)
+		       sipom_excluida_em = CASE WHEN $3 THEN COALESCE(sipom_excluida_em, now()) ELSE sipom_excluida_em END,
+		       sipom_recusada_em = CASE WHEN $4 THEN now() ELSE sipom_recusada_em END
+		 WHERE id = $1 AND deleted_at IS NULL`, id, msg, excluded, refused)
 }
 
 // SetPersonSipomSexo grava o sexo do envolvido para o SIPOM (0 = limpa).
@@ -1423,7 +1426,8 @@ func (r *Repo) SipomSources(ctx context.Context, onlyID string) ([]SipomSource, 
 		       o.sipom_logradouro, o.sipom_numeral, o.sipom_area_id, o.sipom_opm_id, o.sipom_bairro_id,
 		       o.latitude, o.longitude,
 		       o.police_station, o.delegate, o.procedure_type, o.procedure_number,
-		       o.sipom_procedimento_id, o.sipom_delegacia_id, o.sipom_delegado_id, o.narrative
+		       o.sipom_procedimento_id, o.sipom_delegacia_id, o.sipom_delegado_id, o.narrative,
+		       o.sipom_sent_at, o.sipom_recusada_em
 		  FROM app.ops_occurrences o
 		 WHERE o.deleted_at IS NULL AND ($1 = '' OR o.id::text = $1)
 		 ORDER BY o.occurred_on`, onlyID)
@@ -1443,7 +1447,8 @@ func (r *Repo) SipomSources(ctx context.Context, onlyID string) ([]SipomSource, 
 			&s.Sipom.Logradouro, &s.Sipom.Numeral, &s.Sipom.AreaID, &s.Sipom.OPMID, &s.Sipom.BairroID,
 			&s.Geo.Lat, &s.Geo.Lng,
 			&s.PoliceStation, &s.Delegate, &s.ProcedureType, &s.ProcedureNumber,
-			&s.Sipom.ProcedimentoID, &s.Sipom.DelegaciaID, &s.Sipom.DelegadoID, &s.Narrative); err != nil {
+			&s.Sipom.ProcedimentoID, &s.Sipom.DelegaciaID, &s.Sipom.DelegadoID, &s.Narrative,
+			&s.Sipom.SentAt, &s.Sipom.Send.RecusadaEm); err != nil {
 			return nil, err
 		}
 		if err := decodeStrings(natures, &s.Natures); err != nil {

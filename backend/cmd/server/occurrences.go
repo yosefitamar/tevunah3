@@ -48,6 +48,8 @@ type occurrenceRowJSON struct {
 	SipomNature string `json:"sipom_natureza"`
 	// Quando foi marcada como enviada ao SIPOM (null = não foi).
 	SipomSentAt *time.Time `json:"sipom_sent_at"`
+	// Erro do último envio que falhou ("" = nenhum).
+	SipomErro string `json:"sipom_erro"`
 }
 
 func toOccurrenceRowJSON(x *occurrences.Row) occurrenceRowJSON {
@@ -62,7 +64,7 @@ func toOccurrenceRowJSON(x *occurrences.Row) occurrenceRowJSON {
 		Description: x.Description, Means: x.Means, Intel: x.Intel, HasGeo: x.HasGeo,
 		PeopleCount: x.PeopleCount, UpdatedAt: x.UpdatedAt, Pendencias: pend,
 		Latitude: x.Latitude, Longitude: x.Longitude, GeoPrecision: x.GeoPrecision,
-		SipomNature: x.SipomNature, SipomSentAt: x.SipomSentAt,
+		SipomNature: x.SipomNature, SipomSentAt: x.SipomSentAt, SipomErro: x.SipomErro,
 	}
 }
 

@@ -953,7 +953,7 @@ function Row({
       )}
       <td>
         {row.ops_id ? (
-          <SipomTrail pendencias={row.pendencias} sentAt={row.sipom_sent_at} />
+          <SipomTrail pendencias={row.pendencias} sentAt={row.sipom_sent_at} erro={row.sipom_erro} />
         ) : (
           <span className="muted" style={{ fontSize: 11.5 }} title="Ocorrência do cadastro manual: não vai ao SIPOM por aqui">
             CADASTRO MANUAL

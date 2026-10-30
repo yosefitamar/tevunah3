@@ -24,6 +24,9 @@ const (
 	// PendVeiculoPlaca: veículo sem placa (que não é ciclomotor) — o analista
 	// informa a placa ou confirma que não foi possível identificá-la.
 	PendVeiculoPlaca = "veiculo_placa"
+	// PendEnvioRecusado: o SIPOM recusou o último envio. Tira a ocorrência
+	// das prontas (e do lote) até o analista corrigir e reenviar pela ficha.
+	PendEnvioRecusado = "envio_recusado"
 )
 
 // Tipos de procedimento (sipom.procedimentos).

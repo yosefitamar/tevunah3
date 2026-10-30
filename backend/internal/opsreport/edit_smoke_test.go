@@ -601,12 +601,19 @@ func TestSmoke_SipomSendState(t *testing.T) {
 		s.BodySHA256 != "abc" || s.Erro != "" || s.TentativaEm == nil {
 		t.Errorf("envio gravado: %+v", got.Sipom.Send)
 	}
-	if err := r.SaveSipomSendError(ctx, id, "SIPOM 409 conflito", true); err != nil {
+	if err := r.SaveSipomSendError(ctx, id, "SIPOM 409 conflito", true, true); err != nil {
 		t.Fatalf("SaveSipomSendError: %v", err)
 	}
 	if got, _ := r.FindByID(ctx, id); got.Sipom.Send.Erro == "" || got.Sipom.Send.ExcluidaEm == nil ||
-		got.Sipom.Send.Identificador != res.Identificador {
+		got.Sipom.Send.RecusadaEm == nil || got.Sipom.Send.Identificador != res.Identificador {
 		t.Errorf("erro do envio: %+v", got.Sipom.Send)
+	}
+	// O envio que dá certo apaga a recusa.
+	if err := r.SaveSipomSend(ctx, id, actor, res, "abc"); err != nil {
+		t.Fatalf("SaveSipomSend: %v", err)
+	}
+	if got, _ := r.FindByID(ctx, id); got.Sipom.Send.RecusadaEm != nil {
+		t.Errorf("recusa depois do envio: %+v", got.Sipom.Send)
 	}
 
 	pid := orig.People[0].ID

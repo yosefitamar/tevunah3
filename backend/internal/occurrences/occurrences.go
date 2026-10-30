@@ -76,6 +76,8 @@ type Row struct {
 	// SipomSentAt: quando a ocorrência do relatório foi marcada como enviada
 	// ao SIPOM; nil = ainda não (ou a linha é só do cadastro).
 	SipomSentAt *time.Time
+	// SipomErro: o erro do último envio que falhou ("" = nenhum).
+	SipomErro string
 }
 
 // Abas da tela: o cadastro de homicídios (CVLI) de um lado; do outro, a
@@ -179,7 +181,8 @@ const unified = `
 	         COALESCE((SELECT n.nome FROM sipom.natureza_fatos n WHERE n.id = o.sipom_natureza_id), '') AS sipom_nature,
 	         COALESCE(o.cia, '') AS cia,
 	         o.report_id AS report_id,
-	         o.sipom_sent_at AS sent_at
+	         o.sipom_sent_at AS sent_at,
+	         COALESCE(o.sipom_erro, '') AS sipom_erro
 	    FROM app.incidents i
 	    LEFT JOIN app.ops_occurrences o
 	      ON $2 AND o.deleted_at IS NULL
@@ -193,7 +196,7 @@ const unified = `
 	         o.intel_participation, o.created_at, o.sipom_pendencias,
 	         o.latitude, o.longitude, o.geo_precision,
 	         COALESCE((SELECT n.nome FROM sipom.natureza_fatos n WHERE n.id = o.sipom_natureza_id), ''),
-	         o.cia, o.report_id, o.sipom_sent_at
+	         o.cia, o.report_id, o.sipom_sent_at, o.sipom_erro
 	    FROM app.ops_occurrences o
 	   WHERE $2 AND o.deleted_at IS NULL
 	     AND NOT ($1 AND o.ciops_record <> '' AND app.norm_ciops(o.ciops_record) <> ''
@@ -331,7 +334,7 @@ const rowSelect = `
 	            ELSE (SELECT COUNT(*) FROM app.ops_occurrence_people p WHERE p.occurrence_id = u.ops_id)
 	       END,
 	       to_jsonb(u.pending)::text,
-	       u.latitude, u.longitude, u.geo_precision, u.sipom_nature, u.sent_at
+	       u.latitude, u.longitude, u.geo_precision, u.sipom_nature, u.sent_at, u.sipom_erro
 	  FROM u`
 
 func scanRow(rows *sql.Rows) (*Row, error) {
@@ -342,7 +345,7 @@ func scanRow(rows *sql.Rows) (*Row, error) {
 		&row.OccurredOn, &row.Time, &row.CIOPS, &row.City, &row.Neighborhood,
 		&row.Description, &row.Means, &row.Intel, &row.UpdatedAt,
 		&row.PeopleCount, &pending,
-		&row.Latitude, &row.Longitude, &row.GeoPrecision, &row.SipomNature, &row.SipomSentAt); err != nil {
+		&row.Latitude, &row.Longitude, &row.GeoPrecision, &row.SipomNature, &row.SipomSentAt, &row.SipomErro); err != nil {
 		return nil, err
 	}
 	if incID.Valid {

@@ -47,7 +47,8 @@ func BuildSipomPayload(cat *sipom.Catalog, so *StoredOccurrence, src PayloadSour
 	f := so.Sipom
 	var blocking []string
 	for _, p := range f.Pending {
-		if sipom.Blocking(p) {
+		// A recusa anterior não impede a nova tentativa pela ficha.
+		if sipom.Blocking(p) && p != sipom.PendEnvioRecusado {
 			blocking = append(blocking, p)
 		}
 	}

@@ -239,6 +239,12 @@ func TranslateSipom(cat *sipom.Catalog, refs SipomRefs, o *Occurrence) {
 	// Materiais (fase 2): armas, drogas e veículos nas listas do SIPOM.
 	r.Pending = append(r.Pending, translateMaterials(cat, refs.Terms, o)...)
 
+	// O SIPOM recusou o último envio e a ocorrência ainda não foi: fica
+	// fora das prontas até o analista reenviar pela ficha.
+	if stored.SentAt == nil && stored.Send.RecusadaEm != nil {
+		r.Pending = append(r.Pending, sipom.PendEnvioRecusado)
+	}
+
 	o.Sipom = SipomFields{
 		NaturezaID: in.NaturezaID,
 		Logradouro: r.Logradouro, Numeral: r.Numeral,
@@ -246,6 +252,7 @@ func TranslateSipom(cat *sipom.Catalog, refs SipomRefs, o *Occurrence) {
 		AreaID: r.AreaID, OPMID: r.OPMID,
 		ProcedimentoID: proc.ProcedimentoID, DelegaciaID: proc.DelegaciaID, DelegadoID: proc.DelegadoID,
 		Pending: r.Pending, Manual: o.Sipom.Manual,
+		SentAt: stored.SentAt, Send: stored.Send,
 	}
 	for i := range o.Officers {
 		if i < len(r.Officers) {

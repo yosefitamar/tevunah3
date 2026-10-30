@@ -177,6 +177,9 @@ type SipomSend struct {
 	// ExcluidaEm: o SIPOM respondeu 409 — a ocorrência foi excluída lá e
 	// não é recriada.
 	ExcluidaEm *time.Time
+	// RecusadaEm: o SIPOM recusou o último envio (pendência envio_recusado
+	// enquanto a ocorrência não for enviada).
+	RecusadaEm *time.Time
 }
 
 // IntelTexts são os campos onde se procura a participação da inteligência:

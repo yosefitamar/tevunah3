@@ -26,6 +26,7 @@ import {
   type SipomNatureza,
 } from "@/lib/sipom-api";
 import { formatBRDate } from "@/lib/format";
+import { getOpsOccurrence } from "@/lib/ops-reports-api";
 import type { ApiError } from "@/lib/api";
 import Select from "../shared/Select";
 import { OpsActions, OpsField, OpsFields } from "./OpsField";
@@ -718,6 +719,11 @@ export function SipomEnvio({
       } else if (err.details && typeof err.details === "object") {
         setSendDetails(Object.entries(err.details as Record<string, string>).map(([k, v]) => `${k}: ${v}`));
       }
+      // A recusa vira pendência (envio_recusado) no servidor: relê a ficha
+      // para ela sair das prontas aqui também.
+      getOpsOccurrence(occ.id)
+        .then((r) => r.occurrence.sipom && onSent?.(r.occurrence.sipom))
+        .catch(() => {});
     } finally {
       setBusySent(false);
     }
@@ -739,6 +745,10 @@ export function SipomEnvio({
     }
   }
   const notes = s.pendencias.filter((p) => !p.blocking);
+  // Recusada pelo SIPOM e sem outra pendência que impeça: a nova tentativa
+  // é pela ficha (o lote só leva as prontas).
+  const blockingCodes = s.pendencias.filter((p) => p.blocking).map((p) => p.code);
+  const retry = !s.ready && blockingCodes.length > 0 && blockingCodes.every((c) => c === "envio_recusado");
 
   const item = (p: (typeof s.pendencias)[number]) => {
     const step = stepOf?.(p.code);
@@ -763,7 +773,7 @@ export function SipomEnvio({
             <Braces size={12} strokeWidth={2} /> PRÉVIA DO ENVIO
           </button>
         )}
-        {s.api && onSent && occ.id && s.ready && !envio?.excluida_em && (
+        {s.api && onSent && occ.id && (s.ready || retry) && !envio?.excluida_em && (
           <button
             type="button"
             className={"btn btn-sm" + (s.sent_at ? "" : " btn-primary")}
@@ -775,7 +785,8 @@ export function SipomEnvio({
                 : "Envia a ocorrência ao SIPOM pela API"
             }
           >
-            <Send size={12} strokeWidth={2} /> {busySent ? "ENVIANDO…" : s.sent_at ? "REENVIAR AO SIPOM" : "ENVIAR AO SIPOM"}
+            <Send size={12} strokeWidth={2} />{" "}
+            {busySent ? "ENVIANDO…" : s.sent_at || retry ? "REENVIAR AO SIPOM" : "ENVIAR AO SIPOM"}
           </button>
         )}
         {!s.api && onSent && occ.id && s.ready && !s.sent_at && (

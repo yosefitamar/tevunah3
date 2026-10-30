@@ -58,6 +58,8 @@ export type OccurrenceRow = {
   sipom_natureza: string;
   /** Quando foi marcada como enviada ao SIPOM (null = não foi). */
   sipom_sent_at: string | null;
+  /** Erro do último envio ao SIPOM que falhou ("" = nenhum). */
+  sipom_erro: string;
 };
 
 /** Situação da ocorrência do relatório quanto ao envio ao SIPOM. */

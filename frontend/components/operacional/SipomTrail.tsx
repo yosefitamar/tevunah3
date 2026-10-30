@@ -1,6 +1,6 @@
 "use client";
 
-import { Box, FileText, MapPin, Send, Shield, Tag, Users, type LucideIcon } from "lucide-react";
+import { AlertTriangle, Box, FileText, MapPin, Send, Shield, Tag, Users, type LucideIcon } from "lucide-react";
 import { formatBRDate } from "@/lib/format";
 import type { SipomPending } from "@/lib/ops-reports-api";
 import { STEP_OF_PENDING, type OpsStep } from "./OpsOccurrenceBody";
@@ -47,6 +47,7 @@ export const PENDING_SHORT: Record<string, string> = {
   droga: "DROGA",
   veiculo: "VEÍCULO",
   veiculo_placa: "SEM PLACA",
+  envio_recusado: "ERRO NO ENVIO",
 };
 
 /**
@@ -54,7 +55,16 @@ export const PENDING_SHORT: Record<string, string> = {
  * que só tem aviso fica tracejada, as resolvidas ficam apagadas; sem
  * pendência nenhuma a trilha inteira fica na cor de destaque.
  */
-export function SipomTrail({ pendencias, sentAt }: { pendencias: SipomPending[]; sentAt?: string | null }) {
+export function SipomTrail({
+  pendencias,
+  sentAt,
+  erro,
+}: {
+  pendencias: SipomPending[];
+  sentAt?: string | null;
+  /** Erro do último envio, para a dica do selo ERRO NO ENVIO. */
+  erro?: string;
+}) {
   // Enviada: a trilha dá lugar ao sinal de envio — não há mais o que resolver.
   if (sentAt) {
     return (
@@ -63,7 +73,7 @@ export function SipomTrail({ pendencias, sentAt }: { pendencias: SipomPending[];
       </span>
     );
   }
-  return (
+  const trail = (
     <div className={"sipom-trail" + (pendencias.length === 0 ? " sipom-trail--ok" : "")}>
       {TRAIL.map(([k, label, Icon]) => {
         const mine = pendencias.filter((p) => STEP_OF_PENDING[p.code] === k);
@@ -77,6 +87,19 @@ export function SipomTrail({ pendencias, sentAt }: { pendencias: SipomPending[];
       })}
     </div>
   );
+  // Recusada pelo SIPOM: o selo vem antes da trilha, que segue mostrando o
+  // que mais falta.
+  if (pendencias.some((p) => p.code === "envio_recusado")) {
+    return (
+      <div className="sipom-trail-wrap">
+        <span className="sipom-err" title={erro ? `O SIPOM recusou o último envio:\n${erro}` : "O SIPOM recusou o último envio"}>
+          <AlertTriangle size={12} strokeWidth={2} /> ERRO NO ENVIO
+        </span>
+        {trail}
+      </div>
+    );
+  }
+  return trail;
 }
 
 /** Legenda da trilha, para ficar acima da tabela. */
@@ -94,6 +117,9 @@ export function SipomTrailLegend({ sent = false, children }: { sent?: boolean; c
       </span>
       <span>
         <i className="sipom-trail-step note" /> AVISO
+      </span>
+      <span className="sipom-err">
+        <AlertTriangle size={11} strokeWidth={2} /> O SIPOM RECUSOU O ÚLTIMO ENVIO
       </span>
       {sent && (
         <span className="sipom-sent">

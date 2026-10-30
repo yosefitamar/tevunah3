@@ -121,7 +121,10 @@ func (a *app) handleSipomEnviar(w http.ResponseWriter, r *http.Request) {
 	if sendErr != nil {
 		var ae *sipom.APIError
 		excluded := errors.As(sendErr, &ae) && ae.Status == http.StatusConflict
-		if err := a.opsReports.SaveSipomSendError(r.Context(), id, sendErr.Error(), excluded); err != nil {
+		// Recusa é o SIPOM dizendo não a esta ocorrência (4xx); limite de
+		// requisições, SIPOM fora ou sem resposta é passageiro e não marca.
+		refused := ae != nil && ae.Status >= 400 && ae.Status < 500 && ae.Status != http.StatusTooManyRequests
+		if err := a.opsReports.SaveSipomSendError(r.Context(), id, sendErr.Error(), excluded, refused); err != nil {
 			log.Printf("sipom send error save: %v", err)
 		}
 		// Placa nova: o SIPOM pede tipo, cor, marca/modelo e ano. O veículo
@@ -131,9 +134,12 @@ func (a *app) handleSipomEnviar(w http.ResponseWriter, r *http.Request) {
 				if err := a.opsReports.MarkVehiclesCadastroExigido(r.Context(), id, vs); err != nil {
 					log.Printf("sipom veículo recusado: %v", err)
 				}
-				a.sipomRecomputeOne(r.Context(), id)
 				meta["veiculos_recusados"] = vs
 			}
+		}
+		// A recusa vira pendência: a ocorrência sai das prontas.
+		if refused {
+			a.sipomRecomputeOne(r.Context(), id)
 		}
 		meta["erro"] = sendErr.Error()
 		_ = a.audit.Log(r.Context(), audit.Entry{
@@ -175,6 +181,10 @@ func (a *app) handleSipomEnviar(w http.ResponseWriter, r *http.Request) {
 	// A composição da inteligência que foi ao SIPOM fica gravada na ficha.
 	if err := a.opsReports.FreezeIntelComposition(r.Context(), so); err != nil {
 		log.Printf("sipom composição inteligência: %v", err)
+	}
+	// Uma recusa anterior deixa de valer: some a pendência envio_recusado.
+	if so.Sipom.Send.RecusadaEm != nil {
+		a.sipomRecomputeOne(r.Context(), id)
 	}
 	meta["protocolo"], meta["situacao"], meta["identificador"], meta["avisos"] =
 		res.Protocolo, res.Situacao, res.Identificador, res.Avisos

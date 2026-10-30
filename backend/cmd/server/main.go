@@ -287,6 +287,7 @@ func main() {
 	mux.Handle("PUT /api/ops-occurrences/{id}/people/{pid}/entity", auth(http.HandlerFunc(a.handleOpsPersonLink)))
 	mux.Handle("DELETE /api/ops-occurrences/{id}/people/{pid}/entity", auth(http.HandlerFunc(a.handleOpsPersonUnlink)))
 	mux.Handle("PUT /api/ops-occurrences/{id}/intel", auth(http.HandlerFunc(a.handleOpsOccurrenceIntel)))
+	mux.Handle("PUT /api/ops-occurrences/{id}/intel-history", auth(http.HandlerFunc(a.handleOpsIntelHistory)))
 	mux.Handle("PUT /api/ops-occurrences/{id}/geo", auth(http.HandlerFunc(a.handleOpsOccurrenceGeo)))
 	mux.Handle("POST /api/ops-occurrences/{id}/photos", auth(http.HandlerFunc(a.handleOpsPhotoUpload)))
 	mux.Handle("GET /api/ops-occurrences/{id}/photos/{pid}", auth(http.HandlerFunc(a.handleOpsPhotoGet)))

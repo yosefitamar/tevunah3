@@ -5916,3 +5916,4 @@ body.session-locked > *:not(.session-overlay-root) {
 .sipom-areas .modal-hd > span { display: inline-flex; align-items: center; gap: 6px; }
 .sipom-areas .sel-trigger { height: 28px; }
 .sipom-areas-new .sel { min-width: 200px; }
+.ops-textarea { height: auto; min-height: 120px; padding: 7px 9px; line-height: 1.5; resize: vertical; }

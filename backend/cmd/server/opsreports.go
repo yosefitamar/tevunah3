@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/belia/tevunah/backend/internal/audit"
 	"github.com/belia/tevunah/backend/internal/entities"
@@ -137,9 +138,11 @@ type opsOccurrenceJSON struct {
 
 	// Participação da inteligência. Na prévia vem só da regra (modo "auto");
 	// gravada, pode ter sido decidida pelo analista ("manual").
-	IntelParticipation bool     `json:"intel_participation"`
-	IntelMode          string   `json:"intel_mode"`
-	IntelMatched       []string `json:"intel_matched"`
+	IntelParticipation bool `json:"intel_participation"`
+	// Histórico de inteligência: aba Inteligência do SIPOM (só na ficha gravada).
+	IntelHistory string   `json:"intel_history"`
+	IntelMode    string   `json:"intel_mode"`
+	IntelMatched []string `json:"intel_matched"`
 
 	// Tradução para o SIPOM (destino do envio); nil sem catálogo.
 	Sipom *sipomOccurrenceJSON `json:"sipom"`
@@ -821,6 +824,7 @@ func (a *app) respondOpsOccurrence(w http.ResponseWriter, r *http.Request, id st
 	out.ID, out.ReportID, out.CreatedAt = so.ID, so.ReportID, &so.CreatedAt
 	out.UpdatedAt, out.UpdatedByName = so.UpdatedAt, so.UpdatedByName
 	out.IntelParticipation, out.IntelMode = so.IntelParticipation, so.IntelMode
+	out.IntelHistory = so.IntelHistory
 	out.Warnings = []string{}
 	out.People = make([]opsPersonJSON, 0, len(so.People))
 	canSearch := a.hasPerm(r, "entity.list")
@@ -1272,4 +1276,63 @@ func (a *app) handleOpsOccurrenceIntel(w http.ResponseWriter, r *http.Request) {
 		"intel_mode":          opsreport.IntelManual,
 		"intel_matched":       nonNil(before.IntelMatched),
 	})
+}
+
+// maxIntelHistory: teto do histórico de inteligência (caracteres).
+const maxIntelHistory = 20000
+
+// PUT /api/ops-occurrences/{id}/intel-history  {"text": "..."}
+//
+// Histórico de inteligência: o texto do analista para a aba Inteligência do
+// SIPOM. Vazio apaga. Só na ocorrência com participação da inteligência; na
+// já enviada, vale no próximo envio.
+func (a *app) handleOpsIntelHistory(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePerm(w, r, "opsreport.update") {
+		return
+	}
+	id := r.PathValue("id")
+	var req struct {
+		Text *string `json:"text"`
+	}
+	if err := httpx.Decode(r, &req); err != nil || req.Text == nil {
+		httpx.Error(w, http.StatusBadRequest, "text obrigatório")
+		return
+	}
+	text := strings.TrimSpace(strings.ReplaceAll(*req.Text, "\r\n", "\n"))
+	if utf8.RuneCountInString(text) > maxIntelHistory {
+		httpx.Error(w, http.StatusBadRequest, fmt.Sprintf("o histórico de inteligência passa de %d caracteres", maxIntelHistory))
+		return
+	}
+	before, err := a.opsReports.FindByID(r.Context(), id)
+	if err != nil {
+		httpx.Error(w, http.StatusNotFound, "ocorrência não encontrada")
+		return
+	}
+	if !before.IntelParticipation {
+		httpx.Error(w, http.StatusConflict, "a ocorrência não está marcada com participação da inteligência")
+		return
+	}
+	if text == before.IntelHistory {
+		a.respondOpsOccurrence(w, r, id)
+		return
+	}
+	if err := a.opsReports.SetIntelHistory(r.Context(), id, text); err != nil {
+		if errors.Is(err, opsreport.ErrNotFound) {
+			httpx.Error(w, http.StatusNotFound, "ocorrência não encontrada")
+			return
+		}
+		log.Printf("opsreport intel history: %v", err)
+		httpx.Error(w, http.StatusInternalServerError, "erro ao gravar")
+		return
+	}
+	aid, sid, ip, ua := a.actorInfo(r)
+	_ = a.audit.Log(r.Context(), audit.Entry{
+		ActorUserID: aid, ActorSessionID: sid, ActorIP: ip, ActorUserAgent: ua,
+		Action:       "opsreport.intel_history.set",
+		ResourceType: audit.Ptr("ops_occurrence"),
+		ResourceID:   &id,
+		Before:       map[string]any{"intel_history": before.IntelHistory},
+		After:        map[string]any{"intel_history": text},
+	})
+	a.respondOpsOccurrence(w, r, id)
 }

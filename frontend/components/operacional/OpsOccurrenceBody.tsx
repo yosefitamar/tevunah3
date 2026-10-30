@@ -17,6 +17,7 @@ import { formatBR, formatBRDate } from "@/lib/format";
 import { IntelSummary } from "./IntelStatus";
 import { OpsBlock, OpsField, OpsFields } from "./OpsField";
 import OpsGeoSection from "./OpsGeoSection";
+import OpsIntelHistory from "./OpsIntelHistory";
 import OpsPhotosSection from "./OpsPhotosSection";
 import { SipomMateriais, SipomProcedimento } from "./SipomPhase2";
 import {
@@ -88,6 +89,8 @@ type Props = {
   onSipomChange?: (s: SipomOccurrence, officers?: OpsOfficer[]) => void;
   /** Ficha gravada com permissão de edição: o analista informa a coordenada. */
   onGeoChange?: (occ: OpsOccurrence) => void;
+  /** Ficha gravada com permissão de edição: o analista escreve o histórico de inteligência. */
+  onIntelHistoryChange?: (occ: OpsOccurrence) => void;
   /** Ficha gravada com permissão de edição: o analista anexa e remove fotos. */
   onPhotosChange?: (photos: OpsPhoto[]) => void;
   /** Abre a correção do texto do relatório, na aba da etapa. */
@@ -110,6 +113,7 @@ export default function OpsOccurrenceBody({
   intelSlot,
   onSipomChange,
   onGeoChange,
+  onIntelHistoryChange,
   onPhotosChange,
   onEdit,
   onEditPerson,
@@ -164,6 +168,11 @@ export default function OpsOccurrenceBody({
           <OpsBlock title="HISTÓRICO" aside={editBtn("fato")}>
             <p className="ops-text ops-text--narrative">{occ.narrative || "—"}</p>
           </OpsBlock>
+          {occ.id && occ.intel_participation && (
+            <OpsBlock title="HISTÓRICO DE INTELIGÊNCIA">
+              <OpsIntelHistory occ={occ} onChange={onIntelHistoryChange} />
+            </OpsBlock>
+          )}
         </>
       ),
     },

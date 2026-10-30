@@ -288,6 +288,8 @@ export type OpsOccurrence = {
   intel_participation: boolean;
   intel_mode: OpsIntelMode;
   intel_matched: string[];
+  /** Histórico de inteligência: texto do analista para a aba Inteligência do SIPOM. */
+  intel_history: string;
   /** null quando o catálogo do SIPOM não está carregado no servidor. */
   sipom: SipomOccurrence | null;
   /** Fotos anexadas pelo analista (apreensão, prisão, local); vão ao SIPOM. */
@@ -487,6 +489,14 @@ export function updateOpsOccurrence(id: string, input: OpsOccurrenceEdit) {
   return api<{ occurrence: OpsOccurrence }>(`/api/ops-occurrences/${encodeURIComponent(id)}`, {
     method: "PATCH",
     body: JSON.stringify(input),
+  });
+}
+
+/** Grava o histórico de inteligência (vazio apaga) e devolve a ficha. */
+export function setOpsIntelHistory(id: string, text: string) {
+  return api<{ occurrence: OpsOccurrence }>(`/api/ops-occurrences/${encodeURIComponent(id)}/intel-history`, {
+    method: "PUT",
+    body: JSON.stringify({ text }),
   });
 }
 

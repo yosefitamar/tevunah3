@@ -504,10 +504,18 @@ func TestSmoke_PayloadPhase2(t *testing.T) {
 	so.Vehicles[0].SipomAnoFabricacao = &ano
 	so.Weapons[0].ID, so.Drugs[0].ID, so.Vehicles[0].ID = "w1", "d1", "v1"
 	so.Sipom.Pending = nil
+	so.IntelHistory = "  Informe prévio da SAI.  "
+	if p, err := BuildSipomPayload(cat, so, PayloadSources{}); err != nil || p.HistoricoInteligencia != "" {
+		t.Errorf("sem participação, historico_inteligencia não vai: %v %+v", err, p)
+	}
+	so.IntelParticipation = true
 
 	p, err := BuildSipomPayload(cat, so, PayloadSources{})
 	if err != nil {
 		t.Fatalf("payload: %v", err)
+	}
+	if p.HistoricoInteligencia != "Informe prévio da SAI." {
+		t.Errorf("historico_inteligencia: %q", p.HistoricoInteligencia)
 	}
 	if p.Origem.ID != "smoke-payload" || p.Ocorrencia.Endereco.BairroID != bairros[0].ID || p.Ocorrencia.Endereco.Latitude != lat {
 		t.Errorf("cabeçalho: %+v", p.Ocorrencia)

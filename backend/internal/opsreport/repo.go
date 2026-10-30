@@ -452,6 +452,8 @@ type StoredOccurrence struct {
 	// o analista ("manual"). Os termos ficam em Occurrence.IntelMatched.
 	IntelParticipation bool
 	IntelMode          string
+	// IntelHistory: texto do analista para a aba Inteligência do SIPOM.
+	IntelHistory string
 
 	// Report é a data do relatório (PDF) de onde a ocorrência veio.
 	Report *time.Time
@@ -681,7 +683,8 @@ const occSelect = `
 	o.latitude, o.longitude, o.geo_precision, o.geo_source,
 	o.sipom_procedimento_id, o.sipom_delegacia_id, o.sipom_delegado_id, o.sipom_sent_at,
 	COALESCE(o.sipom_protocolo::text, ''), o.sipom_identificador, o.sipom_situacao, o.sipom_avisos::text,
-	o.sipom_body_sha256, o.sipom_erro, o.sipom_tentativa_em, o.sipom_excluida_em`
+	o.sipom_body_sha256, o.sipom_erro, o.sipom_tentativa_em, o.sipom_excluida_em,
+	o.intel_history`
 
 // occArrays recebe as colunas de array de occSelect, que chegam como JSON
 // (to_jsonb) e são decodificadas por decode.
@@ -732,6 +735,7 @@ func occDest(so *StoredOccurrence, arr *occArrays) []any {
 		&o.Sipom.ProcedimentoID, &o.Sipom.DelegaciaID, &o.Sipom.DelegadoID, &o.Sipom.SentAt,
 		&o.Sipom.Send.Protocolo, &o.Sipom.Send.Identificador, &o.Sipom.Send.Situacao, &arr.sipomAvisos,
 		&o.Sipom.Send.BodySHA256, &o.Sipom.Send.Erro, &o.Sipom.Send.TentativaEm, &o.Sipom.Send.ExcluidaEm,
+		&so.IntelHistory,
 	}
 }
 
@@ -1945,6 +1949,20 @@ func (r *Repo) SetIntel(ctx context.Context, id string, value bool) error {
 		UPDATE app.ops_occurrences
 		   SET intel_participation = $2, intel_mode = 'manual'
 		 WHERE id = $1 AND deleted_at IS NULL`, id, value)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// SetIntelHistory grava o histórico de inteligência (vazio apaga).
+func (r *Repo) SetIntelHistory(ctx context.Context, id, text string) error {
+	res, err := r.db.ExecContext(ctx, `
+		UPDATE app.ops_occurrences SET intel_history = $2
+		 WHERE id = $1 AND deleted_at IS NULL`, id, text)
 	if err != nil {
 		return err
 	}

@@ -83,12 +83,15 @@ func BuildSipomPayload(cat *sipom.Catalog, so *StoredOccurrence, src PayloadSour
 			},
 			NumeroOcorrencia: strings.TrimSpace(so.CIOPS),
 		},
-		Historico:     strings.TrimSpace(so.Narrative),
-		Composicao:    []sipom.PayloadComposicao{},
-		Procedimentos: []sipom.PayloadProcedimento{},
-		Materiais:     []sipom.PayloadMaterial{},
-		Fotos:         []sipom.PayloadFoto{},
-		Envolvidos:    []sipom.PayloadEnvolvido{},
+		Historico: strings.TrimSpace(so.Narrative),
+		// Aba Inteligência: só o que o analista escreveu, e só com a
+		// participação da inteligência marcada (vazio não vai).
+		HistoricoInteligencia: intelHistory(so),
+		Composicao:            []sipom.PayloadComposicao{},
+		Procedimentos:         []sipom.PayloadProcedimento{},
+		Materiais:             []sipom.PayloadMaterial{},
+		Fotos:                 []sipom.PayloadFoto{},
+		Envolvidos:            []sipom.PayloadEnvolvido{},
 	}
 
 	seen := map[string]bool{}
@@ -318,4 +321,13 @@ func personInput(so *StoredOccurrence, sp StoredPerson) sipom.PersonInput {
 		Sexo: sp.SipomSexo, SexoSugerido: sp.SipomSexoSugerido, SexoFonte: sp.SipomSexoFonte,
 		OccurredOn: so.OccurredOn,
 	}
+}
+
+// intelHistory é o histórico de inteligência do envio. Desmarcada a
+// participação, o texto fica guardado na ficha mas não vai ao SIPOM.
+func intelHistory(so *StoredOccurrence) string {
+	if !so.IntelParticipation {
+		return ""
+	}
+	return strings.TrimSpace(so.IntelHistory)
 }

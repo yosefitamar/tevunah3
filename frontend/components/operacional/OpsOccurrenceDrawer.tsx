@@ -265,6 +265,14 @@ export default function OpsOccurrenceDrawer({ occurrenceId, onClose, onChanged }
                         }
                       : undefined
                   }
+                  onIntelHistoryChange={
+                    canIntel
+                      ? (occ) => {
+                          setData(occ);
+                          onChanged();
+                        }
+                      : undefined
+                  }
                   onGeoChange={
                     canLink
                       ? (occ) => {

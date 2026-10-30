@@ -23,7 +23,7 @@ const GAP_MS = 3000;
 // ocorrência de novo, até RETRIES vezes.
 const WAIT_MS = 60_000;
 const RETRIES = 2;
-// Falhas seguidas que não são recusa de campo (502 sem detalhes, 503): algo
+// Falhas seguidas que não são recusa da ocorrência (502 sem detalhes, 503): algo
 // está errado no conjunto (credencial, SIPOM fora) — o lote para.
 const MAX_STREAK = 3;
 
@@ -97,7 +97,7 @@ export default function SipomBatchSendModal({ items, onClose, onDone }: Props) {
           set(it.id, { status: "erro", info });
           // Recusa desta ocorrência (pendência, campo inválido, excluída no
           // SIPOM) não diz nada do resto do lote.
-          const ownFault = err.status === 409 || (err.status === 502 && !!err.details);
+          const ownFault = err.status === 409 || err.status === 422 || (err.status === 502 && !!err.details);
           streak = ownFault ? 0 : streak + 1;
           if (err.status === 403 || streak >= MAX_STREAK) {
             setStopReason(

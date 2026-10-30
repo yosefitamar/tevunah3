@@ -391,11 +391,11 @@ var (
 // SplitAddress separa logradouro e número da linha de endereço do relatório.
 // O número é o primeiro trecho, depois de uma vírgula, que começa por
 // algarismo ou "S/N"; sem vírgula, um número no fim do primeiro trecho. O
-// complemento que vier depois acompanha o número ("335 - Casa 39a"), que é o
-// único campo livre que sobra no SIPOM.
+// número do SIPOM é só o numeral ou "S/N": complemento, letra e o que vier
+// depois são desconsiderados (o endereço inteiro continua no relatório).
 //
 //	"Rua Fabiano De Cristo, s/n"     → "Rua Fabiano De Cristo" | "S/N"
-//	"Rua José Abílio 335, Casa 39a"  → "Rua José Abílio"       | "335 - Casa 39a"
+//	"Rua José Abílio 335, Casa 39a"  → "Rua José Abílio"       | "335"
 //	"Rua 25 de Março, 100"           → "Rua 25 de Março"       | "100"
 //	"Zona Rural"                     → "Zona Rural"            | ""
 func SplitAddress(addr string) (logradouro, numeral string) {
@@ -409,24 +409,34 @@ func SplitAddress(addr string) (logradouro, numeral string) {
 	}
 	for i := 1; i < len(parts); i++ {
 		if m := reNumberStart.FindStringSubmatch(parts[i]); m != nil {
-			rest := append([]string{m[3]}, parts[i+1:]...)
-			return strings.Join(nonEmpty(parts[:i]), ", "), joinNumeral(m[2], rest)
+			n, _ := NormalizeNumeral(m[2])
+			return strings.Join(nonEmpty(parts[:i]), ", "), n
 		}
 	}
 	if m := reTrailingNum.FindStringSubmatch(parts[0]); m != nil && strings.TrimSpace(m[1]) != "" {
-		return strings.TrimSpace(m[1]), joinNumeral(m[3], parts[1:])
+		n, _ := NormalizeNumeral(m[3])
+		return strings.TrimSpace(m[1]), n
 	}
 	return strings.Join(nonEmpty(parts), ", "), ""
 }
 
-func joinNumeral(num string, rest []string) string {
-	if reSN.MatchString(strings.TrimSpace(num)) {
-		num = "S/N"
+var reNumeral = regexp.MustCompile(`^(\d+)[a-zA-Z]?$`)
+
+// NormalizeNumeral reduz o número do endereço ao que o SIPOM aceita: os
+// algarismos ("39a" → "39") ou "S/N" (s/n, sn, s/nº…); vazio fica vazio. ok
+// = false quando o texto não é nenhum dos dois.
+func NormalizeNumeral(s string) (string, bool) {
+	s = strings.TrimSpace(s)
+	switch {
+	case s == "":
+		return "", true
+	case reSN.MatchString(s):
+		return "S/N", true
 	}
-	if comp := strings.Join(nonEmpty(rest), ", "); comp != "" {
-		return num + " - " + comp
+	if m := reNumeral.FindStringSubmatch(s); m != nil {
+		return m[1], true
 	}
-	return num
+	return "", false
 }
 
 func nonEmpty(ss []string) []string {

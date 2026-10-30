@@ -618,7 +618,12 @@ func (a *app) handleSipomSetField(w http.ResponseWriter, r *http.Request) {
 			httpx.Error(w, http.StatusBadRequest, "informe o logradouro")
 			return
 		}
-		err = a.opsReports.SetSipomEndereco(r.Context(), id, logr, strings.TrimSpace(req.Numeral), req.Reset)
+		num, ok := sipom.NormalizeNumeral(req.Numeral)
+		if !req.Reset && !ok {
+			httpx.Error(w, http.StatusBadRequest, "o número do endereço é só o numeral ou S/N")
+			return
+		}
+		err = a.opsReports.SetSipomEndereco(r.Context(), id, logr, num, req.Reset)
 	case opsreport.SipomFieldComposicao:
 		var officers []opsreport.Officer
 		if !req.Reset {

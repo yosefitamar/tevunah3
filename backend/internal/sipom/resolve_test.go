@@ -9,10 +9,13 @@ func TestSplitAddress(t *testing.T) {
 	cases := []struct{ in, log, num string }{
 		{"Rua Fabiano De Cristo, s/n", "Rua Fabiano De Cristo", "S/N"},
 		{"Rua E, S/N", "Rua E", "S/N"},
-		{"Rua José Abílio 335, Casa 39a", "Rua José Abílio", "335 - Casa 39a"},
+		{"Rua José Abílio 335, Casa 39a", "Rua José Abílio", "335"},
 		{"Rua São Jerônimo, 1588", "Rua São Jerônimo", "1588"},
 		{"Rua 25 de Março, 100", "Rua 25 de Março", "100"},
-		{"Av. Central, nº 45, Bloco B", "Av. Central", "45 - Bloco B"},
+		{"Av. Central, nº 45, Bloco B", "Av. Central", "45"},
+		{"Rua 03, S/N, Planalto Parada", "Rua 03", "S/N"},
+		{"Rua X, 465 - Ap. 401, Residencial José Lino", "Rua X", "465"},
+		{"Rua Y, 12A", "Rua Y", "12"},
 		{"Rua Uruguai 1000", "Rua Uruguai", "1000"},
 		{"Casa De Telha", "Casa De Telha", ""},
 		{"Zona Rural", "Zona Rural", ""},
@@ -22,6 +25,23 @@ func TestSplitAddress(t *testing.T) {
 		log, num := SplitAddress(c.in)
 		if log != c.log || num != c.num {
 			t.Errorf("SplitAddress(%q) = %q | %q, want %q | %q", c.in, log, num, c.log, c.num)
+		}
+	}
+}
+
+func TestNormalizeNumeral(t *testing.T) {
+	cases := []struct {
+		in, out string
+		ok      bool
+	}{
+		{"", "", true}, {" 100 ", "100", true}, {"s/n", "S/N", true}, {"SN", "S/N", true},
+		{"s/nº", "S/N", true}, {"39a", "39", true},
+		{"S/N - Planalto Parada", "", false}, {"465 - Ap. 401", "", false}, {"casa", "", false},
+	}
+	for _, c := range cases {
+		out, ok := NormalizeNumeral(c.in)
+		if out != c.out || ok != c.ok {
+			t.Errorf("NormalizeNumeral(%q) = %q %v, want %q %v", c.in, out, ok, c.out, c.ok)
 		}
 	}
 }

@@ -146,10 +146,14 @@ func (a *app) handleSipomEnviar(w http.ResponseWriter, r *http.Request) {
 			errs = ae.Erros
 		}
 		// O envio em lote da fila decide pelo status: 429 espera o
-		// Retry-After e tenta de novo; 503 (SIPOM fora) também; 502 é recusa
-		// desta ocorrência e o lote segue.
+		// Retry-After e tenta de novo; 503 (SIPOM fora) também; 422 é recusa
+		// de campos desta ocorrência e o lote segue. O 422 não é 502 de
+		// propósito: proxies no caminho trocam a resposta 502 pela página
+		// deles, e o lote perdia os detalhes e contava falha de conexão.
 		status := http.StatusBadGateway
 		switch {
+		case ae != nil && ae.Status == http.StatusUnprocessableEntity:
+			status = http.StatusUnprocessableEntity
 		case ae != nil && ae.Status == http.StatusTooManyRequests:
 			if s := int(ae.RetryAfter.Seconds()); s > 0 {
 				w.Header().Set("Retry-After", strconv.Itoa(s))

@@ -67,6 +67,8 @@ func BuildSipomPayload(cat *sipom.Catalog, so *StoredOccurrence, src PayloadSour
 		return nil, &NotReadyError{Pending: blocking}
 	}
 
+	// Número gravado antes da regra (só numeral ou S/N) sai vazio.
+	numeral, _ := sipom.NormalizeNumeral(f.Numeral)
 	p := &sipom.Payload{
 		Origem: sipom.PayloadOrigem{ID: so.ID},
 		Ocorrencia: sipom.PayloadOcorrencia{
@@ -77,7 +79,7 @@ func BuildSipomPayload(cat *sipom.Catalog, so *StoredOccurrence, src PayloadSour
 			Endereco: sipom.PayloadEndereco{
 				CidadeID: *f.CidadeID, BairroID: *f.BairroID,
 				Latitude: *so.Geo.Lat, Longitude: *so.Geo.Lng,
-				Logradouro: f.Logradouro, Numeral: f.Numeral,
+				Logradouro: f.Logradouro, Numeral: numeral,
 			},
 			NumeroOcorrencia: strings.TrimSpace(so.CIOPS),
 		},

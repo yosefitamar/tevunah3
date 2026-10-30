@@ -226,7 +226,17 @@ export function SipomLocal({ occ, ed }: PartProps) {
           )}
         </OpsField>
         <OpsField label="NÚMERO" value={s.numeral}>
-          {editAddr && <input className="ops-input" type="text" value={num} onChange={(e) => setNum(e.target.value)} maxLength={60} />}
+          {editAddr && (
+            <input
+              className="ops-input"
+              type="text"
+              value={num}
+              onChange={(e) => setNum(e.target.value.replace(/[^0-9sSnN/]/g, "").toUpperCase())}
+              maxLength={10}
+              placeholder="NUMERAL OU S/N"
+              title="Só o numeral ou S/N — o complemento não vai para o SIPOM"
+            />
+          )}
         </OpsField>
         {editAddr && (
           <OpsActions>
@@ -702,7 +712,7 @@ export function SipomEnvio({
     } catch (e) {
       const err = e as ApiError;
       setSentError(err.message || "Erro no envio");
-      // 409: pendências; 502 com 422 do SIPOM: erros por campo.
+      // 409: pendências; 422 (recusa do SIPOM): erros por campo.
       if (Array.isArray(err.details)) {
         setSendDetails((err.details as SipomPending[]).map((p) => p.label || p.code));
       } else if (err.details && typeof err.details === "object") {

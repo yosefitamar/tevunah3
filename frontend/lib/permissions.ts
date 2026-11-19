@@ -67,6 +67,15 @@ export const canCreateInformes = (u: User | null) => can(u, "informe.create");
 export const canEditInformes = (u: User | null) => can(u, "informe.update");
 export const canDeleteInformes = (u: User | null) => can(u, "informe.delete");
 
+// Registro de consultas — justificativa das pesquisas feitas em sistemas
+// externos (migration 00077). Cada um vê os próprios; consulta.read_all abre os
+// de todos. Editar/excluir só o próprio (gestor/admin qualquer um).
+export const canReadConsultas = (u: User | null) => can(u, "consulta.read");
+export const canReadAllConsultas = (u: User | null) => can(u, "consulta.read_all");
+export const canCreateConsultas = (u: User | null) => can(u, "consulta.create");
+export const canEditConsultas = (u: User | null) => can(u, "consulta.update");
+export const canDeleteConsultas = (u: User | null) => can(u, "consulta.delete");
+
 // Ocorrências (homicídio/apreensão/prisão) — matriz semeada na migration
 // 00040_incidents.
 export const canReadIncidents = (u: User | null) => can(u, "incident.read");

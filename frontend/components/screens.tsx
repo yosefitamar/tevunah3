@@ -9,6 +9,7 @@ import OcorrenciasScreen from "./ocorrencias/OcorrenciasScreen";
 import MapaScreen from "./mapa/MapaScreen";
 import RelatoriosScreen from "./relatorios/RelatoriosScreen";
 import InformesScreen from "./informes/InformesScreen";
+import ConsultasScreen from "./consultas/ConsultasScreen";
 
 type PlaceholderProps = {
   tag: string;
@@ -45,3 +46,5 @@ export const ScreenAdmin = AdminScreen;
 export const ScreenRelatorios = RelatoriosScreen;
 
 export const ScreenInformes = InformesScreen;
+
+export const ScreenConsultas = ConsultasScreen;

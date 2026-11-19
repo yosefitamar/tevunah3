@@ -29,6 +29,7 @@ import (
 	"github.com/belia/tevunah/backend/internal/geocode"
 	"github.com/belia/tevunah/backend/internal/httpx"
 	"github.com/belia/tevunah/backend/internal/incidents"
+	"github.com/belia/tevunah/backend/internal/consultas"
 	"github.com/belia/tevunah/backend/internal/informes"
 	"github.com/belia/tevunah/backend/internal/intel"
 	"github.com/belia/tevunah/backend/internal/middleware"
@@ -57,6 +58,7 @@ type app struct {
 	perms       *permissions.Repo
 	entities    *entities.Repo
 	informes    *informes.Repo
+	consultas   *consultas.Repo
 	reports     *reports.Repo
 	incidents   *incidents.Repo
 	opsReports  *opsreport.Repo
@@ -124,6 +126,7 @@ func main() {
 		perms:       permissions.New(appDB),
 		entities:    entities.New(appDB),
 		informes:    informes.New(appDB),
+		consultas:   consultas.New(appDB),
 		reports:     reports.New(appDB),
 		incidents:   incidents.New(appDB),
 		opsReports:  opsreport.New(appDB),
@@ -206,6 +209,13 @@ func main() {
 	mux.Handle("GET /api/informes/{id}/photo", auth(http.HandlerFunc(a.handleInformePhotoGet)))
 	mux.Handle("POST /api/informes/{id}/photo", auth(http.HandlerFunc(a.handleInformePhotoUpload)))
 	mux.Handle("DELETE /api/informes/{id}/photo", auth(http.HandlerFunc(a.handleInformePhotoDelete)))
+
+	mux.Handle("GET /api/consultas", auth(http.HandlerFunc(a.handleConsultasList)))
+	mux.Handle("GET /api/consultas/sistemas", auth(http.HandlerFunc(a.handleConsultasSystems)))
+	mux.Handle("POST /api/consultas", auth(http.HandlerFunc(a.handleConsultaCreate)))
+	mux.Handle("GET /api/consultas/{id}", auth(http.HandlerFunc(a.handleConsultaDetail)))
+	mux.Handle("PUT /api/consultas/{id}", auth(http.HandlerFunc(a.handleConsultaUpdate)))
+	mux.Handle("DELETE /api/consultas/{id}", auth(http.HandlerFunc(a.handleConsultaDelete)))
 
 	mux.Handle("GET /api/entities/persons/duplicates", auth(http.HandlerFunc(a.handleEntityPersonDuplicates)))
 	mux.Handle("GET /api/entities", auth(http.HandlerFunc(a.handleEntitiesList)))

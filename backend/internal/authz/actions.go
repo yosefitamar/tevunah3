@@ -78,6 +78,13 @@ var Catalog = []ActionDef{
 	{"informe.update", "Editar informe", "INFORMES", "Editar informe (próprio; gestor/admin qualquer um).", false},
 	{"informe.delete", "Excluir informe", "INFORMES", "Excluir informe (próprio; gestor/admin qualquer um).", false},
 
+	// ─── Registro de consultas ───────────────────────────────────────────
+	{"consulta.read", "Ver registro de consultas", "CONSULTAS", "Listar e abrir os próprios registros de consulta.", false},
+	{"consulta.read_all", "Ver consultas de todos", "CONSULTAS", "Ver os registros de consulta de todos os agentes, não só os próprios.", false},
+	{"consulta.create", "Registrar consulta", "CONSULTAS", "Registrar uma consulta feita em sistema externo.", false},
+	{"consulta.update", "Editar registro de consulta", "CONSULTAS", "Editar registro de consulta (próprio; gestor/admin qualquer um).", false},
+	{"consulta.delete", "Excluir registro de consulta", "CONSULTAS", "Excluir registro de consulta (próprio; gestor/admin qualquer um).", false},
+
 	// ─── Sistema ─────────────────────────────────────────────────────────
 	{"system.settings.read", "Ver configurações", "SISTEMA", "Ler configurações do sistema.", false},
 	{"system.settings.update", "Editar configurações", "SISTEMA", "Alterar configurações do sistema.", false},

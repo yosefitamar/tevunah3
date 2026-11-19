@@ -31,6 +31,7 @@ type Consulta struct {
 	ReferenceDoc  string
 	Reason        string
 	Result        string
+	PrintPath     *string // print do pedido (filename em PHOTO_DIR); nil = sem print
 	Version       int
 	CreatedAt     time.Time
 	CreatedBy     string
@@ -92,15 +93,16 @@ func New(db *sql.DB) *Repo { return &Repo{db: db} }
 
 const selectFields = `
 	c.id, c.performed_at, c.system, c.target, c.requester, c.requester_org,
-	c.reference_doc, c.reason, c.result, c.version,
+	c.reference_doc, c.reason, c.result, c.print_path, c.version,
 	c.created_at, c.created_by, u.code, u.display_name,
 	c.updated_at, c.updated_by`
 
 func scan(row interface{ Scan(...any) error }) (*Consulta, error) {
 	var c Consulta
+	var print sql.NullString
 	if err := row.Scan(
 		&c.ID, &c.PerformedAt, &c.System, &c.Target, &c.Requester, &c.RequesterOrg,
-		&c.ReferenceDoc, &c.Reason, &c.Result, &c.Version,
+		&c.ReferenceDoc, &c.Reason, &c.Result, &print, &c.Version,
 		&c.CreatedAt, &c.CreatedBy, &c.CreatedByCode, &c.CreatedByName,
 		&c.UpdatedAt, &c.UpdatedBy,
 	); err != nil {
@@ -108,6 +110,9 @@ func scan(row interface{ Scan(...any) error }) (*Consulta, error) {
 			return nil, ErrNotFound
 		}
 		return nil, err
+	}
+	if print.Valid && print.String != "" {
+		c.PrintPath = &print.String
 	}
 	return &c, nil
 }
@@ -173,6 +178,29 @@ func (r *Repo) SoftDelete(ctx context.Context, id, actor string) error {
 		return ErrNotFound
 	}
 	return nil
+}
+
+// SetPrintPath grava (ou limpa, com "") o filename do print do pedido e devolve
+// o anterior, para o caller remover o arquivo do disco.
+func (r *Repo) SetPrintPath(ctx context.Context, id, filename, updatedBy string) (oldPath string, err error) {
+	var old sql.NullString
+	var newVal any
+	if filename != "" {
+		newVal = filename
+	}
+	err = r.db.QueryRowContext(ctx, `
+		WITH prev AS (SELECT print_path FROM app.consultas WHERE id = $1 AND deleted_at IS NULL)
+		UPDATE app.consultas
+		   SET print_path = $2, updated_at = now(), updated_by = $3, version = version + 1
+		 WHERE id = $1 AND deleted_at IS NULL
+		RETURNING (SELECT print_path FROM prev)`, id, newVal, updatedBy).Scan(&old)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	if err != nil {
+		return "", err
+	}
+	return old.String, nil
 }
 
 // orderBy traduz (SortBy, SortDir) num ORDER BY seguro (whitelist).

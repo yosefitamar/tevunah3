@@ -1,4 +1,5 @@
 import { api } from "./api";
+import { terminalHeaders } from "./device-id";
 
 // Registro de consulta: a pesquisa que o agente fez num sistema externo a
 // pedido de alguém, guardada como justificativa para auditoria.
@@ -14,6 +15,7 @@ export type Consulta = {
   reference_doc: string; // documento de referência
   reason: string; // MOTIVO
   result: string; // RESULTADO
+  has_print: boolean; // print do pedido anexado
   version: number;
   created_at: string;
   created_by: string;
@@ -90,6 +92,44 @@ export function updateConsulta(id: string, input: ConsultaInput) {
 
 export function deleteConsulta(id: string) {
   return api<void>(`/api/consultas/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+}
+
+// URL do print do pedido (com cache-bust por version).
+export function consultaPrintURL(id: string, v?: string | number): string {
+  const bust = v != null ? `?v=${encodeURIComponent(String(v))}` : "";
+  return `/api/consultas/${encodeURIComponent(id)}/print${bust}`;
+}
+
+// Upload multipart (não usa api() porque precisa de boundary auto-gerado).
+export async function uploadConsultaPrint(id: string, file: File): Promise<Consulta> {
+  const fd = new FormData();
+  fd.append("photo", file);
+  const res = await fetch(`/api/consultas/${encodeURIComponent(id)}/print`, {
+    method: "POST",
+    credentials: "include",
+    headers: terminalHeaders(),
+    body: fd,
+  });
+  let body: { success: boolean; data?: { consulta: Consulta }; message?: string } = {
+    success: false,
+  };
+  try {
+    body = await res.json();
+  } catch {
+    // sem corpo
+  }
+  if (!res.ok) {
+    const err = new Error(body.message ?? `HTTP ${res.status}`) as Error & { status: number };
+    err.status = res.status;
+    throw err;
+  }
+  return (body.data as { consulta: Consulta }).consulta;
+}
+
+export function deleteConsultaPrint(id: string) {
+  return api<void>(`/api/consultas/${encodeURIComponent(id)}/print`, {
     method: "DELETE",
   });
 }

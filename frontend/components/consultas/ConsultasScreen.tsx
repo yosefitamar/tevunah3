@@ -225,6 +225,7 @@ export default function ConsultasScreen() {
           systems={systems}
           onClose={() => setOpen(null)}
           onSaved={onSaved}
+          onChanged={reload}
         />
       )}
     </div>

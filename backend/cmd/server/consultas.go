@@ -31,6 +31,7 @@ type publicConsulta struct {
 	ReferenceDoc  string    `json:"reference_doc"`
 	Reason        string    `json:"reason"`
 	Result        string    `json:"result"`
+	HasPrint      bool      `json:"has_print"` // print do pedido anexado
 	Version       int       `json:"version"`
 	CreatedAt     time.Time `json:"created_at"`
 	CreatedBy     string    `json:"created_by"`
@@ -62,6 +63,7 @@ func (a *app) toPublicConsulta(c *consultas.Consulta) publicConsulta {
 		ReferenceDoc:  c.ReferenceDoc,
 		Reason:        c.Reason,
 		Result:        c.Result,
+		HasPrint:      c.PrintPath != nil,
 		Version:       c.Version,
 		CreatedAt:     c.CreatedAt,
 		CreatedBy:     c.CreatedBy,

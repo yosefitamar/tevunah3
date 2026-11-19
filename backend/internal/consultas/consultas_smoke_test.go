@@ -126,6 +126,19 @@ func TestSmoke_CreateListUpdateSoftDelete(t *testing.T) {
 		t.Errorf("update não aplicado: %+v", updated)
 	}
 
+	if old, err := r.SetPrintPath(ctx, created.ID, "consulta-x.png", author); err != nil || old != "" {
+		t.Fatalf("set print: old=%q err=%v", old, err)
+	}
+	if c, _ := r.FindByID(ctx, created.ID); c == nil || c.PrintPath == nil || *c.PrintPath != "consulta-x.png" {
+		t.Errorf("print não gravado: %+v", c)
+	}
+	if old, err := r.SetPrintPath(ctx, created.ID, "", author); err != nil || old != "consulta-x.png" {
+		t.Fatalf("clear print: old=%q err=%v", old, err)
+	}
+	if c, _ := r.FindByID(ctx, created.ID); c == nil || c.PrintPath != nil {
+		t.Errorf("print não removido: %+v", c)
+	}
+
 	if err := r.SoftDelete(ctx, created.ID, author); err != nil {
 		t.Fatalf("soft delete: %v", err)
 	}

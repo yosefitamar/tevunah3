@@ -679,6 +679,10 @@ func (a *app) learnTerm(r *http.Request, learned map[string]any, field, term str
 // responde com o bloco SIPOM atualizado.
 func (a *app) finishSipomChange(w http.ResponseWriter, r *http.Request, id, action string,
 	before *opsreport.StoredOccurrence, learned map[string]any) {
+	// Corrigida depois da recusa do SIPOM: volta para a fila de envio.
+	if _, err := a.opsReports.ClearSipomRefusal(r.Context(), id); err != nil {
+		log.Printf("sipom limpar recusa: %v", err)
+	}
 	if len(learned) > 0 {
 		if _, _, err := a.opsReports.RecomputeSipom(r.Context(), a.sipom, ""); err != nil {
 			log.Printf("sipom recompute after terms: %v", err)

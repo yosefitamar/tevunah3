@@ -131,6 +131,7 @@ func (a *app) handleOpsPhotoUpload(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	a.clearRefusal(r.Context(), id)
 	a.auditOpsPhoto(r, "opsreport.photo.add", id, nil,
 		map[string]any{"photo_id": p.ID, "photo_path": p.Path, "mime": p.MIME, "size": p.Size})
 
@@ -182,6 +183,7 @@ func (a *app) handleOpsPhotoDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = os.Remove(filepath.Join(photoDir(), p.Path))
+	a.clearRefusal(r.Context(), id)
 	a.auditOpsPhoto(r, "opsreport.photo.delete", id,
 		map[string]any{"photo_id": p.ID, "photo_path": p.Path, "mime": p.MIME, "size": p.Size}, nil)
 	httpx.NoContent(w)

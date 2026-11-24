@@ -950,9 +950,14 @@ function Seg({ value, onChange }: { value: "" | "1" | "0"; onChange: (v: "" | "1
 // Ocorrências por lote do RESOLVER COM IA.
 const AI_BATCH_MAX = 100;
 
-/** Pronta para o envio em lote: do relatório, não enviada, sem pendência que impeça. */
+/**
+ * Pode entrar no envio em lote: do relatório, não enviada, sem pendência que
+ * impeça. A recusa anterior do SIPOM (envio_recusado) não conta: ela some
+ * quando o analista corrige a ficha, mas a correção pode ter sido feita fora
+ * dela (no SIPOM, por exemplo) — o analista decide reenviar.
+ */
 function sendable(r: OccurrenceRow) {
-  return !!r.ops_id && !r.sipom_sent_at && !r.pendencias.some((p) => p.blocking);
+  return !!r.ops_id && !r.sipom_sent_at && !r.pendencias.some((p) => p.blocking && p.code !== "envio_recusado");
 }
 
 function batchItem(r: OccurrenceRow): BatchItem {

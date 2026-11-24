@@ -1204,6 +1204,21 @@ func (r *Repo) SaveSipomSend(ctx context.Context, id, actor string, res *sipom.R
 		id, actor, res.Protocolo, res.Identificador, res.Situacao, string(js), bodySHA)
 }
 
+// ClearSipomRefusal tira a marca de recusa do SIPOM: o analista corrigiu a
+// ficha depois da recusa, então ela volta para a fila de envio (pronta, se não
+// restar outra pendência). O erro do último envio continua gravado. Devolve se
+// havia recusa.
+func (r *Repo) ClearSipomRefusal(ctx context.Context, id string) (bool, error) {
+	res, err := r.db.ExecContext(ctx, `
+		UPDATE app.ops_occurrences SET sipom_recusada_em = NULL
+		 WHERE id = $1 AND sipom_recusada_em IS NOT NULL AND sipom_sent_at IS NULL`, id)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
 // SaveSipomSendError grava a tentativa que falhou. excluded: o SIPOM disse
 // que a ocorrência foi excluída lá (409) — não adianta reenviar. refused: o
 // SIPOM recusou a ocorrência (não foi falha passageira) — ela sai das

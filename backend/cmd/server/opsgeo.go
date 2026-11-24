@@ -101,7 +101,7 @@ func (a *app) handleOpsOccurrenceGeo(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusInternalServerError, "erro ao gravar")
 		return
 	}
-	a.sipomRecomputeOne(r.Context(), id)
+	a.sipomCorrected(r.Context(), id)
 
 	aid, sid, ip, ua := a.actorInfo(r)
 	_ = a.audit.Log(r.Context(), audit.Entry{

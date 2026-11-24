@@ -373,6 +373,9 @@ func (a *app) handleSipomSetNatureza(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusInternalServerError, "erro ao gravar")
 		return
 	}
+	if _, err := a.opsReports.ClearSipomRefusal(r.Context(), id); err != nil {
+		log.Printf("sipom limpar recusa: %v", err)
+	}
 	if _, _, err := a.opsReports.RecomputeSipom(r.Context(), a.sipom, id); err != nil {
 		log.Printf("sipom recompute one: %v", err)
 		httpx.Error(w, http.StatusInternalServerError, "erro ao recalcular")
@@ -530,6 +533,24 @@ func (a *app) handleSipomMapUpsert(w http.ResponseWriter, r *http.Request) {
 // sipomRecomputeOne refaz a tradução de uma ocorrência depois de mudança
 // que a afeta (vínculo de pessoa). Falha só registra: a ficha já foi gravada
 // e o próximo recálculo corrige.
+// sipomCorrected é o recálculo depois de uma correção do analista: a ficha
+// que o SIPOM tinha recusado volta para a fila de envio (a recusa vale até o
+// analista mexer nela).
+func (a *app) sipomCorrected(ctx context.Context, id string) {
+	a.clearRefusal(ctx, id)
+	a.sipomRecomputeOne(ctx, id)
+}
+
+// clearRefusal tira a recusa do SIPOM da ficha que o analista corrigiu (o
+// recálculo seguinte some com a pendência envio_recusado).
+func (a *app) clearRefusal(ctx context.Context, id string) {
+	if cleared, err := a.opsReports.ClearSipomRefusal(ctx, id); err != nil {
+		log.Printf("sipom limpar recusa: %v", err)
+	} else if cleared {
+		log.Printf("sipom: ocorrência %s corrigida depois da recusa — volta para a fila", id)
+	}
+}
+
 func (a *app) sipomRecomputeOne(ctx context.Context, id string) {
 	if a.sipom == nil {
 		return
@@ -652,7 +673,7 @@ func (a *app) handleSipomSetField(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusInternalServerError, "erro ao gravar")
 		return
 	}
-	a.sipomRecomputeOne(r.Context(), id)
+	a.sipomCorrected(r.Context(), id)
 	after, err := a.opsReports.FindByID(r.Context(), id)
 	if err != nil {
 		httpx.Error(w, http.StatusInternalServerError, "erro ao ler a ocorrência")
@@ -910,7 +931,7 @@ func (a *app) handleSipomConfirmNaturezas(w http.ResponseWriter, r *http.Request
 		return
 	}
 	for _, id := range done {
-		a.sipomRecomputeOne(r.Context(), id)
+		a.sipomCorrected(r.Context(), id)
 	}
 	aid, sid, ip, ua := a.actorInfo(r)
 	_ = a.audit.Log(r.Context(), audit.Entry{

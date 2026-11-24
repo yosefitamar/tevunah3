@@ -1017,7 +1017,7 @@ func (a *app) handleOpsOccurrenceUpdate(w http.ResponseWriter, r *http.Request) 
 			log.Printf("opsreport update (intel): %v", err)
 		}
 	}
-	a.sipomRecomputeOne(r.Context(), id)
+	a.sipomCorrected(r.Context(), id)
 
 	after, err := a.opsReports.FindByID(r.Context(), id)
 	if err != nil {
@@ -1118,7 +1118,7 @@ func (a *app) handleOpsPersonUpdate(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusInternalServerError, "erro ao gravar")
 		return
 	}
-	a.sipomRecomputeOne(r.Context(), id)
+	a.sipomCorrected(r.Context(), id)
 
 	after, err := a.opsReports.FindByID(r.Context(), id)
 	if err != nil {
@@ -1183,7 +1183,7 @@ func (a *app) handleOpsPersonLink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.auditOpsLink(r, "opsreport.person.link", occID, before, &ent.ID)
-	a.sipomRecomputeOne(r.Context(), occID)
+	a.sipomCorrected(r.Context(), occID)
 	httpx.OK(w, map[string]any{"entity_id": ent.ID, "entity_name": ent.Name, "link_mode": opsreport.LinkManual})
 }
 
@@ -1204,7 +1204,7 @@ func (a *app) handleOpsPersonUnlink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.auditOpsLink(r, "opsreport.person.unlink", occID, before, nil)
-	a.sipomRecomputeOne(r.Context(), occID)
+	a.sipomCorrected(r.Context(), occID)
 	httpx.NoContent(w)
 }
 
@@ -1255,6 +1255,7 @@ func (a *app) handleOpsOccurrenceIntel(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusInternalServerError, "erro ao gravar")
 		return
 	}
+	a.sipomCorrected(r.Context(), id)
 	aid, sid, ip, ua := a.actorInfo(r)
 	_ = a.audit.Log(r.Context(), audit.Entry{
 		ActorUserID: aid, ActorSessionID: sid, ActorIP: ip, ActorUserAgent: ua,
@@ -1325,6 +1326,7 @@ func (a *app) handleOpsIntelHistory(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusInternalServerError, "erro ao gravar")
 		return
 	}
+	a.sipomCorrected(r.Context(), id)
 	aid, sid, ip, ua := a.actorInfo(r)
 	_ = a.audit.Log(r.Context(), audit.Entry{
 		ActorUserID: aid, ActorSessionID: sid, ActorIP: ip, ActorUserAgent: ua,

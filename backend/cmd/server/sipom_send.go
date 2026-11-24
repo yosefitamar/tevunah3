@@ -371,7 +371,7 @@ func (a *app) handleSipomConfirmSexos(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, id := range done {
-		a.sipomRecomputeOne(r.Context(), id)
+		a.sipomCorrected(r.Context(), id)
 	}
 	aid, sid, ip, ua := a.actorInfo(r)
 	_ = a.audit.Log(r.Context(), audit.Entry{

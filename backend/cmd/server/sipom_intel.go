@@ -123,6 +123,7 @@ func (a *app) handleSipomSetIntel(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusInternalServerError, "erro ao gravar")
 		return
 	}
+	a.sipomCorrected(r.Context(), id)
 	after, err := a.opsReports.FindByID(r.Context(), id)
 	if err != nil {
 		httpx.Error(w, http.StatusInternalServerError, "erro ao ler a ocorrência")

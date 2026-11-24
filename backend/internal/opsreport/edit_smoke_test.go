@@ -843,3 +843,48 @@ func TestSmoke_UpdatePerson(t *testing.T) {
 		t.Errorf("pessoa de outra ocorrência: %v, quer ErrNotFound", err)
 	}
 }
+
+// Recusada pelo SIPOM, a ficha fica com envio_recusado; corrigida pelo
+// analista (ClearSipomRefusal), volta para a fila. Restaura o que havia.
+func TestSmoke_SipomRefusalCleared(t *testing.T) {
+	db, _ := smokeDB(t)
+	ctx := context.Background()
+	r := New(db)
+	var id, erro string
+	var recusada, tentativa *time.Time
+	err := db.QueryRowContext(ctx, `
+		SELECT id, sipom_erro, sipom_recusada_em, sipom_tentativa_em FROM app.ops_occurrences
+		 WHERE deleted_at IS NULL AND sipom_sent_at IS NULL ORDER BY id LIMIT 1`).Scan(&id, &erro, &recusada, &tentativa)
+	if err != nil {
+		t.Skip("sem ocorrência na fila")
+	}
+	cat, err := sipom.Load(ctx, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = db.ExecContext(ctx, `UPDATE app.ops_occurrences SET sipom_erro = $2, sipom_recusada_em = $3, sipom_tentativa_em = $4 WHERE id = $1`,
+			id, erro, recusada, tentativa)
+		_, _, _ = r.RecomputeSipom(ctx, cat, id)
+	})
+	if err := r.SaveSipomSendError(ctx, id, "teste: campo inválido", false, true); err != nil {
+		t.Fatal(err)
+	}
+	_, _, _ = r.RecomputeSipom(ctx, cat, id)
+	so, _ := r.FindByID(ctx, id)
+	if !hasString(so.Sipom.Pending, sipom.PendEnvioRecusado) {
+		t.Fatalf("recusada deveria ter envio_recusado: %v", so.Sipom.Pending)
+	}
+	cleared, err := r.ClearSipomRefusal(ctx, id)
+	if err != nil || !cleared {
+		t.Fatalf("limpar recusa: %v %v", cleared, err)
+	}
+	_, _, _ = r.RecomputeSipom(ctx, cat, id)
+	so, _ = r.FindByID(ctx, id)
+	if hasString(so.Sipom.Pending, sipom.PendEnvioRecusado) || so.Sipom.Send.Erro != "teste: campo inválido" {
+		t.Errorf("corrigida, sai a recusa e fica o erro do último envio: %v %q", so.Sipom.Pending, so.Sipom.Send.Erro)
+	}
+	if again, _ := r.ClearSipomRefusal(ctx, id); again {
+		t.Error("sem recusa, não há o que limpar")
+	}
+}

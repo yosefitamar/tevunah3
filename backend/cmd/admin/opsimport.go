@@ -33,16 +33,21 @@ const opsImportMaxBytes = 20 << 20
 // aplica o vínculo automático com os dossiês, guarda o PDF e registra na
 // auditoria, em nome do usuário informado.
 //
-//	admin ops-import -user <email> [-dry-run] [-after <ficha>] <pasta|arquivo.pdf>...
+//	admin ops-import -user <email> [-dry-run] [-after <ficha>] [-lancadas] <pasta|arquivo.pdf>...
 //
 // É seguro rodar de novo: PDF já importado é pulado (pelo hash), e ocorrência
 // cuja ficha CIOPS já existe não é duplicada. -after descarta a ficha
 // informada e as anteriores a ela: as que já foram lançadas no SIPOM à mão.
+// -lancadas importa o acervo que já está no SIPOM (lançado à mão) marcando
+// cada ocorrência como lançada: ela entra para estatística, mapa e dossiês,
+// mas não vai para a fila de envio — enviar duplicaria no SIPOM, que não
+// reconhece a ocorrência pela ficha CIOPS.
 func runOpsImport(args []string) {
 	fs := flag.NewFlagSet("ops-import", flag.ExitOnError)
 	email := fs.String("user", "", "e-mail do usuário em nome de quem a importação é registrada")
 	dry := fs.Bool("dry-run", false, "só lê e mostra o que seria importado, sem gravar")
 	after := fs.String("after", "", "ficha CIOPS de corte: ela e as anteriores não são importadas")
+	lancadas := fs.Bool("lancadas", false, "marca as ocorrências importadas como já lançadas no SIPOM à mão (fora da fila de envio)")
 	_ = fs.Parse(args)
 	if *email == "" || fs.NArg() == 0 {
 		fmt.Fprintln(os.Stderr, "uso: admin ops-import -user <email> [-dry-run] [-after <ficha>] <pasta|arquivo.pdf>...")
@@ -126,7 +131,7 @@ func runOpsImport(args []string) {
 		fmt.Printf("Corte: fichas até %s (inclusive) não são importadas\n\n", cut)
 	}
 
-	var tot struct{ files, skippedFiles, failed, occ, dupOcc, cutOcc, linked, located, unlocated, intel int }
+	var tot struct{ files, skippedFiles, failed, occ, dupOcc, cutOcc, linked, located, unlocated, intel, marked int }
 	geoDown := false
 	for _, path := range files {
 		name := filepath.Base(path)
@@ -319,6 +324,25 @@ func runOpsImport(args []string) {
 			if _, _, err := repo.RecomputeSipom(ctx, cat, id); err != nil {
 				log.Printf("recálculo do SIPOM de %s: %v", id, err)
 			}
+			if !*lancadas {
+				continue
+			}
+			if err := repo.SetSipomSent(ctx, id, true, me.ID); err != nil {
+				log.Printf("marcar %s como lançada no SIPOM: %v", id, err)
+				continue
+			}
+			tot.marked++
+			occID := id
+			if err := auditLog.Log(ctx, audit.Entry{
+				ActorUserID:  &me.ID,
+				Action:       "opsreport.sipom.sent",
+				ResourceType: audit.Ptr("ops_occurrence"),
+				ResourceID:   &occID,
+				Reason:       audit.Ptr("importação de acervo já lançado à mão no SIPOM (cli admin ops-import -lancadas)"),
+				After:        map[string]any{"sipom_sent": true, "manual": true},
+			}); err != nil {
+				log.Printf("aviso: falha ao gravar a auditoria de %s: %v", id, err)
+			}
 		}
 
 		tot.files++
@@ -342,6 +366,9 @@ func runOpsImport(args []string) {
 		tot.occ, tot.dupOcc, tot.linked, tot.intel)
 	if cut != "" {
 		fmt.Printf("Corte: %d ocorrência(s) até %s descartada(s)\n", tot.cutOcc, cut)
+	}
+	if *lancadas && !*dry {
+		fmt.Printf("Marcadas como já lançadas no SIPOM (fora da fila): %d\n", tot.marked)
 	}
 	if geo.Enabled() {
 		fmt.Printf("Coordenada: %d localizada(s), %d sem coordenada (pendência)\n", tot.located, tot.unlocated)

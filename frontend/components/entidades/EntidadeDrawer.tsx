@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { Car, Link2, MapPin, Network, Pencil, Plus, RotateCcw, Trash2, X } from "lucide-react";
 import GraphModal from "./GraphModal";
 import MotherField from "./MotherField";
+import CriminalRecordsField, { CriminalRecordsList } from "./CriminalRecordsField";
 import TagInput from "../shared/TagInput";
 import Combobox from "../shared/Combobox";
 import Select from "../shared/Select";
@@ -39,6 +40,7 @@ import {
   type EntityKind,
   type EntityLink,
   type PersonAddress,
+  type CriminalRecord,
   type Gender,
   type OrganizationAttrs,
   type PersonAttrs,
@@ -74,7 +76,7 @@ import OccurrencesSection from "./OccurrencesSection";
 import CreateEntidadeModal from "./CreateEntidadeModal";
 import { PersistedGalleryEditor } from "./GalleryEditor";
 import { canDeleteEntities, canEditEntities } from "@/lib/permissions";
-import { formatBR, formatBRDate } from "@/lib/format";
+import { formatBR, formatBRDate, formatPhoneBR, formatRG } from "@/lib/format";
 import type { ApiError } from "@/lib/api";
 
 type Props = {
@@ -356,6 +358,15 @@ function ViewMode({
         {isVehicle(data) && <VehicleView attrs={data.attrs} />}
       </div>
 
+      {isPerson(data) && (
+        <div className="drawer-section">
+          <div className="drawer-section-title">
+            HISTÓRICO CRIMINAL ({data.attrs?.criminal_records?.length ?? 0})
+          </div>
+          <CriminalRecordsList records={data.attrs?.criminal_records} />
+        </div>
+      )}
+
       {/* No dossiê (modo consulta) os vínculos e endereços são read-only.
           Adição/remoção fica disponível apenas no modo EDITAR. */}
       <LinksSection entityID={data.id} entityKind={data.kind} canManage={false} />
@@ -453,9 +464,26 @@ function PersonView({ attrs }: { attrs?: PersonAttrs }) {
   return (
     <dl className="dossier-list">
       <Row label="NOME DA MÃE" value={attrs.mother_name ?? "—"} />
+      <Row label="NOME DO PAI" value={attrs.father_name ?? "—"} />
       <Row label="GÊNERO" value={genderLabel} />
       <Row label="NASCIMENTO" value={formatBRDate(attrs.date_of_birth) } />
+      <Row label="NATURALIDADE" value={attrs.birthplace ?? "—"} />
+      <Row label="NACIONALIDADE" value={attrs.nationality ?? "—"} />
       <Row label="CPF" value={attrs.cpf ? formatCpfMask(attrs.cpf) : "—"} />
+      <Row
+        label="RG"
+        value={
+          formatRG(attrs.rg_number, attrs.rg_issuer, attrs.rg_state) +
+          (attrs.rg_number && attrs.rg_issued_on
+            ? ` · EMISSÃO ${formatBRDate(attrs.rg_issued_on)}`
+            : "")
+        }
+      />
+      <Row label="Nº SIP" value={attrs.sip_number ?? "—"} />
+      <Row
+        label="TELEFONES"
+        value={attrs.phones?.length ? attrs.phones.map(formatPhoneBR).join(", ") : "—"}
+      />
       <Row label="ORCRIM" value={orcrimLabel(attrs)} />
       <Row label="APELIDOS" value={attrs.aliases?.join(", ") || "—"} />
     </dl>
@@ -575,6 +603,20 @@ function EditMode({
     linkId: "",
   });
   const [cpf, setCpf] = useState(person?.cpf ?? "");
+  const [fatherName, setFatherName] = useState(person?.father_name ?? "");
+  const [birthplace, setBirthplace] = useState(person?.birthplace ?? "");
+  const [nationality, setNationality] = useState(person?.nationality ?? "");
+  const [rgNumber, setRgNumber] = useState(person?.rg_number ?? "");
+  const [rgIssuer, setRgIssuer] = useState(person?.rg_issuer ?? "");
+  const [rgState, setRgState] = useState(person?.rg_state ?? "");
+  const [rgIssuedOn, setRgIssuedOn] = useState(person?.rg_issued_on ?? "");
+  const [phones, setPhones] = useState<string[]>(
+    (person?.phones ?? []).map(formatPhoneBR),
+  );
+  const [sipNumber, setSipNumber] = useState(person?.sip_number ?? "");
+  const [criminalRecords, setCriminalRecords] = useState<CriminalRecord[]>(
+    person?.criminal_records ?? [],
+  );
   const [orcrimId, setOrcrimId] = useState(person?.orcrim_id ?? "");
   // Data do óbito: campo opcional, preenchido à mão quando não há ocorrência
   // cadastrada. Vincular a pessoa como VÍTIMA de um homicídio preenche este
@@ -677,6 +719,18 @@ function EditMode({
                 mother_name: motherName.trim() || undefined,
                 cpf: cpf.replace(/\D/g, "") || undefined,
                 orcrim_id: orcrimId || undefined,
+                father_name: fatherName.trim() || undefined,
+                birthplace: birthplace.trim() || undefined,
+                nationality: nationality.trim() || undefined,
+                rg_number: rgNumber.trim() || undefined,
+                rg_issuer: rgIssuer.trim() || undefined,
+                rg_state: rgState.trim() || undefined,
+                rg_issued_on: rgIssuedOn || undefined,
+                // Lista sempre enviada: [] limpa os telefones no backend.
+                phones: phones.map((p) => p.replace(/\D/g, "")).filter(Boolean),
+                sip_number: sipNumber.trim() || undefined,
+                // Lista sempre enviada: [] limpa o histórico.
+                criminal_records: criminalRecords,
               }
             : undefined,
         organization:
@@ -872,6 +926,75 @@ function EditMode({
                 maxLength={14}
               />
             </label>
+            <label className="form-field" style={{ gridColumn: "1 / -1" }}>
+              <span>NOME DO PAI</span>
+              <input
+                type="text"
+                value={fatherName}
+                onChange={(e) => setFatherName(e.target.value)}
+              />
+            </label>
+            <label className="form-field">
+              <span>NATURALIDADE</span>
+              <input
+                type="text"
+                value={birthplace}
+                onChange={(e) => setBirthplace(e.target.value)}
+                placeholder="CIDADE/UF"
+              />
+            </label>
+            <label className="form-field">
+              <span>NACIONALIDADE</span>
+              <input
+                type="text"
+                value={nationality}
+                onChange={(e) => setNationality(e.target.value)}
+              />
+            </label>
+            <label className="form-field">
+              <span>RG</span>
+              <input
+                type="text"
+                value={rgNumber}
+                onChange={(e) => setRgNumber(e.target.value)}
+              />
+            </label>
+            <div className="form-grid-2">
+              <label className="form-field">
+                <span>ÓRGÃO</span>
+                <input
+                  type="text"
+                  value={rgIssuer}
+                  onChange={(e) => setRgIssuer(e.target.value)}
+                />
+              </label>
+              <label className="form-field">
+                <span>UF</span>
+                <input
+                  type="text"
+                  value={rgState}
+                  onChange={(e) => setRgState(e.target.value)}
+                  maxLength={2}
+                />
+              </label>
+            </div>
+            <div className="form-field">
+              <span>EMISSÃO DO RG</span>
+              <DateInput value={rgIssuedOn} onChange={setRgIssuedOn} />
+            </div>
+            <label className="form-field">
+              <span>TELEFONES</span>
+              <TagInput value={phones} onChange={setPhones} />
+            </label>
+            <label className="form-field">
+              <span>Nº SIP</span>
+              <input
+                type="text"
+                value={sipNumber}
+                onChange={(e) => setSipNumber(e.target.value)}
+                inputMode="numeric"
+              />
+            </label>
             <div className="form-field" style={{ gridColumn: "1 / -1" }}>
               <span>DATA DO ÓBITO (OPCIONAL)</span>
               <DateInput value={deceasedOn} onChange={setDeceasedOn} />
@@ -890,6 +1013,14 @@ function EditMode({
           </label>
           <DrawerOrcrimSelect value={orcrimId} onChange={setOrcrimId} />
         </fieldset>
+      )}
+
+      {data.kind === "person" && (
+        <CriminalRecordsField
+          value={criminalRecords}
+          onChange={setCriminalRecords}
+          disabled={busy}
+        />
       )}
 
       {data.kind === "organization" && (

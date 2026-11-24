@@ -107,6 +107,23 @@ type PersonAttrs struct {
 	OrcrimAlias *string
 	Addresses   []PersonAddress
 
+	// Filiação paterna, naturalidade, RG e telefones — chegam sobretudo pelo
+	// RELATÓRIO DE CPF importado na qualificação civil. Phones nil = mantém
+	// (update parcial); [] = limpa. Telefones só com dígitos, DDD incluído.
+	FatherName  *string
+	Birthplace  *string
+	Nationality *string
+	RGNumber    *string
+	RGIssuer    *string
+	RGState     *string
+	RGIssuedOn  *time.Time
+	Phones      []string
+	SIPNumber   *string
+
+	// Histórico criminal (peças judiciais e ocorrências policiais). nil =
+	// mantém (update parcial); [] = limpa. Ver CriminalRecord.
+	CriminalRecords []CriminalRecord
+
 	// Óbito. Marcado ao vincular a pessoa como vítima de homicídio; a
 	// ocorrência de origem pode ser desfeita sem desfazer a morte, então
 	// DeathIncidentID é opcional mesmo com Deceased = true.
@@ -1047,11 +1064,18 @@ func (r *Repo) loadChild(ctx context.Context, e *Entity) error {
 		var orcrimID, orcrimName, orcrimAlias sql.NullString
 		var deceasedOn sql.NullTime
 		var deathIncidentID sql.NullString
+		var fatherName, birthplace, nationality, rgNumber, rgIssuer, rgState sql.NullString
+		var rgIssuedOn sql.NullTime
+		var phonesJSON, recordsJSON []byte
+		var sipNumber sql.NullString
 		err := r.db.QueryRowContext(ctx, `
 			SELECT to_jsonb(p.aliases), p.gender, p.date_of_birth,
 			       p.mother_name, p.cpf, p.photo_path,
 			       p.orcrim_id, oc.name, oco.aliases[1],
-			       p.deceased, p.deceased_on, p.death_incident_id
+			       p.deceased, p.deceased_on, p.death_incident_id,
+			       p.father_name, p.birthplace, p.nationality,
+			       p.rg_number, p.rg_issuer, p.rg_state, p.rg_issued_on,
+			       to_jsonb(p.phones), p.sip_number, p.criminal_records
 			  FROM app.entity_persons p
 			  LEFT JOIN app.entities oc
 			    ON oc.id = p.orcrim_id AND oc.deleted_at IS NULL
@@ -1060,7 +1084,10 @@ func (r *Repo) loadChild(ctx context.Context, e *Entity) error {
 			 WHERE p.entity_id = $1`, e.ID,
 		).Scan(&aliasesJSON, &gender, &dob, &motherName, &cpf, &photoPath,
 			&orcrimID, &orcrimName, &orcrimAlias,
-			&a.Deceased, &deceasedOn, &deathIncidentID)
+			&a.Deceased, &deceasedOn, &deathIncidentID,
+			&fatherName, &birthplace, &nationality,
+			&rgNumber, &rgIssuer, &rgState, &rgIssuedOn,
+			&phonesJSON, &sipNumber, &recordsJSON)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				e.Person = &PersonAttrs{Aliases: []string{}, Addresses: []PersonAddress{}}
@@ -1090,6 +1117,29 @@ func (r *Repo) loadChild(ctx context.Context, e *Entity) error {
 		a.OrcrimID = nullStr(orcrimID)
 		a.OrcrimName = nullStr(orcrimName)
 		a.OrcrimAlias = nullStr(orcrimAlias)
+		a.FatherName = nullStr(fatherName)
+		a.Birthplace = nullStr(birthplace)
+		a.Nationality = nullStr(nationality)
+		a.RGNumber = nullStr(rgNumber)
+		a.RGIssuer = nullStr(rgIssuer)
+		a.RGState = nullStr(rgState)
+		if rgIssuedOn.Valid {
+			t := rgIssuedOn.Time
+			a.RGIssuedOn = &t
+		}
+		a.Phones = []string{}
+		if len(phonesJSON) > 0 {
+			if err := json.Unmarshal(phonesJSON, &a.Phones); err != nil {
+				return fmt.Errorf("decode phones: %w", err)
+			}
+		}
+		a.SIPNumber = nullStr(sipNumber)
+		a.CriminalRecords = []CriminalRecord{}
+		if len(recordsJSON) > 0 {
+			if err := json.Unmarshal(recordsJSON, &a.CriminalRecords); err != nil {
+				return fmt.Errorf("decode criminal_records: %w", err)
+			}
+		}
 		addrs, err := r.ListAddresses(ctx, e.ID)
 		if err != nil {
 			return err
@@ -1250,13 +1300,33 @@ func insertChild(ctx context.Context, tx *sql.Tx, id string, k Kind, p *PersonAt
 		if p.Aliases == nil {
 			p.Aliases = []string{}
 		}
-		_, err := tx.ExecContext(ctx, `
+		phones := normalizePhones(p.Phones)
+		if phones == nil {
+			phones = []string{}
+		}
+		records, err := criminalRecordsJSON(p.CriminalRecords)
+		if err != nil {
+			return err
+		}
+		if records == nil {
+			records = []byte("[]")
+		}
+		_, err = tx.ExecContext(ctx, `
 			INSERT INTO app.entity_persons
 			  (entity_id, aliases, gender, date_of_birth,
-			   mother_name, cpf, photo_path, orcrim_id)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+			   mother_name, cpf, photo_path, orcrim_id,
+			   father_name, birthplace, nationality,
+			   rg_number, rg_issuer, rg_state, rg_issued_on, phones,
+			   sip_number, criminal_records)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
+			        $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)`,
 			id, personTextSlice(p.Aliases), nilStr(p.Gender), nilTime(p.DateOfBirth),
 			nilStr(personTextPtr(p.MotherName)), nilStr(p.CPF), nilStr(p.PhotoPath), nilUUID(p.OrcrimID),
+			nilStr(personTextPtr(p.FatherName)), nilStr(upperTrimPtr(p.Birthplace)),
+			nilStr(upperTrimPtr(p.Nationality)),
+			nilStr(normalizeRGPtr(p.RGNumber)), nilStr(upperTrimPtr(p.RGIssuer)),
+			nilStr(upperTrimPtr(p.RGState)), nilTime(p.RGIssuedOn), phones,
+			nilStr(digitsPtr(p.SIPNumber)), string(records),
 		)
 		return err
 	case KindOrganization:
@@ -1411,17 +1481,41 @@ func updateChild(ctx context.Context, tx *sql.Tx, id string, k Kind, p Patch) er
 		// Para attrs polimórficos, semântica é "tudo enviado vira valor".
 		// Campos nil = mantém. Aliases nil = mantém; Aliases [] = limpa.
 		// photo_path NÃO é atualizado por aqui — fluxo dedicado de upload.
-		_, err := tx.ExecContext(ctx, `
+		records, err := criminalRecordsJSON(a.CriminalRecords)
+		if err != nil {
+			return err
+		}
+		var recordsParam any
+		if records != nil {
+			recordsParam = string(records)
+		}
+		_, err = tx.ExecContext(ctx, `
 			UPDATE app.entity_persons SET
 			  aliases       = COALESCE($1, aliases),
 			  gender        = COALESCE($2, gender),
 			  date_of_birth = COALESCE($3, date_of_birth),
 			  mother_name   = COALESCE($4, mother_name),
 			  cpf           = COALESCE($5, cpf),
-			  orcrim_id     = COALESCE($6, orcrim_id)
-			WHERE entity_id = $7`,
+			  orcrim_id     = COALESCE($6, orcrim_id),
+			  father_name   = COALESCE($7, father_name),
+			  birthplace    = COALESCE($8, birthplace),
+			  nationality   = COALESCE($9, nationality),
+			  rg_number     = COALESCE($10, rg_number),
+			  rg_issuer     = COALESCE($11, rg_issuer),
+			  rg_state      = COALESCE($12, rg_state),
+			  rg_issued_on  = COALESCE($13, rg_issued_on),
+			  phones        = COALESCE($14, phones),
+			  sip_number    = COALESCE($15, sip_number),
+			  criminal_records = COALESCE($16::jsonb, criminal_records)
+			WHERE entity_id = $17`,
 			nilAliases(personTextSlice(a.Aliases)), nilStr(a.Gender), nilTime(a.DateOfBirth),
 			nilStr(personTextPtr(a.MotherName)), nilStr(a.CPF), nilUUID(a.OrcrimID),
+			nilStr(personTextPtr(a.FatherName)), nilStr(upperTrimPtr(a.Birthplace)),
+			nilStr(upperTrimPtr(a.Nationality)),
+			nilStr(normalizeRGPtr(a.RGNumber)), nilStr(upperTrimPtr(a.RGIssuer)),
+			nilStr(upperTrimPtr(a.RGState)), nilTime(a.RGIssuedOn),
+			nilAliases(normalizePhones(a.Phones)),
+			nilStr(digitsPtr(a.SIPNumber)), recordsParam,
 			id,
 		)
 		return err

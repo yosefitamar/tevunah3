@@ -57,6 +57,18 @@ type personAttrsJSON struct {
 	OrcrimAlias *string         `json:"orcrim_alias,omitempty"`
 	Addresses   []publicAddress `json:"addresses,omitempty"`
 
+	FatherName  *string  `json:"father_name,omitempty"`
+	Birthplace  *string  `json:"birthplace,omitempty"`
+	Nationality *string  `json:"nationality,omitempty"`
+	RGNumber    *string  `json:"rg_number,omitempty"`
+	RGIssuer    *string  `json:"rg_issuer,omitempty"`
+	RGState     *string  `json:"rg_state,omitempty"`
+	RGIssuedOn  *string  `json:"rg_issued_on,omitempty"`
+	Phones      []string `json:"phones,omitempty"`
+	SIPNumber   *string  `json:"sip_number,omitempty"`
+
+	CriminalRecords []entities.CriminalRecord `json:"criminal_records,omitempty"`
+
 	// Óbito. death_incident_id é o ponto de partida do link para o mapa do
 	// crime; some quando a vítima é desvinculada da ocorrência, sem que o
 	// óbito deixe de existir.
@@ -119,6 +131,19 @@ func toPublicEntity(e *entities.Entity) publicEntity {
 				OrcrimAlias: e.Person.OrcrimAlias,
 				Deceased:        e.Person.Deceased,
 				DeathIncidentID: e.Person.DeathIncidentID,
+				FatherName:      e.Person.FatherName,
+				Birthplace:      e.Person.Birthplace,
+				Nationality:     e.Person.Nationality,
+				RGNumber:        e.Person.RGNumber,
+				RGIssuer:        e.Person.RGIssuer,
+				RGState:         e.Person.RGState,
+				Phones:          e.Person.Phones,
+				SIPNumber:       e.Person.SIPNumber,
+				CriminalRecords: e.Person.CriminalRecords,
+			}
+			if e.Person.RGIssuedOn != nil {
+				s := e.Person.RGIssuedOn.Format("2006-01-02")
+				a.RGIssuedOn = &s
 			}
 			if e.Person.DateOfBirth != nil {
 				s := e.Person.DateOfBirth.Format("2006-01-02")
@@ -366,6 +391,8 @@ func (a *app) handleEntityCreate(w http.ResponseWriter, r *http.Request) {
 			httpx.Error(w, http.StatusConflict, "CPF já cadastrado")
 		case errors.Is(err, entities.ErrPlateDuplicate):
 			httpx.Error(w, http.StatusConflict, "placa já cadastrada")
+		case errors.Is(err, entities.ErrCriminalRecords):
+			httpx.Error(w, http.StatusBadRequest, "histórico criminal inválido (máx. 300 registros)")
 		default:
 			log.Printf("entities create: %v", err)
 			httpx.Error(w, http.StatusInternalServerError, "erro ao criar entidade")
@@ -485,6 +512,8 @@ func (a *app) handleEntityUpdate(w http.ResponseWriter, r *http.Request) {
 			httpx.Error(w, http.StatusConflict, "CPF já cadastrado")
 		case errors.Is(err, entities.ErrPlateDuplicate):
 			httpx.Error(w, http.StatusConflict, "placa já cadastrada")
+		case errors.Is(err, entities.ErrCriminalRecords):
+			httpx.Error(w, http.StatusBadRequest, "histórico criminal inválido (máx. 300 registros)")
 		default:
 			log.Printf("entities update: %v", err)
 			httpx.Error(w, http.StatusInternalServerError, "erro ao atualizar")
@@ -737,10 +766,26 @@ func personFromJSON(p *personAttrsJSON) *entities.PersonAttrs {
 		MotherName: p.MotherName,
 		CPF:        p.CPF,
 		OrcrimID:   p.OrcrimID,
+
+		FatherName:  p.FatherName,
+		Birthplace:  p.Birthplace,
+		Nationality: p.Nationality,
+		RGNumber:    p.RGNumber,
+		RGIssuer:    p.RGIssuer,
+		RGState:     p.RGState,
+		Phones:      p.Phones,
+		SIPNumber:   p.SIPNumber,
+
+		CriminalRecords: p.CriminalRecords,
 	}
 	if p.DateOfBirth != nil {
 		if t, err := time.Parse("2006-01-02", *p.DateOfBirth); err == nil {
 			a.DateOfBirth = &t
+		}
+	}
+	if p.RGIssuedOn != nil {
+		if t, err := time.Parse("2006-01-02", *p.RGIssuedOn); err == nil {
+			a.RGIssuedOn = &t
 		}
 	}
 	return a

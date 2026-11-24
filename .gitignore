@@ -35,3 +35,6 @@ Thumbs.db
 .env
 .env.prod
 .env.production
+
+# Amostras locais com dados pessoais (nunca versionar)
+/tmp/

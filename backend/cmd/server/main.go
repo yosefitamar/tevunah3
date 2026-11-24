@@ -221,6 +221,7 @@ func main() {
 	mux.Handle("DELETE /api/consultas/{id}/print", auth(http.HandlerFunc(a.handleConsultaPrintDelete)))
 
 	mux.Handle("GET /api/entities/persons/duplicates", auth(http.HandlerFunc(a.handleEntityPersonDuplicates)))
+	mux.Handle("POST /api/entities/persons/parse-pdf", auth(http.HandlerFunc(a.handlePersonPDFParse)))
 	mux.Handle("GET /api/entities", auth(http.HandlerFunc(a.handleEntitiesList)))
 	mux.Handle("POST /api/entities", auth(http.HandlerFunc(a.handleEntityCreate)))
 	mux.Handle("GET /api/entities/{id}", auth(http.HandlerFunc(a.handleEntityDetail)))

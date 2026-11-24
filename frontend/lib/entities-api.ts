@@ -1,6 +1,7 @@
 import { api } from "./api";
 import { terminalHeaders } from "./device-id";
 import type {
+  CriminalRecord,
   Entity,
   EntityClassification,
   EntityGraph,
@@ -402,4 +403,79 @@ export type EntityOccurrence = {
 
 export function listEntityOccurrences(id: string) {
   return api<{ items: EntityOccurrence[] }>(`/api/entities/${encodeURIComponent(id)}/occurrences`);
+}
+
+// ────── PDF de consulta (importação no cadastro de pessoa) ──────
+
+export type PersonPdfRG = { number: string; issuer: string; state: string; issued_on: string };
+
+export type PersonPdfAddress = {
+  street: string;
+  number: string;
+  complement: string;
+  neighborhood: string;
+  city: string;
+  state: string;
+  cep: string;
+};
+
+/**
+ * Dados extraídos de um PDF de consulta — RELATÓRIO DE CPF ou CONSULTA
+ * INTEGRADA. Datas YYYY-MM-DD; CPF, CEP, SIP e telefones só dígitos.
+ */
+export type PersonPdfReport = {
+  format: "cpf_report" | "consulta_integrada";
+  source: string;
+  name: string;
+  cpf: string;
+  aliases: string[];
+  criminal_flag: boolean;
+  mother_name: string;
+  father_name: string;
+  birth_date: string;
+  gender: "" | "M" | "F";
+  birthplace: string;
+  nationality: string;
+  sip_number: string;
+  rgs: PersonPdfRG[];
+  phones: string[];
+  addresses: PersonPdfAddress[];
+  criminal: CriminalRecord[];
+  generated_at?: string;
+};
+
+export type PersonPdfResult = {
+  report: PersonPdfReport;
+  /** Pessoa ativa que já tem o CPF (e que o usuário pode ver). */
+  existing?: Entity;
+  /** O CPF pertence a pessoa excluída ou acima do clearance do usuário. */
+  cpf_blocked: boolean;
+};
+
+/** Lê o PDF de consulta no servidor. Nada é gravado — o PDF é descartado. */
+export async function parsePersonPdf(file: File): Promise<PersonPdfResult> {
+  const fd = new FormData();
+  fd.append("file", file);
+  const res = await fetch(`/api/entities/persons/parse-pdf`, {
+    method: "POST",
+    credentials: "include",
+    headers: terminalHeaders(),
+    body: fd,
+  });
+  let body: { success: boolean; data?: PersonPdfResult; message?: string } = {
+    success: false,
+  };
+  try {
+    body = await res.json();
+  } catch {
+    // sem corpo JSON
+  }
+  if (!res.ok) {
+    const err = new Error(body.message ?? `HTTP ${res.status}`) as Error & {
+      status: number;
+    };
+    err.status = res.status;
+    throw err;
+  }
+  return body.data as PersonPdfResult;
 }

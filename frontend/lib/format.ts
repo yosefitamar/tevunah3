@@ -25,3 +25,19 @@ export function formatBRDate(date: string | null | undefined): string {
   if (!m) return date;
   return `${m[3]}/${m[2]}/${m[1]}`;
 }
+
+// formatPhoneBR formata telefone só com dígitos: "85989577505" → "(85) 98957-7505",
+// "8531012330" → "(85) 3101-2330". Outros tamanhos saem como vieram.
+export function formatPhoneBR(digits: string): string {
+  const d = digits.replace(/\D/g, "");
+  if (d.length === 11) return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
+  if (d.length === 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
+  return digits;
+}
+
+// formatRG junta número, órgão e UF: "20079756519 SSP/CE".
+export function formatRG(number?: string, issuer?: string, state?: string): string {
+  if (!number) return "—";
+  const org = [issuer, state].filter(Boolean).join("/");
+  return org ? `${number} ${org}` : number;
+}

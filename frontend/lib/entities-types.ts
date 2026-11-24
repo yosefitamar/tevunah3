@@ -81,6 +81,18 @@ export type PersonAttrs = {
   orcrim_alias?: string;
   addresses?: PersonAddress[];
 
+  // Chegam sobretudo pelo RELATÓRIO DE CPF importado na qualificação civil.
+  father_name?: string;
+  birthplace?: string;   // naturalidade, ex.: "FORTALEZA/CE"
+  nationality?: string;
+  rg_number?: string;
+  rg_issuer?: string;
+  rg_state?: string;
+  rg_issued_on?: string; // YYYY-MM-DD
+  phones?: string[];     // só dígitos, com DDD
+  sip_number?: string;   // Nº SIP (CONSULTA INTEGRADA)
+  criminal_records?: CriminalRecord[];
+
   // Óbito. `death_incident_id` some quando a vítima é desvinculada da
   // ocorrência, sem que o óbito deixe de valer — por isso é opcional
   // mesmo com deceased = true.
@@ -88,6 +100,56 @@ export type PersonAttrs = {
   deceased_on?: string; // YYYY-MM-DD
   death_incident_id?: string;
 };
+
+/**
+ * Item do histórico criminal da pessoa — campo próprio, fora da descrição.
+ * judicial: peça do RELATÓRIO DE CPF (title = tipo da peça, number =
+ * processo, date = expedição, agency = vara). policial: ocorrência da
+ * CONSULTA INTEGRADA (title = natureza do fato, role = INFRATOR/TESTEMUNHA,
+ * number = nº do procedimento, date = ocorrência, filed_on = instauração,
+ * agency = delegacia). Datas YYYY-MM-DD.
+ */
+export type CriminalRecord = {
+  category: "" | "judicial" | "policial";
+  role: string;
+  title: string;
+  detail: string;
+  procedure_type: string;
+  number: string;
+  piece: string;
+  date: string;
+  filed_on: string;
+  agency: string;
+  court: string;
+  district: string;
+  reason: string;
+  source: string;
+};
+
+export const CRIMINAL_CATEGORY_LABEL: Record<CriminalRecord["category"], string> = {
+  "": "—",
+  judicial: "JUDICIAL",
+  policial: "POLICIAL",
+};
+
+export function emptyCriminalRecord(): CriminalRecord {
+  return {
+    category: "",
+    role: "",
+    title: "",
+    detail: "",
+    procedure_type: "",
+    number: "",
+    piece: "",
+    date: "",
+    filed_on: "",
+    agency: "",
+    court: "",
+    district: "",
+    reason: "",
+    source: "",
+  };
+}
 
 export type OrganizationAttrs = {
   aliases?: string[]; // siglas; primeiro elemento é a sigla primária

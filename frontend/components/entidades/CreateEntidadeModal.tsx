@@ -18,6 +18,11 @@ import { useModal } from "@/contexts/ModalContext";
 import PrimaryPhotoPicker from "./PrimaryPhotoPicker";
 import { PendingGalleryEditor, type PendingPhoto } from "./GalleryEditor";
 import MotherField from "./MotherField";
+import PersonPdfDrop from "./PersonPdfDrop";
+import CriminalRecordsField from "./CriminalRecordsField";
+import DuplicateResolver, { type MergePlan } from "./DuplicateResolver";
+import { useAuth } from "@/contexts/AuthContext";
+import { canEditEntities } from "@/lib/permissions";
 import {
   createEntity,
   createEntityLink,
@@ -25,14 +30,19 @@ import {
   findPersonDuplicates,
   listEntities,
   markEntityDeath,
+  updateEntity,
   uploadEntityPhoto,
   uploadGalleryPhoto,
   type AddressPayload,
+  type PersonPdfResult,
   type DuplicatesResult,
+  type OpsEntityLinks,
   type OpsEntityMatch,
+  type PersonDuplicate,
+  type UpdateEntityInput,
 } from "@/lib/entities-api";
 import { linkOpsPerson } from "@/lib/ops-reports-api";
-import { formatBRDate } from "@/lib/format";
+import { formatBRDate, formatPhoneBR } from "@/lib/format";
 import {
   ENTITY_KIND_LABEL,
   FAMILY_OPTIONS,
@@ -47,10 +57,12 @@ import {
   isVehicle,
   orgPrimaryLabel,
   vehiclePrimaryLabel,
+  type CriminalRecord,
   type Entity,
   type EntityKind,
   type FamilyOption,
   type Gender,
+  type PersonAttrs,
   type RelationType,
   type VehicleCategory,
 } from "@/lib/entities-types";
@@ -88,7 +100,7 @@ export default function CreateEntidadeModal({
   const [kind, setKind] = useState<EntityKind | null>(initialKind ?? null);
   // Tabs do wizard. Ordem e conjunto variam por kind. Vehicle pula a tab
   // "identity" (não tem nome) e move descrição/tags pra "observations" (última).
-  type Tab = "identity" | "data" | "media" | "observations";
+  type Tab = "identity" | "data" | "history" | "media" | "observations";
   const [activeTab, setActiveTab] = useState<Tab>(
     initialKind ? tabsForKind(initialKind)[0] : "identity",
   );
@@ -96,6 +108,7 @@ export default function CreateEntidadeModal({
   const tabLabels: Record<Tab, string> = {
     identity: "IDENTIFICAÇÃO",
     data: "DADOS",
+    history: "HISTÓRICO",
     media: "MÍDIA",
     observations: "DESCRIÇÃO",
   };
@@ -120,6 +133,16 @@ export default function CreateEntidadeModal({
   const [gender, setGender] = useState<Gender | "">("");
   const [dob, setDob] = useState(initialPerson?.dateOfBirth ?? "");
   const [cpf, setCpf] = useState("");
+  const [fatherName, setFatherName] = useState("");
+  const [birthplace, setBirthplace] = useState("");
+  const [nationality, setNationality] = useState("");
+  const [rgNumber, setRgNumber] = useState("");
+  const [rgIssuer, setRgIssuer] = useState("");
+  const [rgState, setRgState] = useState("");
+  const [rgIssuedOn, setRgIssuedOn] = useState("");
+  const [phones, setPhones] = useState<string[]>([]);
+  const [sipNumber, setSipNumber] = useState("");
+  const [criminalRecords, setCriminalRecords] = useState<CriminalRecord[]>([]);
   const [deceasedOn, setDeceasedOn] = useState("");
   const [orcrimId, setOrcrimId] = useState("");
 
@@ -158,6 +181,71 @@ export default function CreateEntidadeModal({
 
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  // PDF de consulta: aviso de CPF bloqueado (pessoa excluída ou acima do
+  // clearance — o cadastro seria recusado).
+  const [cpfBlocked, setCpfBlocked] = useState(false);
+
+  // Preenche o formulário com o que o PDF trouxe. Só preenche campo VAZIO:
+  // o que o usuário digitou fica, e um segundo PDF (ex.: a CONSULTA
+  // INTEGRADA depois do RELATÓRIO DE CPF) complementa o primeiro em vez de
+  // sobrescrevê-lo. Listas (apelidos, telefones, endereços, histórico) somam
+  // sem repetir. A descrição não é tocada — é o texto do analista.
+  function applyPersonPdf(r: PersonPdfResult) {
+    const rep = r.report;
+    const fill = (v: string, set: (f: (prev: string) => string) => void) => {
+      if (v) set((prev) => (prev.trim() ? prev : v));
+    };
+    fill(rep.name, setName);
+    fill(rep.cpf, setCpf);
+    fill(rep.mother_name, setMotherName);
+    fill(rep.father_name, setFatherName);
+    fill(rep.birth_date, setDob);
+    if (rep.gender) setGender((prev) => prev || rep.gender);
+    fill(rep.birthplace, setBirthplace);
+    fill(rep.nationality, setNationality);
+    fill(rep.sip_number, setSipNumber);
+    const rg = rep.rgs[0];
+    if (rg) {
+      fill(rg.number, setRgNumber);
+      fill(rg.issuer, setRgIssuer);
+      fill(rg.state, setRgState);
+      fill(rg.issued_on, setRgIssuedOn);
+    }
+    if (rep.aliases.length > 0) {
+      setAliases((prev) => {
+        const have = new Set(prev.map((a) => a.trim().toUpperCase()));
+        return [...prev, ...rep.aliases.filter((a) => !have.has(a))];
+      });
+    }
+    if (rep.phones.length > 0) {
+      setPhones((prev) => {
+        const have = new Set(prev.map((p) => p.replace(/\D/g, "")));
+        return [...prev, ...rep.phones.filter((p) => !have.has(p)).map(formatPhoneBR)];
+      });
+    }
+    if (rep.addresses.length > 0) {
+      setPendingAddresses((prev) => {
+        const key = (a: { street: string; number: string; cep: string }) =>
+          [a.street.trim().toUpperCase(), a.number.trim().toUpperCase(), a.cep.replace(/\D/g, "")].join("|");
+        const kept = prev.filter((d) => !addressDraftIsEmpty(d));
+        const have = new Set(kept.map(key));
+        const added = rep.addresses
+          .filter((a) => !have.has(key(a)))
+          .map((a) => ({ ...newAddressDraft(), ...a, cep: a.cep ? formatCEP(a.cep) : "" }));
+        return [...kept, ...added];
+      });
+    }
+    if (rep.criminal.length > 0) {
+      setCriminalRecords((prev) => {
+        const key = (c: CriminalRecord) =>
+          [c.category, c.title, c.number, c.date].map((x) => x.trim().toUpperCase()).join("|");
+        const have = new Set(prev.map(key));
+        return [...prev, ...rep.criminal.filter((c) => !have.has(key(c)))];
+      });
+    }
+    setCpfBlocked(r.cpf_blocked);
+  }
 
   const modal = useModal();
   const [dupes, setDupes] = useState<DuplicatesResult | null>(null);
@@ -201,6 +289,14 @@ export default function CreateEntidadeModal({
   // usuário muda o CPF (saindo da colisão) e depois colide de novo com outro
   // registro, o modal abre novamente. O alerta inline foi removido — o modal
   // é a única forma de comunicar.
+  // Diálogo de duplicata: aberto no submit (homônimos), pelo botão do aviso
+  // inline ou quando o CPF digitado já é de alguém. CPF igual = mesma
+  // pessoa, então nesse caso não há "criar assim mesmo".
+  const { user: me } = useAuth();
+  const [resolver, setResolver] = useState<{
+    candidates: PersonDuplicate[];
+    allowCreate: boolean;
+  } | null>(null);
   const lastCpfAlertRef = useRef<string | null>(null);
   useEffect(() => {
     if (!cpfTaken) {
@@ -209,25 +305,133 @@ export default function CreateEntidadeModal({
     }
     if (lastCpfAlertRef.current === cpfTaken.id) return;
     lastCpfAlertRef.current = cpfTaken.id;
-    modal.alert({
-      variant: "error",
-      title: "CPF JÁ CADASTRADO",
-      message: (
-        <>
-          <div>
-            Este CPF já está registrado para{" "}
-            <b>{cpfTaken.name.toUpperCase()}</b>
-            {cpfTaken.mother_name ? ` (mãe: ${cpfTaken.mother_name})` : ""}
-            {cpfTaken.date_of_birth ? ` · nasc.: ${cpfTaken.date_of_birth}` : ""}.
-          </div>
-          <div style={{ marginTop: 8, fontSize: 13, color: "var(--fg-2)" }}>
-            Não é possível duplicar. Edite o registro existente ou corrija o
-            CPF informado.
-          </div>
-        </>
-      ),
-    });
-  }, [cpfTaken, modal]);
+    setResolver({ candidates: [cpfTaken], allowCreate: false });
+  }, [cpfTaken]);
+
+  // Plano de "atualizar o cadastro existente" a partir do formulário: só
+  // preenche o que está em branco no cadastro; listas somam sem repetir.
+  function planFor(existing: Entity): MergePlan {
+    const cur = (existing.attrs ?? {}) as PersonAttrs;
+    const norm = (v: string | undefined | null) =>
+      (v ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().replace(/\s+/g, " ").trim();
+    const fills: MergePlan["fills"] = [];
+    const conflicts: MergePlan["conflicts"] = [];
+    const adds: string[] = [];
+    const person: PersonAttrs = {};
+    const update: UpdateEntityInput = { version: existing.version };
+
+    const field = (
+      label: string,
+      key: keyof PersonAttrs,
+      incoming: string,
+      current: string | undefined,
+      show: (v: string) => string = (v) => v,
+      eq: (a: string, b: string) => boolean = (a, b) => norm(a) === norm(b),
+    ) => {
+      const v = incoming.trim();
+      if (!v) return;
+      if (!current || !current.trim()) {
+        (person as Record<string, unknown>)[key] = v;
+        fills.push({ label, value: show(v) });
+      } else if (!eq(v, current)) {
+        conflicts.push({ label, current: show(current), incoming: show(v) });
+      }
+    };
+    const digitsEq = (a: string, b: string) => a.replace(/\W/g, "") === b.replace(/\W/g, "");
+
+    if (norm(name) && norm(name) !== norm(existing.name)) {
+      conflicts.push({ label: "NOME", current: existing.name, incoming: name.trim().toUpperCase() });
+    }
+    field("NOME DA MÃE", "mother_name", motherName, cur.mother_name);
+    field("NOME DO PAI", "father_name", fatherName, cur.father_name);
+    field("NASCIMENTO", "date_of_birth", dob, cur.date_of_birth, formatBRDate);
+    field("GÊNERO", "gender", gender, cur.gender as string | undefined, (v) => GENDER_LABEL[v as Gender] ?? v);
+    field("CPF", "cpf", cpf.replace(/\D/g, ""), cur.cpf, formatCpf, digitsEq);
+    field("NATURALIDADE", "birthplace", birthplace, cur.birthplace);
+    field("NACIONALIDADE", "nationality", nationality, cur.nationality);
+    field("RG", "rg_number", rgNumber, cur.rg_number, (v) => v, digitsEq);
+    field("RG · ÓRGÃO", "rg_issuer", rgIssuer, cur.rg_issuer);
+    field("RG · UF", "rg_state", rgState, cur.rg_state);
+    field("RG · EMISSÃO", "rg_issued_on", rgIssuedOn, cur.rg_issued_on, formatBRDate);
+    field("Nº SIP", "sip_number", sipNumber, cur.sip_number, (v) => v, digitsEq);
+    if (orcrimId && !cur.orcrim_id) {
+      person.orcrim_id = orcrimId;
+      fills.push({ label: "ORCRIM", value: "A SELECIONADA NO FORMULÁRIO" });
+    } else if (orcrimId && cur.orcrim_id !== orcrimId) {
+      conflicts.push({ label: "ORCRIM", current: cur.orcrim_name ?? "OUTRA", incoming: "A DO FORMULÁRIO" });
+    }
+    if (description.trim()) {
+      if (!existing.description?.trim()) {
+        update.description = description.trim();
+        fills.push({ label: "DESCRIÇÃO", value: description.trim() });
+      } else if (norm(description) !== norm(existing.description)) {
+        conflicts.push({ label: "DESCRIÇÃO", current: existing.description, incoming: description.trim() });
+      }
+    }
+
+    // Listas: soma o que falta e envia a lista inteira (PATCH substitui).
+    const curAliases = cur.aliases ?? [];
+    const newAliases = aliases.filter((a) => a.trim() && !curAliases.some((c) => norm(c) === norm(a)));
+    if (newAliases.length) {
+      person.aliases = [...curAliases, ...newAliases];
+      adds.push(`APELIDOS: ${newAliases.map((a) => a.toUpperCase()).join(", ")}`);
+    }
+    const curPhones = cur.phones ?? [];
+    const newPhones = phones.map((p) => p.replace(/\D/g, "")).filter((p) => p && !curPhones.includes(p));
+    if (newPhones.length) {
+      person.phones = [...curPhones, ...newPhones];
+      adds.push(`TELEFONES: ${newPhones.map(formatPhoneBR).join(", ")}`);
+    }
+    const recKey = (c: CriminalRecord) =>
+      [c.category, c.title, c.number, c.date].map((x) => norm(x)).join("|");
+    const curRecs = cur.criminal_records ?? [];
+    const haveRecs = new Set(curRecs.map(recKey));
+    const newRecs = criminalRecords.filter((c) => !haveRecs.has(recKey(c)));
+    if (newRecs.length) {
+      person.criminal_records = [...curRecs, ...newRecs];
+      adds.push(`HISTÓRICO CRIMINAL: ${newRecs.length} REGISTRO(S)`);
+    }
+    const curTags = existing.tags ?? [];
+    const newTags = tags.filter((t) => !curTags.includes(t.toLowerCase()));
+    if (newTags.length) {
+      update.tags = [...curTags, ...newTags];
+      adds.push(`TAGS: ${newTags.map((t) => "#" + t).join(" ")}`);
+    }
+    const newAddresses = mergeAddresses(existing).length;
+    if (newAddresses) adds.push(`ENDEREÇOS: ${newAddresses}`);
+    if (photoFile) {
+      if (cur.has_photo) {
+        conflicts.push({ label: "FOTO PRINCIPAL", current: "A ATUAL", incoming: "A ESCOLHIDA" });
+      } else {
+        adds.push("FOTO PRINCIPAL");
+      }
+    }
+    if (galleryPending.length) adds.push(`GALERIA: ${galleryPending.length} FOTO(S)`);
+    if (deceasedOn && !cur.deceased) fills.push({ label: "ÓBITO", value: formatBRDate(deceasedOn) });
+    const links = (motherEntityId ? 1 : 0) + pendingFamilyLinks.length + pendingVehicleLinks.length;
+    if (links) adds.push(`VÍNCULOS: ${links}`);
+
+    if (Object.keys(person).length) update.person = person;
+    const patching = !!update.person || update.description !== undefined || !!update.tags;
+    return {
+      update,
+      fills,
+      adds,
+      conflicts,
+      newAddresses,
+      empty: !patching && adds.length === 0 && !(deceasedOn && !cur.deceased),
+    };
+  }
+
+  // Endereços do formulário que o cadastro ainda não tem.
+  function mergeAddresses(existing: Entity | null): AddressDraft[] {
+    const drafts = pendingAddresses.filter((d) => !addressDraftIsEmpty(d));
+    if (!existing) return drafts;
+    const key = (a: { street?: string; number?: string; cep?: string }) =>
+      [(a.street ?? "").trim().toUpperCase(), (a.number ?? "").trim().toUpperCase(), (a.cep ?? "").replace(/\D/g, "")].join("|");
+    const have = new Set(((existing.attrs as PersonAttrs | undefined)?.addresses ?? []).map(key));
+    return drafts.filter((d) => !have.has(key(d)));
+  }
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -268,145 +472,134 @@ export default function CreateEntidadeModal({
       setErr("Placa inválida — use o padrão antigo (ABC1234) ou Mercosul (ABC1D23)");
       return;
     }
-    // Bloqueio rígido: CPF tomado por outra pessoa — usuário já viu modal
-    // inline; reabrimos no submit como reforço.
+    // CPF já cadastrado ou homônimos: o analista decide no diálogo entre
+    // atualizar o cadastro existente, criar assim mesmo (só homônimo) ou
+    // revisar.
     if (kind === "person" && cpfTaken) {
-      modal.alert({
-        variant: "error",
-        title: "CPF JÁ CADASTRADO",
-        message: (
-          <>
-            Este CPF pertence a <b>{cpfTaken.name.toUpperCase()}</b>. Não é
-            possível duplicar — corrija o CPF ou edite o registro existente.
-          </>
-        ),
-      });
+      setResolver({ candidates: [cpfTaken], allowCreate: false });
       return;
     }
-    // Confirmação no submit quando há homônimos. Quanto maior o score, mais
-    // alarmante a mensagem.
     if (kind === "person" && homonyms.length > 0) {
-      const top = homonyms[0];
-      const fields = top.matched_fields
-        .map((f) =>
-          f === "name" ? "nome" : f === "mother_name" ? "nome da mãe" : "data de nascimento",
-        )
-        .join(", ");
-      const variant: "warning" | "error" = top.score >= 3 ? "error" : "warning";
-      const ok = await modal.confirm({
-        variant,
-        title:
-          top.score >= 3
-            ? "MUITO PROVÁVEL DUPLICATA"
-            : top.score === 2
-              ? "PROVÁVEL DUPLICATA"
-              : "HOMÔNIMO ENCONTRADO",
-        message: (
-          <>
-            <div style={{ marginBottom: 8 }}>
-              Já existe registro com critérios coincidentes ({fields}). Continuar
-              com a criação assim mesmo?
-            </div>
-            <ul style={{ margin: 0, paddingLeft: 18 }}>
-              {homonyms.slice(0, 5).map((h) => (
-                <li key={h.id} style={{ fontSize: 13 }}>
-                  {h.name.toUpperCase()}
-                  {h.mother_name ? ` · mãe: ${h.mother_name}` : ""}
-                  {h.date_of_birth ? ` · nasc.: ${h.date_of_birth}` : ""}
-                </li>
-              ))}
-            </ul>
-          </>
-        ),
-        confirm: "CRIAR ASSIM MESMO",
-        cancel: "REVISAR",
-        danger: top.score >= 3,
-      });
-      if (!ok) return;
+      setResolver({ candidates: homonyms.slice(0, 5), allowCreate: true });
+      return;
     }
+    await saveEntity(null);
+  }
+
+  // Grava o formulário: cria a entidade (target nulo) ou atualiza o cadastro
+  // existente escolhido no diálogo de duplicata, e depois aplica os passos
+  // que dependem do id (foto, óbito, endereços, vínculos, galeria).
+  async function saveEntity(target: { entity: Entity; plan: MergePlan } | null) {
+    if (kind === null) return;
+    const supportsPrimaryPhoto =
+      kind === "person" || kind === "place" || kind === "vehicle";
+    const existingAttrs = (target?.entity.attrs ?? {}) as PersonAttrs;
+    const verb = target ? "Cadastro atualizado" : kind === "person" ? "Pessoa criada" : "Entidade criada";
+    setResolver(null);
     setBusy(true);
     try {
-      const res = await createEntity({
-        kind,
-        name: name.trim(),
-        description: description.trim() || undefined,
-        classification: 1, // default público — UI ainda não expõe a classificação
-        tags,
-        person:
-          kind === "person"
-            ? {
-                aliases,
-                gender: gender || undefined,
-                date_of_birth: dob || undefined,
-                mother_name: motherName.trim() || undefined,
-                cpf: cpf.replace(/\D/g, "") || undefined,
-                orcrim_id: orcrimId || undefined,
-              }
-            : undefined,
-        organization:
-          kind === "organization"
-            ? {
-                aliases: orgSigla.trim() ? [orgSigla.trim()] : [],
-                legal_name: legalName.trim() || undefined,
-                tax_id: taxID.trim() || undefined,
-                founded_at: foundedAt || undefined,
-              }
-            : undefined,
-        place:
-          kind === "place"
-            ? {
-                address: address.trim() || undefined,
-                country: country.trim() || undefined,
-                region: region.trim() || undefined,
-                latitude: parseFloatOrUndef(latitude),
-                longitude: parseFloatOrUndef(longitude),
-              }
-            : undefined,
-        vehicle:
-          kind === "vehicle"
-            ? {
-                category: vCategory,
-                plate: plate.trim() || undefined,
-                brand: brand.trim() || undefined,
-                model: model.trim() || undefined,
-                color: color.trim() || undefined,
-                year: parseIntOrUndef(year),
-                chassis: chassis.trim() || undefined,
-                renavam: renavam.trim() || undefined,
-              }
-            : undefined,
-      });
+      let entityId: string;
+      let opsLinks: OpsEntityLinks | undefined;
+      if (target) {
+        if (target.plan.update.person || target.plan.update.description !== undefined || target.plan.update.tags) {
+          await updateEntity(target.entity.id, target.plan.update);
+        }
+        entityId = target.entity.id;
+      } else {
+        const res = await createEntity({
+          kind,
+          name: name.trim(),
+          description: description.trim() || undefined,
+          classification: 1, // default público — UI ainda não expõe a classificação
+          tags,
+          person:
+            kind === "person"
+              ? {
+                  aliases,
+                  gender: gender || undefined,
+                  date_of_birth: dob || undefined,
+                  mother_name: motherName.trim() || undefined,
+                  cpf: cpf.replace(/\D/g, "") || undefined,
+                  orcrim_id: orcrimId || undefined,
+                  father_name: fatherName.trim() || undefined,
+                  birthplace: birthplace.trim() || undefined,
+                  nationality: nationality.trim() || undefined,
+                  rg_number: rgNumber.trim() || undefined,
+                  rg_issuer: rgIssuer.trim() || undefined,
+                  rg_state: rgState.trim() || undefined,
+                  rg_issued_on: rgIssuedOn || undefined,
+                  phones: phones.map((p) => p.replace(/\D/g, "")).filter(Boolean),
+                  sip_number: sipNumber.trim() || undefined,
+                  criminal_records: criminalRecords,
+                }
+              : undefined,
+          organization:
+            kind === "organization"
+              ? {
+                  aliases: orgSigla.trim() ? [orgSigla.trim()] : [],
+                  legal_name: legalName.trim() || undefined,
+                  tax_id: taxID.trim() || undefined,
+                  founded_at: foundedAt || undefined,
+                }
+              : undefined,
+          place:
+            kind === "place"
+              ? {
+                  address: address.trim() || undefined,
+                  country: country.trim() || undefined,
+                  region: region.trim() || undefined,
+                  latitude: parseFloatOrUndef(latitude),
+                  longitude: parseFloatOrUndef(longitude),
+                }
+              : undefined,
+          vehicle:
+            kind === "vehicle"
+              ? {
+                  category: vCategory,
+                  plate: plate.trim() || undefined,
+                  brand: brand.trim() || undefined,
+                  model: model.trim() || undefined,
+                  color: color.trim() || undefined,
+                  year: parseIntOrUndef(year),
+                  chassis: chassis.trim() || undefined,
+                  renavam: renavam.trim() || undefined,
+                }
+              : undefined,
+        });
+        entityId = res.entity.id;
+        opsLinks = res.ops_links;
+      }
 
-      if (supportsPrimaryPhoto && photoFile) {
+      if (supportsPrimaryPhoto && photoFile && !existingAttrs.has_photo) {
         try {
-          await uploadEntityPhoto(res.entity.id, photoFile);
+          await uploadEntityPhoto(entityId, photoFile);
         } catch (e) {
           setErr(
-            "Entidade criada, mas o upload da foto principal falhou: " +
+            verb + ", mas o upload da foto principal falhou: " +
               ((e as ApiError).message ?? "erro desconhecido"),
           );
         }
       }
       // Pessoa: óbito informado à mão. Endpoint dedicado (auditoria própria),
       // aplicado depois da criação porque depende do id gerado.
-      if (kind === "person" && deceasedOn) {
+      if (kind === "person" && deceasedOn && !existingAttrs.deceased) {
         try {
-          await markEntityDeath(res.entity.id, deceasedOn);
+          await markEntityDeath(entityId, deceasedOn);
         } catch (e) {
           setErr(
-            "Pessoa criada, mas o óbito não foi registrado: " +
+            verb + ", mas o óbito não foi registrado: " +
               ((e as ApiError).message ?? "erro desconhecido"),
           );
         }
       }
 
       // Pessoa: persiste endereços pendentes (linhas vazias são ignoradas).
-      if (kind === "person" && pendingAddresses.length > 0) {
+      const addressesToSave = mergeAddresses(target?.entity ?? null);
+      if (kind === "person" && addressesToSave.length > 0) {
         const failures: string[] = [];
-        for (const draft of pendingAddresses) {
-          if (addressDraftIsEmpty(draft)) continue;
+        for (const draft of addressesToSave) {
           try {
-            await createPersonAddress(res.entity.id, addressDraftToPayload(draft));
+            await createPersonAddress(entityId, addressDraftToPayload(draft));
           } catch (e) {
             failures.push(
               `${draft.label || "endereço"}: ${(e as ApiError).message ?? "erro"}`,
@@ -415,7 +608,7 @@ export default function CreateEntidadeModal({
         }
         if (failures.length > 0) {
           setErr(
-            "Pessoa criada, mas falharam endereços: " + failures.join("; "),
+            verb + ", mas falharam endereços: " + failures.join("; "),
           );
         }
       }
@@ -426,14 +619,15 @@ export default function CreateEntidadeModal({
       if (kind === "person" && motherEntityId) {
         try {
           await createEntityLink(motherEntityId, {
-            to_entity_id: res.entity.id,
+            to_entity_id: entityId,
             relation_type: "mother_of",
           });
         } catch (e) {
-          setErr(
-            "Pessoa criada, mas falhou o vínculo mãe→filho: " +
-              ((e as ApiError).message ?? "erro desconhecido"),
-          );
+          // No cadastro já existente o vínculo pode já estar lá.
+          const msg = (e as ApiError).message ?? "";
+          if (!(target && /já existe|already/i.test(msg))) {
+            setErr(verb + ", mas falhou o vínculo mãe→filho: " + (msg || "erro desconhecido"));
+          }
         }
       }
 
@@ -444,8 +638,8 @@ export default function CreateEntidadeModal({
       if (kind === "person" && pendingFamilyLinks.length > 0) {
         const failures: string[] = [];
         for (const lk of pendingFamilyLinks) {
-          const fromID = lk.option.anchorAsFrom ? res.entity.id : lk.person.id;
-          const toID = lk.option.anchorAsFrom ? lk.person.id : res.entity.id;
+          const fromID = lk.option.anchorAsFrom ? entityId : lk.person.id;
+          const toID = lk.option.anchorAsFrom ? lk.person.id : entityId;
           try {
             await createEntityLink(fromID, {
               to_entity_id: toID,
@@ -460,7 +654,7 @@ export default function CreateEntidadeModal({
         }
         if (failures.length > 0) {
           setErr(
-            "Pessoa criada, mas falharam vínculos familiares: " +
+            verb + ", mas falharam vínculos familiares: " +
               failures.join("; "),
           );
         }
@@ -471,7 +665,7 @@ export default function CreateEntidadeModal({
         const failures: string[] = [];
         for (const lk of pendingVehicleLinks) {
           try {
-            await createEntityLink(res.entity.id, {
+            await createEntityLink(entityId, {
               to_entity_id: lk.vehicle.id,
               relation_type: lk.relation,
             });
@@ -483,7 +677,7 @@ export default function CreateEntidadeModal({
         }
         if (failures.length > 0) {
           setErr(
-            "Pessoa criada, mas falharam vínculos: " + failures.join("; "),
+            verb + ", mas falharam vínculos: " + failures.join("; "),
           );
         }
       }
@@ -494,21 +688,21 @@ export default function CreateEntidadeModal({
         for (let i = 0; i < galleryPending.length; i++) {
           const p = galleryPending[i];
           try {
-            await uploadGalleryPhoto(res.entity.id, p.file, p.caption.trim(), i);
+            await uploadGalleryPhoto(entityId, p.file, p.caption.trim(), i);
           } catch (e) {
             failures.push(`#${i + 1}: ${(e as ApiError).message ?? "erro"}`);
           }
         }
         if (failures.length > 0) {
           setErr(
-            "Entidade criada, mas falharam fotos da galeria: " + failures.join("; "),
+            verb + ", mas falharam fotos da galeria: " + failures.join("; "),
           );
         }
       }
       // Pessoa: o servidor procurou o nome no relatório operacional. O que
       // casou por nome e mãe já está vinculado — o analista é avisado; o que
       // só tem o nome igual ele decide aqui.
-      const ops = res.ops_links;
+      const ops = opsLinks;
       if (ops && ops.linked.length > 0) {
         await modal.alert({
           variant: "info",
@@ -544,19 +738,19 @@ export default function CreateEntidadeModal({
           const failures: string[] = [];
           for (const m of ops.suggestions) {
             try {
-              await linkOpsPerson(m.occurrence_id, m.person_id, res.entity.id);
+              await linkOpsPerson(m.occurrence_id, m.person_id, entityId);
             } catch (e) {
               failures.push(`${m.ciops_record || m.name}: ${(e as ApiError).message ?? "erro"}`);
             }
           }
           if (failures.length > 0) {
-            setErr("Pessoa criada, mas falharam vínculos com o relatório: " + failures.join("; "));
+            setErr(verb + ", mas falharam vínculos com o relatório: " + failures.join("; "));
           }
         }
       }
-      onCreated(res.entity.id);
+      onCreated(entityId);
     } catch (e) {
-      setErr((e as ApiError).message || "Erro ao criar entidade");
+      setErr((e as ApiError).message || (target ? "Erro ao atualizar o cadastro" : "Erro ao criar entidade"));
     } finally {
       setBusy(false);
     }
@@ -623,6 +817,17 @@ export default function CreateEntidadeModal({
             {(activeTab === "identity" ||
               (kind === "vehicle" && activeTab === "observations")) && (
               <>
+                {kind === "person" && (
+                  <>
+                    <PersonPdfDrop onParsed={applyPersonPdf} disabled={busy} />
+                    {cpfBlocked && (
+                      <div className="banner banner-error">
+                        ⚠ ESTE CPF JÁ PERTENCE A UMA PESSOA EXCLUÍDA OU FORA DO SEU NÍVEL DE
+                        ACESSO — O CADASTRO VAI SER RECUSADO. PEÇA A UM GESTOR PARA VERIFICAR.
+                      </div>
+                    )}
+                  </>
+                )}
                 {kind !== "vehicle" && (
                   <label className="form-field">
                     <span>{kind === "person" ? "NOME COMPLETO" : "NOME"}</span>
@@ -654,6 +859,14 @@ export default function CreateEntidadeModal({
               </>
             )}
 
+            {activeTab === "history" && kind === "person" && (
+              <CriminalRecordsField
+                value={criminalRecords}
+                onChange={setCriminalRecords}
+                disabled={busy}
+              />
+            )}
+
             {activeTab === "data" && (
               <>
                 {kind === "person" && (
@@ -671,6 +884,24 @@ export default function CreateEntidadeModal({
                       setDob={setDob}
                       cpf={cpf}
                       setCpf={setCpf}
+                      fatherName={fatherName}
+                      setFatherName={setFatherName}
+                      birthplace={birthplace}
+                      setBirthplace={setBirthplace}
+                      nationality={nationality}
+                      setNationality={setNationality}
+                      rgNumber={rgNumber}
+                      setRgNumber={setRgNumber}
+                      rgIssuer={rgIssuer}
+                      setRgIssuer={setRgIssuer}
+                      rgState={rgState}
+                      setRgState={setRgState}
+                      rgIssuedOn={rgIssuedOn}
+                      setRgIssuedOn={setRgIssuedOn}
+                      phones={phones}
+                      setPhones={setPhones}
+                      sipNumber={sipNumber}
+                      setSipNumber={setSipNumber}
                       deceasedOn={deceasedOn}
                       setDeceasedOn={setDeceasedOn}
                       orcrimId={orcrimId}
@@ -777,7 +1008,41 @@ export default function CreateEntidadeModal({
                   · {homonyms.slice(0, 3).map((h) => h.name.toUpperCase()).join(" · ")}
                   {homonyms.length > 3 ? ` +${homonyms.length - 3}` : ""}
                 </span>
+                <button
+                  type="button"
+                  className="btn btn-ghost banner-action"
+                  onClick={() => setResolver({ candidates: homonyms.slice(0, 5), allowCreate: true })}
+                >
+                  VER / ATUALIZAR CADASTRO
+                </button>
               </div>
+            )}
+            {resolver && kind === "person" && (
+              <DuplicateResolver
+                title={
+                  !resolver.allowCreate
+                    ? "CPF JÁ CADASTRADO"
+                    : topScore >= 3
+                      ? "MUITO PROVÁVEL DUPLICATA"
+                      : topScore === 2
+                        ? "PROVÁVEL DUPLICATA"
+                        : "HOMÔNIMO ENCONTRADO"
+                }
+                variant={!resolver.allowCreate || topScore >= 3 ? "error" : "warning"}
+                intro={
+                  !resolver.allowCreate
+                    ? "Este CPF já pertence a uma pessoa cadastrada — não é possível criar outra. Você pode completar o cadastro existente com os dados deste formulário."
+                    : "Já existe cadastro com dados coincidentes. Você pode atualizar o cadastro existente com o que estiver em branco nele, ou criar uma pessoa nova."
+                }
+                candidates={resolver.candidates}
+                allowCreate={resolver.allowCreate}
+                canUpdate={canEditEntities(me)}
+                planFor={planFor}
+                busy={busy}
+                onReview={() => setResolver(null)}
+                onCreate={() => saveEntity(null)}
+                onUpdate={(entity, plan) => saveEntity({ entity, plan })}
+              />
             )}
             {dupesLoading && kind === "person" && (
               <div className="muted" style={{ fontSize: 11.5 }}>
@@ -872,8 +1137,9 @@ function KindPicker({ onPick }: { onPick: (k: EntityKind) => void }) {
 
 // ────────────── helpers ──────────────
 
-function tabsForKind(k: EntityKind): ("identity" | "data" | "media" | "observations")[] {
+function tabsForKind(k: EntityKind): ("identity" | "data" | "history" | "media" | "observations")[] {
   if (k === "vehicle") return ["data", "media", "observations"];
+  if (k === "person") return ["identity", "data", "history", "media"];
   return ["identity", "data", "media"];
 }
 
@@ -912,6 +1178,24 @@ function PersonFields(props: {
   setDob: (v: string) => void;
   cpf: string;
   setCpf: (v: string) => void;
+  fatherName: string;
+  setFatherName: (v: string) => void;
+  birthplace: string;
+  setBirthplace: (v: string) => void;
+  nationality: string;
+  setNationality: (v: string) => void;
+  rgNumber: string;
+  setRgNumber: (v: string) => void;
+  rgIssuer: string;
+  setRgIssuer: (v: string) => void;
+  rgState: string;
+  setRgState: (v: string) => void;
+  rgIssuedOn: string;
+  setRgIssuedOn: (v: string) => void;
+  phones: string[];
+  setPhones: (v: string[]) => void;
+  sipNumber: string;
+  setSipNumber: (v: string) => void;
   deceasedOn: string;
   setDeceasedOn: (v: string) => void;
   orcrimId: string;
@@ -928,6 +1212,15 @@ function PersonFields(props: {
         setLinkedId={props.setMotherEntityId}
       />
 
+      <label className="form-field">
+        <span>NOME DO PAI</span>
+        <input
+          type="text"
+          value={props.fatherName}
+          onChange={(e) => props.setFatherName(e.target.value)}
+          maxLength={200}
+        />
+      </label>
 
       <div className="form-grid-2">
         <div className="form-field">
@@ -957,6 +1250,73 @@ function PersonFields(props: {
           maxLength={14}
         />
       </label>
+
+      <div className="form-grid-2">
+        <label className="form-field">
+          <span>NATURALIDADE</span>
+          <input
+            type="text"
+            value={props.birthplace}
+            onChange={(e) => props.setBirthplace(e.target.value)}
+            placeholder="CIDADE/UF"
+          />
+        </label>
+        <label className="form-field">
+          <span>NACIONALIDADE</span>
+          <input
+            type="text"
+            value={props.nationality}
+            onChange={(e) => props.setNationality(e.target.value)}
+          />
+        </label>
+        <label className="form-field">
+          <span>RG</span>
+          <input
+            type="text"
+            value={props.rgNumber}
+            onChange={(e) => props.setRgNumber(e.target.value)}
+          />
+        </label>
+        <div className="form-grid-2">
+          <label className="form-field">
+            <span>ÓRGÃO</span>
+            <input
+              type="text"
+              value={props.rgIssuer}
+              onChange={(e) => props.setRgIssuer(e.target.value)}
+            />
+          </label>
+          <label className="form-field">
+            <span>UF</span>
+            <input
+              type="text"
+              value={props.rgState}
+              onChange={(e) => props.setRgState(e.target.value)}
+              maxLength={2}
+            />
+          </label>
+        </div>
+        <div className="form-field">
+          <span>EMISSÃO DO RG</span>
+          <DateInput value={props.rgIssuedOn} onChange={props.setRgIssuedOn} />
+        </div>
+      </div>
+
+      <div className="form-grid-2">
+        <label className="form-field">
+          <span>TELEFONES</span>
+          <TagInput value={props.phones} onChange={props.setPhones} />
+        </label>
+        <label className="form-field">
+          <span>Nº SIP</span>
+          <input
+            type="text"
+            value={props.sipNumber}
+            onChange={(e) => props.setSipNumber(e.target.value)}
+            inputMode="numeric"
+          />
+        </label>
+      </div>
 
       <label className="form-field">
         <span>APELIDOS</span>

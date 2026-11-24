@@ -2432,6 +2432,31 @@ body.session-locked > *:not(.session-overlay-root) {
   grid-template-columns: 1fr 1fr;
   gap: 8px;
 }
+
+/* ───────── Importação do RELATÓRIO DE CPF (nova pessoa) ─────────
+   Área de soltar o PDF que preenche o formulário de cadastro. */
+.cpf-drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 22px 12px;
+  margin-top: 8px;
+  border: 1px dashed var(--line-2);
+  background: var(--bg-1);
+  color: var(--fg-1);
+  font-size: 12.5px;
+  letter-spacing: 0.06em;
+  text-align: center;
+  cursor: pointer;
+}
+.cpf-drop:hover { border-color: var(--accent); color: var(--accent); }
+.cpf-drop small { font-size: 10.5px; }
+.cpf-import-ok {
+  margin-top: 6px;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
 /* ───────── Citados no relatório importado ─────────
    Cada bloco é uma pessoa que o relatório menciona e que ainda não virou
    vínculo: mostra a qualificação lida do texto, os dossiês parecidos que o
@@ -5930,3 +5955,129 @@ body.session-locked > *:not(.session-overlay-root) {
 }
 .sipom-legend .sipom-err { height: auto; padding: 1px 6px; font-weight: 400; }
 .ops-refused-banner { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 10px; }
+
+/* ───────── Histórico criminal (repeater da pessoa) ─────────
+   Itens recolhidos numa linha-resumo; o aberto mostra a grade de campos. */
+.form-grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  column-gap: 10px;
+  row-gap: 14px;
+}
+@media (max-width: 720px) {
+  .form-grid-3 { grid-template-columns: 1fr; }
+}
+.crim-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.crim-item {
+  border: 1px solid var(--line);
+  background: var(--bg-1);
+}
+.crim-item--open { border-color: var(--line-2); }
+.crim-item-hd {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  min-width: 0;
+}
+.crim-item-hd:hover { background: var(--bg-2); }
+.crim-item-hd--static { cursor: default; }
+.crim-item-hd--static:hover { background: transparent; }
+.crim-item-hd .action-btn { margin-left: auto; flex-shrink: 0; }
+.crim-date {
+  color: var(--fg-2);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.crim-tag {
+  border: 1px solid var(--line-2);
+  padding: 0 5px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--fg-1);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.crim-tag--judicial { color: var(--warn); border-color: var(--warn); }
+.crim-tag--policial { color: var(--accent); border-color: var(--accent); }
+.crim-summary {
+  color: var(--fg-0);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.crim-item-bd {
+  padding: 6px 10px 10px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* ───────── Diálogo de duplicata (cadastro de pessoa) ─────────
+   Sobe por cima do modal de criação: escolha do cadastro existente e o
+   que atualizar vai preencher/acrescentar. */
+.dup-resolver-backdrop { z-index: 2100; }
+.dup-title-error { color: var(--crit); }
+.dup-title-warn { color: var(--warn); }
+.dup-candidates {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border: 1px solid var(--line);
+  background: var(--bg-1);
+  padding: 6px 10px;
+}
+.dup-candidate { align-items: flex-start; font-size: 12.5px; }
+.dup-candidate input { margin-top: 3px; }
+.dup-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--fg-2);
+}
+.spinner {
+  width: 16px;
+  height: 16px;
+  border: 3px solid var(--accent);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  display: inline-block;
+}
+.dup-plan {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.dup-plan-title {
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  color: var(--fg-1);
+  border-bottom: 1px solid var(--line-2);
+  padding-bottom: 4px;
+}
+.dup-plan-sub {
+  margin-top: 6px;
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  color: var(--fg-2);
+}
+.dup-plan-list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12.5px;
+}
+.banner .banner-action { margin-left: auto; padding: 2px 8px; font-size: 11px; }

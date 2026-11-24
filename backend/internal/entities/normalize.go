@@ -130,3 +130,45 @@ func personTextSlice(ss []string) []string {
 	}
 	return out
 }
+
+// normalizeRGPtr reduz o número do RG a letras e dígitos em MAIÚSCULAS
+// ("2007975651-9" → "20079756519"; o "X" de dígito verificador é mantido).
+// nil continua nil; vazio depois de limpar vira "" (o nilStr grava NULL).
+func normalizeRGPtr(p *string) *string {
+	if p == nil {
+		return nil
+	}
+	var b strings.Builder
+	for _, r := range strings.ToUpper(*p) {
+		if (r >= '0' && r <= '9') || (r >= 'A' && r <= 'Z') {
+			b.WriteRune(r)
+		}
+	}
+	v := b.String()
+	return &v
+}
+
+// normalizePhones deixa só os dígitos de cada telefone, descarta vazios e
+// repetidos e preserva a ordem. nil continua nil (update parcial: mantém).
+func normalizePhones(ss []string) []string {
+	if ss == nil {
+		return nil
+	}
+	out := make([]string, 0, len(ss))
+	seen := make(map[string]bool, len(ss))
+	for _, s := range ss {
+		var b strings.Builder
+		for _, r := range s {
+			if r >= '0' && r <= '9' {
+				b.WriteRune(r)
+			}
+		}
+		d := b.String()
+		if d == "" || seen[d] {
+			continue
+		}
+		seen[d] = true
+		out = append(out, d)
+	}
+	return out
+}

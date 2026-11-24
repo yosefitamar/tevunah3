@@ -20,19 +20,23 @@ import (
 // a dica "sk-ant-…a1B2".
 
 type aiSettingsResponse struct {
-	SecretsReady    bool            `json:"secrets_ready"`
-	Configured      bool            `json:"configured"`
-	KeyHint         string          `json:"key_hint,omitempty"`
-	KeyVerifiedAt   *time.Time      `json:"key_verified_at,omitempty"`
-	AvailableModels []string        `json:"available_models"`
-	Model           string          `json:"model"`
-	Usage           ai.UsageProfile `json:"usage"`
-	Catalog         []ai.Model      `json:"catalog"`
-	PricesAsOf      string          `json:"prices_as_of"`
+	SecretsReady    bool         `json:"secrets_ready"`
+	Configured      bool         `json:"configured"`
+	KeyHint         string       `json:"key_hint,omitempty"`
+	KeyVerifiedAt   *time.Time   `json:"key_verified_at,omitempty"`
+	AvailableModels []string     `json:"available_models"`
+	Model           string       `json:"model"`
+	Spending        *ai.Spending `json:"spending"`
+	Catalog         []ai.Model   `json:"catalog"`
+	PricesAsOf      string       `json:"prices_as_of"`
 }
 
 func (a *app) aiSettingsPayload(r *http.Request, userID string) (*aiSettingsResponse, error) {
 	s, err := a.ai.Get(r.Context(), userID)
+	if err != nil {
+		return nil, err
+	}
+	spent, err := a.ai.Spending(r.Context(), userID)
 	if err != nil {
 		return nil, err
 	}
@@ -43,7 +47,7 @@ func (a *app) aiSettingsPayload(r *http.Request, userID string) (*aiSettingsResp
 		KeyVerifiedAt:   s.KeyVerifiedAt,
 		AvailableModels: s.AvailableModels,
 		Model:           s.Model,
-		Usage:           s.Usage,
+		Spending:        spent,
 		Catalog:         ai.Catalog,
 		PricesAsOf:      ai.PricesAsOf,
 	}, nil
@@ -166,12 +170,11 @@ func (a *app) handleAIKeyDelete(w http.ResponseWriter, r *http.Request) {
 	a.writeAISettings(w, r, me.ID)
 }
 
-// PUT /api/me/ai/settings {model, usage}
+// PUT /api/me/ai/settings {model}
 func (a *app) handleAISettingsPut(w http.ResponseWriter, r *http.Request) {
 	me := middleware.UserFrom(r.Context())
 	var req struct {
-		Model string          `json:"model"`
-		Usage ai.UsageProfile `json:"usage"`
+		Model string `json:"model"`
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -179,12 +182,10 @@ func (a *app) handleAISettingsPut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	prev, _ := a.ai.Get(r.Context(), me.ID)
-	if err := a.ai.SaveSettings(r.Context(), me.ID, req.Model, req.Usage); err != nil {
+	if err := a.ai.SaveModel(r.Context(), me.ID, req.Model); err != nil {
 		switch {
 		case errors.Is(err, ai.ErrInvalidModel):
 			httpx.Error(w, http.StatusBadRequest, "modelo não oferecido")
-		case errors.Is(err, ai.ErrInvalidUsage):
-			httpx.Error(w, http.StatusBadRequest, "perfil de uso fora dos limites")
 		default:
 			log.Printf("ai settings save: %v", err)
 			httpx.Error(w, http.StatusInternalServerError, "erro ao gravar a configuração de IA")

@@ -51,7 +51,7 @@ func TestSmoke_Repo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := New(db, box)
+	r := New(db, box, "America/Fortaleza")
 
 	var user string
 	if err := db.QueryRowContext(ctx, `
@@ -69,17 +69,17 @@ func TestSmoke_Repo(t *testing.T) {
 		if _, err := db.ExecContext(ctx, `
 			UPDATE app.user_ai_settings
 			   SET api_key_enc = NULL, api_key_hint = NULL, key_verified_at = NULL,
-			       available_models = '{}', model = NULL, usage_profile = '{}'
+			       available_models = '{}', model = NULL
 			 WHERE user_id = $1`, user); err != nil {
 			t.Errorf("limpeza: %v", err)
 		}
-		if s, err := r.Get(ctx, user); err != nil || s.HasKey || s.Model != DefaultModel || s.Usage != DefaultUsage {
+		if s, err := r.Get(ctx, user); err != nil || s.HasKey || s.Model != DefaultModel {
 			t.Errorf("limpeza deixou resíduo: %+v %v", s, err)
 		}
 	}()
 
 	s, err := r.Get(ctx, user)
-	if err != nil || s.HasKey || s.Model != DefaultModel || s.Usage != DefaultUsage {
+	if err != nil || s.HasKey || s.Model != DefaultModel {
 		t.Fatalf("padrões = %+v, %v", s, err)
 	}
 	if _, _, err := r.Credentials(ctx, user); !errors.Is(err, ErrNoKey) {
@@ -95,11 +95,10 @@ func TestSmoke_Repo(t *testing.T) {
 	if len(stored) == 0 || string(stored) == key {
 		t.Fatal("chave gravada em claro ou vazia")
 	}
-	usage := UsageProfile{RequestsPerDay: 10, WorkDays: 20, InputTokens: 1000, OutputTokens: 500, USDBRL: 5}
-	if err := r.SaveSettings(ctx, user, "claude-sonnet-5-5", usage); err != nil {
+	if err := r.SaveModel(ctx, user, "claude-sonnet-5-5"); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.SaveSettings(ctx, user, "gpt-qualquer", usage); !errors.Is(err, ErrInvalidModel) {
+	if err := r.SaveModel(ctx, user, "gpt-qualquer"); !errors.Is(err, ErrInvalidModel) {
 		t.Errorf("modelo inválido aceito: %v", err)
 	}
 	gotKey, gotModel, err := r.Credentials(ctx, user)
@@ -107,7 +106,7 @@ func TestSmoke_Repo(t *testing.T) {
 		t.Fatalf("credentials = %q %q %v", gotKey, gotModel, err)
 	}
 	s, _ = r.Get(ctx, user)
-	if !s.HasKey || s.KeyHint != "sk-ant-…WXYZ" || len(s.AvailableModels) != 2 || s.Usage != usage {
+	if !s.HasKey || s.KeyHint != "sk-ant-…WXYZ" || len(s.AvailableModels) != 2 {
 		t.Errorf("get = %+v", s)
 	}
 

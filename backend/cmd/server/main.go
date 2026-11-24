@@ -136,7 +136,7 @@ func main() {
 		entities:    entities.New(appDB),
 		informes:    informes.New(appDB),
 		consultas:   consultas.New(appDB),
-		ai:          ai.New(appDB, mustSecretBox()),
+		ai:          ai.New(appDB, mustSecretBox(), tz),
 		reports:     reports.New(appDB),
 		incidents:   incidents.New(appDB),
 		opsReports:  opsreport.New(appDB),

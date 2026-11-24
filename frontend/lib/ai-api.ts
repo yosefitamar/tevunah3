@@ -9,17 +9,18 @@ export type AIModel = {
   line: string;
   input_usd_per_mtok: number;
   output_usd_per_mtok: number;
+  cache_read_usd_per_mtok: number;
   context: string;
   description: string;
   recommended: boolean;
 };
 
-export type AIUsageProfile = {
-  requests_per_day: number;
-  work_days_per_month: number;
-  input_tokens_per_request: number;
-  output_tokens_per_request: number;
-  usd_brl: number;
+/** Soma do uso num período (custo calculado no registro de cada chamada). */
+export type AIPeriod = {
+  cost_usd: number;
+  requests: number;
+  input_tokens: number;
+  output_tokens: number;
 };
 
 export type AISettings = {
@@ -31,7 +32,8 @@ export type AISettings = {
   /** Modelos que a chave enxerga (na última verificação). */
   available_models: string[];
   model: string;
-  usage: AIUsageProfile;
+  /** Gasto do mês e do ano correntes (calendário da agência). */
+  spending: { month: AIPeriod; year: AIPeriod };
   catalog: AIModel[];
   prices_as_of: string;
 };
@@ -55,19 +57,9 @@ export function deleteAIKey() {
   return api<AISettings>("/api/me/ai/key", { method: "DELETE" });
 }
 
-export function saveAISettings(model: string, usage: AIUsageProfile) {
+export function saveAIModel(model: string) {
   return api<AISettings>("/api/me/ai/settings", {
     method: "PUT",
-    body: JSON.stringify({ model, usage }),
+    body: JSON.stringify({ model }),
   });
-}
-
-/** Custo estimado em US$ de um perfil de uso num modelo (preço de tabela). */
-export function estimateUSD(m: AIModel, u: AIUsageProfile) {
-  const perRequest =
-    (u.input_tokens_per_request * m.input_usd_per_mtok +
-      u.output_tokens_per_request * m.output_usd_per_mtok) /
-    1_000_000;
-  const monthly = perRequest * u.requests_per_day * u.work_days_per_month;
-  return { perRequest, monthly, annual: monthly * 12 };
 }

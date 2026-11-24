@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CheckCheck, FileUp, History, MapPinned, Plus, Search, Send, ShieldAlert, X } from "lucide-react";
+import { CheckCheck, FileUp, History, MapPinned, Plus, Search, Send, ShieldAlert, Sparkles, X } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   INCIDENT_MEANS,
@@ -26,6 +26,7 @@ import {
 } from "@/lib/occurrences-api";
 import { getOpsFacets, type OpsFacets, type OpsReport } from "@/lib/ops-reports-api";
 import { confirmSipomNaturezas, confirmSipomSexos } from "@/lib/sipom-api";
+import { SIPOM_AI_CODES, sipomAIHandles } from "@/lib/sipom-ai-api";
 import {
   canCreateIncidents,
   canImportOpsReports,
@@ -48,6 +49,7 @@ import { BLOCKING_STEPS, PENDING_SHORT, SipomTrail, SipomTrailLegend } from "../
 import CreateOcorrenciaModal from "./CreateOcorrenciaModal";
 import OcorrenciaDrawer from "./OcorrenciaDrawer";
 import SipomBatchSendModal, { type BatchItem } from "./SipomBatchSendModal";
+import SipomAIBatchModal, { type AIBatchItem } from "./SipomAIBatchModal";
 import SipomAreaRefsModal from "./SipomAreaRefsModal";
 
 const PAGE_SIZE = 25;
@@ -141,6 +143,7 @@ export default function OcorrenciasScreen() {
   const [selected, setSelected] = useState<Map<string, BatchItem>>(new Map());
   const [batch, setBatch] = useState<BatchItem[] | null>(null);
   const [areaRefs, setAreaRefs] = useState(false);
+  const [aiBatch, setAIBatch] = useState<AIBatchItem[] | null>(null);
 
   // Cada fonte tem a sua permissão; o servidor recorta a listagem pelo que o
   // usuário lê.
@@ -302,6 +305,35 @@ export default function OcorrenciasScreen() {
       setNotice(`${all.length} ocorrência(s) pronta(s) selecionada(s).`);
     } catch (e) {
       setError((e as ApiError).message || "Erro ao selecionar");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Pendentes do recorte atual (todas as páginas) com pendência que a IA
+  // ajuda a resolver — no máximo AI_BATCH_MAX por lote.
+  async function openAIBatch() {
+    setBusy(true);
+    setError(null);
+    try {
+      const all: AIBatchItem[] = [];
+      for (let offset = 0; all.length < AI_BATCH_MAX; offset += 100) {
+        const r = await listOccurrences({ ...listOpts(), status: "pending", limit: 100, offset });
+        for (const x of r.items) {
+          if (x.ops_id && !x.sipom_sent_at && sipomAIHandles(x.pendencias.map((p) => p.code))) {
+            all.push({
+              ...batchItem(x),
+              natures: x.natures,
+              pendencias: x.pendencias.filter((p) => SIPOM_AI_CODES.has(p.code)).map((p) => PENDING_SHORT[p.code] ?? p.label),
+            });
+          }
+        }
+        if (r.items.length < 100 || offset + 100 >= r.total) break;
+      }
+      if (all.length === 0) setNotice("Nenhuma ocorrência pendente do recorte tem pendência que a IA resolve.");
+      else setAIBatch(all.slice(0, AI_BATCH_MAX));
+    } catch (e) {
+      setError((e as ApiError).message || "Erro ao listar");
     } finally {
       setBusy(false);
     }
@@ -507,6 +539,15 @@ export default function OcorrenciasScreen() {
                 type="button"
                 className="btn btn-sm"
                 style={{ marginLeft: "auto" }}
+                disabled={busy || (sipom?.pending ?? 0) === 0}
+                onClick={openAIBatch}
+                title="A IA sugere natureza, bairro, sexo e apreensões das pendentes do recorte; você revisa antes de gravar"
+              >
+                <Sparkles size={13} strokeWidth={1.8} /> RESOLVER COM IA
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm"
                 disabled={busy}
                 onClick={() => setAreaRefs(true)}
                 title="Referências de área da unidade militar: resolver os lugares sem área e manter as referências"
@@ -662,6 +703,17 @@ export default function OcorrenciasScreen() {
         <SipomAreaRefsModal
           onClose={() => setAreaRefs(false)}
           onChanged={() => {
+            reload();
+            reloadFacets();
+          }}
+        />
+      )}
+
+      {aiBatch && (
+        <SipomAIBatchModal
+          items={aiBatch}
+          onClose={() => setAIBatch(null)}
+          onDone={() => {
             reload();
             reloadFacets();
           }}
@@ -894,6 +946,9 @@ function Seg({ value, onChange }: { value: "" | "1" | "0"; onChange: (v: "" | "1
     </div>
   );
 }
+
+// Ocorrências por lote do RESOLVER COM IA.
+const AI_BATCH_MAX = 100;
 
 /** Pronta para o envio em lote: do relatório, não enviada, sem pendência que impeça. */
 function sendable(r: OccurrenceRow) {

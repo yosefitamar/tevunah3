@@ -14,6 +14,7 @@ import {
 } from "@/lib/ai-api";
 import { formatBR } from "@/lib/format";
 import type { ApiError } from "@/lib/api";
+import GuidancePanel from "./GuidancePanel";
 
 const USD = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
 const USD_FINE = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 4 });
@@ -240,6 +241,9 @@ export default function AssistenteIAScreen() {
           })}
         </div>
       </div>
+
+      {/* ── Orientações ───────────────────────────────────── */}
+      <GuidancePanel />
     </div>
   );
 }

@@ -19,6 +19,8 @@ import { OpsBlock, OpsField, OpsFields } from "./OpsField";
 import OpsGeoSection from "./OpsGeoSection";
 import OpsIntelHistory from "./OpsIntelHistory";
 import OpsPhotosSection from "./OpsPhotosSection";
+import SipomAIPanel from "./SipomAIPanel";
+import { sipomAIHandles } from "@/lib/sipom-ai-api";
 import { SipomMateriais, SipomProcedimento } from "./SipomPhase2";
 import {
   OfficersTable,
@@ -425,6 +427,9 @@ export default function OpsOccurrenceBody({
       </nav>
 
       {error}
+      {ed.editable && occ.id && onSipomChange && s && !s.sent_at && sipomAIHandles(s.pendencias.map((p) => p.code)) && (
+        <SipomAIPanel key={occ.id} occId={occ.id} onApplied={onSipomChange} />
+      )}
       {/* Todas as etapas ficam montadas (só a ativa aparece): o que o analista
           escolheu e ainda não gravou numa etapa não se perde ao passar por outra. */}
       {list.map((x) => (

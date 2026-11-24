@@ -6134,3 +6134,62 @@ body.session-locked > *:not(.session-overlay-root) {
 .ia-badge--warn { color: var(--warn); border-color: var(--warn); }
 .ia-save-ok { color: var(--accent); }
 .ia-save-err { color: var(--crit); }
+
+/* ── Assistente de IA nas pendências do SIPOM ─────────────────────────── */
+.sai-panel {
+  border: 1px solid var(--line-2);
+  border-left: 2px solid var(--accent);
+  background: var(--bg-2);
+  padding: 8px 10px;
+  margin-bottom: 10px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.sai-hd { display: flex; align-items: center; gap: 8px; font-size: 11px; letter-spacing: .04em; color: var(--accent); }
+.sai-hd .muted { color: var(--fg-3); }
+.sai-ttl { font-weight: 600; }
+.sai-btn, .sai-close { margin-left: auto; }
+.sai-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.sai-item { display: flex; gap: 8px; padding: 6px 2px; border-top: 1px solid var(--line); }
+.sai-item:first-child { border-top: 0; }
+.sai-item--off { opacity: .6; }
+.sai-check { padding-top: 1px; }
+.sai-body { flex: 1; min-width: 0; }
+.sai-line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12.5px; }
+.sai-target { color: var(--fg-2); }
+.sai-arrow { color: var(--fg-3); }
+.sai-value { color: var(--fg-0); font-weight: 600; }
+.sai-current { font-size: 11.5px; }
+.sai-agree { font-size: 10px; letter-spacing: .05em; color: var(--accent); }
+.sai-line .pill { margin-left: auto; }
+.sai-motivo { font-size: 11.5px; color: var(--fg-3); margin-top: 2px; }
+.sai-err { font-size: 11.5px; color: var(--crit); margin-top: 2px; }
+.sai-ft { display: flex; justify-content: flex-end; gap: 8px; }
+.modal.sai-batch { width: 980px; max-width: calc(100vw - 32px); }
+.sai-batch .modal-bd { display: flex; flex-direction: column; gap: 10px; }
+.sai-batch-list { max-height: calc(100vh - 300px); overflow: auto; border: 1px solid var(--line); }
+.sai-batch-occ { padding: 8px 10px; border-top: 1px solid var(--line); }
+.sai-batch-occ:first-child { border-top: 0; }
+.sai-batch-hd { display: flex; align-items: center; gap: 10px; font-size: 12px; margin-bottom: 2px; }
+.sai-batch-nat { color: var(--fg-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+.sai-guid { font-size: 11.5px; color: var(--accent); margin-top: 2px; }
+.sai-line .ops-field-btn { margin-left: 4px; }
+.guid-form { display: flex; flex-direction: column; gap: 10px; }
+.guid-context { font-size: 12px; padding: 6px 8px; border: 1px solid var(--line); background: var(--bg-2); }
+.guid-city { height: 30px; display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.guid-hint { font-size: 11px; line-height: 1.4; }
+.guid-form textarea { width: 100%; resize: vertical; min-height: 96px; }
+.guid-filter { display: flex; gap: 6px; margin-bottom: 8px; }
+.guid-list { list-style: none; margin: 0; padding: 0; }
+.guid-item { padding: 8px 2px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 3px; }
+.guid-item:first-child { border-top: 0; }
+.guid-meta { display: flex; align-items: center; gap: 6px; font-size: 11px; letter-spacing: .04em; }
+.guid-meta .pill { margin-left: auto; }
+.guid-topic { color: var(--accent); font-weight: 600; }
+.guid-body { font-size: 13px; color: var(--fg-0); white-space: pre-wrap; }
+.guid-foot { font-size: 11px; }
+.guid-actions { display: flex; gap: 6px; justify-content: flex-end; }
+.guid-actions:empty { display: none; }
+.guid-empty { font-size: 12px; padding: 8px 2px; }
+.sai-batch-pick { font-size: 12px; }
+.sai-batch-hd input[type="checkbox"] { accent-color: var(--accent); cursor: pointer; }
+.sai-batch-pend { font-size: 11px; color: var(--warn); margin-top: 2px; }

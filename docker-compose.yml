@@ -138,6 +138,10 @@ services:
       SIPOM_BASE_URL:          "${SIPOM_BASE_URL:-https://sipom.pm.ce.gov.br}"
       SIPOM_CLIENT_KEY:        "${SIPOM_CLIENT_KEY:-}"
       SIPOM_SECRET:            "${SIPOM_SECRET:-}"
+      # Chave mestra do cofre de segredos (32 bytes em base64): cifra as
+      # chaves da API Anthropic que cada usuário cadastra no assistente de IA.
+      # Vazia = assistente sem chave. Gerar: openssl rand -base64 32
+      APP_SECRETS_KEY:         "${APP_SECRETS_KEY:-}"
       # Seed dev — só usado pelo `admin seed-dev` quando APP_ENV=development
       DEV_ADMIN_EMAIL:    ${DEV_ADMIN_EMAIL:-admin@tevunah.local}
       DEV_ADMIN_NAME:     ${DEV_ADMIN_NAME:-Administrador Dev}

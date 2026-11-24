@@ -51,9 +51,22 @@ const SessionCookieName = "tevunah_session"
 // emitido no login, derrubando o agente mesmo com a sessão viva no servidor.
 type RefreshCookieFunc func(w http.ResponseWriter, token string)
 
+// AuthOption ajusta o RequireAuth.
+type AuthOption func(*authConfig)
+
+type authConfig struct{ skipTOTP bool }
+
+// SkipTOTP desliga o TOTP: o setup pendente não trava as rotas e some do
+// usuário injetado. Só para desenvolvimento (main liga com APP_ENV=development).
+func SkipTOTP() AuthOption { return func(c *authConfig) { c.skipTOTP = true } }
+
 // RequireAuth lê o token (cookie OU Bearer), valida sessão, refresha TTL e injeta o usuário.
 // refreshCookie pode ser nil (ex.: testes / clientes Bearer).
-func RequireAuth(store *session.Store, repo *users.Repo, refreshCookie RefreshCookieFunc) func(http.Handler) http.Handler {
+func RequireAuth(store *session.Store, repo *users.Repo, refreshCookie RefreshCookieFunc, opts ...AuthOption) func(http.Handler) http.Handler {
+	var cfg authConfig
+	for _, o := range opts {
+		o(&cfg)
+	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			tok := tokenFrom(r)
@@ -78,6 +91,9 @@ func RequireAuth(store *session.Store, repo *users.Repo, refreshCookie RefreshCo
 			if !u.IsActive() {
 				httpx.Error(w, http.StatusForbidden, "usuário inativo")
 				return
+			}
+			if cfg.skipTOTP {
+				u.MustSetupTOTP = false
 			}
 			// Gate de credenciais pendentes: enquanto houver flag pendente, o
 			// agente só pode usar rotas auxiliares (me/logout) e os endpoints

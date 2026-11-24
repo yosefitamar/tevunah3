@@ -6,6 +6,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useSystemSettings } from "@/contexts/SystemSettingsContext";
 import type { ApiError } from "@/lib/api";
 import TevunahLogo from "./TevunahLogo";
+import { IS_DEV } from "@/lib/nav";
 
 export default function LoginScreen() {
   const { login } = useAuth();
@@ -76,6 +77,12 @@ export default function LoginScreen() {
             />
           </label>
 
+          {/* Em desenvolvimento o backend não pede TOTP (APP_ENV=development). */}
+          {IS_DEV ? (
+            <small className="muted" style={{ fontSize: 11.5, letterSpacing: "0.06em" }}>
+              // TOTP DESATIVADO EM DESENVOLVIMENTO
+            </small>
+          ) : (
           <label className="login-field">
             <span>CÓDIGO TOTP · 6 DÍGITOS</span>
             <input
@@ -91,6 +98,7 @@ export default function LoginScreen() {
               // DEIXE VAZIO SE ADMIN SOLICITOU RESET DE TOTP
             </small>
           </label>
+          )}
 
           {err && <div className="login-error">⚠ {err}</div>}
 

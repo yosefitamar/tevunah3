@@ -21,6 +21,7 @@ export type ModuleId =
   | "aprovacoes"
   | "auditoria"
   | "admin"
+  | "ia"
   | "sandbox";
 
 // Ambiente de desenvolvimento (next dev). No build de produção (next build)
@@ -43,6 +44,7 @@ export const NAV: NavEntry[] = [
   { id: "auditoria", key: "10", lbl: "AUDITORIA", glyph: "▤" },
 
   { group: "SISTEMA" },
+  { id: "ia", key: "97", lbl: "ASSISTENTE IA", glyph: "✦" },
   { id: "admin", key: "99", lbl: "ADMIN", glyph: "⚙" },
   // Sandbox de modais — ferramenta de dev; só aparece em desenvolvimento.
   ...(IS_DEV
@@ -62,5 +64,6 @@ export const MODULE_TITLES: Record<ModuleId, string> = {
   aprovacoes: "APROVAÇÕES",
   auditoria: "AUDITORIA",
   admin: "ADMINISTRAÇÃO",
+  ia: "ASSISTENTE DE IA",
   sandbox: "SANDBOX · MODAIS",
 };

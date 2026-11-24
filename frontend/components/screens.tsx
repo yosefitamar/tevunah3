@@ -10,6 +10,7 @@ import MapaScreen from "./mapa/MapaScreen";
 import RelatoriosScreen from "./relatorios/RelatoriosScreen";
 import InformesScreen from "./informes/InformesScreen";
 import ConsultasScreen from "./consultas/ConsultasScreen";
+import AssistenteIAScreen from "./ia/AssistenteIAScreen";
 
 type PlaceholderProps = {
   tag: string;
@@ -48,3 +49,5 @@ export const ScreenRelatorios = RelatoriosScreen;
 export const ScreenInformes = InformesScreen;
 
 export const ScreenConsultas = ConsultasScreen;
+
+export const ScreenAssistenteIA = AssistenteIAScreen;

@@ -19,6 +19,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/belia/tevunah/backend/internal/ai"
 	"github.com/belia/tevunah/backend/internal/approvals"
 	"github.com/belia/tevunah/backend/internal/audit"
 	"github.com/belia/tevunah/backend/internal/authz"
@@ -38,6 +39,7 @@ import (
 	"github.com/belia/tevunah/backend/internal/pdf"
 	"github.com/belia/tevunah/backend/internal/permissions"
 	"github.com/belia/tevunah/backend/internal/reports"
+	"github.com/belia/tevunah/backend/internal/secretbox"
 	"github.com/belia/tevunah/backend/internal/session"
 	"github.com/belia/tevunah/backend/internal/settings"
 	"github.com/belia/tevunah/backend/internal/sipom"
@@ -49,6 +51,9 @@ var start = time.Now()
 
 type app struct {
 	env         string
+	// devNoTOTP desliga o TOTP no login e no middleware. Só com
+	// APP_ENV=development declarado (ver devSession).
+	devNoTOTP bool
 	users       *users.Repo
 	audit       *audit.Logger
 	auditReader *audit.Reader
@@ -59,6 +64,9 @@ type app struct {
 	entities    *entities.Repo
 	informes    *informes.Repo
 	consultas   *consultas.Repo
+	// ai é a configuração do assistente de IA de cada usuário (chave da
+	// API Anthropic cifrada no cofre de segredos).
+	ai          *ai.Repo
 	reports     *reports.Repo
 	incidents   *incidents.Repo
 	opsReports  *opsreport.Repo
@@ -117,6 +125,7 @@ func main() {
 
 	a := &app{
 		env:         env,
+		devNoTOTP:   devSession(),
 		users:       users.New(appDB),
 		audit:       audit.New(auditDB),
 		auditReader: audit.NewReader(appDB),
@@ -127,6 +136,7 @@ func main() {
 		entities:    entities.New(appDB),
 		informes:    informes.New(appDB),
 		consultas:   consultas.New(appDB),
+		ai:          ai.New(appDB, mustSecretBox()),
 		reports:     reports.New(appDB),
 		incidents:   incidents.New(appDB),
 		opsReports:  opsreport.New(appDB),
@@ -137,6 +147,9 @@ func main() {
 		dashboard:   dashboard.New(appDB, tz),
 		pdf:         pdf.New("", photoDir()),
 		tz:          tz,
+	}
+	if a.devNoTOTP {
+		log.Printf("TOTP desligado (desenvolvimento) — login só com e-mail e senha")
 	}
 
 	if cat, err := sipom.Load(context.Background(), appDB); err != nil {
@@ -162,8 +175,17 @@ func main() {
 	mux.HandleFunc("GET /api/health", a.handleHealth)
 	mux.HandleFunc("POST /api/auth/login", a.handleLogin)
 
-	auth := middleware.RequireAuth(a.sessions, a.users, a.refreshSessionCookie)
+	var authOpts []middleware.AuthOption
+	if a.devNoTOTP {
+		authOpts = append(authOpts, middleware.SkipTOTP())
+	}
+	auth := middleware.RequireAuth(a.sessions, a.users, a.refreshSessionCookie, authOpts...)
 	mux.Handle("GET /api/auth/me", auth(http.HandlerFunc(a.handleMe)))
+	mux.Handle("GET /api/me/ai", auth(http.HandlerFunc(a.handleAISettingsGet)))
+	mux.Handle("PUT /api/me/ai/settings", auth(http.HandlerFunc(a.handleAISettingsPut)))
+	mux.Handle("PUT /api/me/ai/key", auth(http.HandlerFunc(a.handleAIKeyPut)))
+	mux.Handle("POST /api/me/ai/key/verify", auth(http.HandlerFunc(a.handleAIKeyVerify)))
+	mux.Handle("DELETE /api/me/ai/key", auth(http.HandlerFunc(a.handleAIKeyDelete)))
 	mux.Handle("POST /api/auth/logout", auth(http.HandlerFunc(a.handleLogout)))
 	mux.Handle("POST /api/auth/heartbeat", auth(http.HandlerFunc(a.handleHeartbeat)))
 	mux.Handle("POST /api/auth/password/change", auth(http.HandlerFunc(a.handlePasswordChange)))
@@ -552,6 +574,11 @@ func (a *app) handleLogin(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Desenvolvimento: sem TOTP — nem validação do código nem setup pendente.
+	if a.devNoTOTP {
+		u.MustSetupTOTP = false
+	}
+
 	// Setup pendente do TOTP: pula a validação do código. Gera o secret se
 	// ainda não foi gerado (primeira tentativa após reset). Persiste como
 	// pending — só vira definitivo quando o agente confirma no setup.
@@ -571,7 +598,7 @@ func (a *app) handleLogin(w http.ResponseWriter, r *http.Request) {
 			u.TOTPSecret = secret
 		}
 		pendingTOTPSecret = u.TOTPSecret
-	} else {
+	} else if !a.devNoTOTP {
 		if u.TOTPSecret == "" {
 			logDenied(&u.ID, "TOTP não configurado")
 			httpx.Error(w, http.StatusUnauthorized, "credenciais inválidas")
@@ -733,4 +760,18 @@ func (a *app) handleLogout(w http.ResponseWriter, r *http.Request) {
 		Action:         "auth.logout",
 	})
 	httpx.NoContent(w)
+}
+
+// mustSecretBox abre o cofre de segredos com APP_SECRETS_KEY. Ausente, o
+// cofre fica desligado (a tela de IA avisa e não aceita chave); inválida,
+// o servidor não sobe — melhor falhar no boot que gravar com chave errada.
+func mustSecretBox() *secretbox.Box {
+	box, err := secretbox.New(os.Getenv("APP_SECRETS_KEY"))
+	if err != nil {
+		log.Fatalf("cofre de segredos: %v", err)
+	}
+	if box == nil {
+		log.Printf("cofre de segredos desligado (APP_SECRETS_KEY vazio) — assistente de IA sem chave")
+	}
+	return box
 }

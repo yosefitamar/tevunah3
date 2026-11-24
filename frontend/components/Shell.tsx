@@ -22,6 +22,7 @@ import {
   ScreenAgentes,
   ScreenAprovacoes,
   ScreenAuditoria,
+  ScreenAssistenteIA,
   ScreenConsultas,
   ScreenEntidades,
   ScreenInformes,
@@ -43,6 +44,7 @@ const VIEWS: Record<ModuleId, React.ComponentType> = {
   aprovacoes: ScreenAprovacoes,
   auditoria: ScreenAuditoria,
   admin: ScreenAdmin,
+  ia: ScreenAssistenteIA,
   sandbox: SandboxModais,
 };
 

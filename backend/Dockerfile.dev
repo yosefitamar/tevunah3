@@ -1,6 +1,6 @@
 FROM surnet/alpine-wkhtmltopdf:3.20.0-0.12.6-full AS wkhtmltopdf
 
-FROM golang:1.23-alpine
+FROM golang:1.26-alpine
 
 # Dependências do wkhtmltopdf (libs Qt 5 e fontes) e poppler-utils (pdftotext,
 # leitura do relatório operacional). O wkhtmltopdf é copiado da

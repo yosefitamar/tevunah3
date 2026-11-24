@@ -21,7 +21,7 @@ export LANG=C.UTF-8
 
 REPO_DIR="/opt/tevunah"
 APP_USER="tevunah"
-GO_VERSION="1.23.4"
+GO_VERSION="1.26.11"
 NODE_MAJOR="22"
 PHOTO_DIR="/var/lib/tevunah/photos"
 WKHTML_DEB_URL="https://github.com/wkhtmltopdf/packaging/releases/download/0.12.6.1-3/wkhtmltox_0.12.6.1-3.bookworm_amd64.deb"
@@ -58,6 +58,14 @@ GEOCODER_STATE="${GEOCODER_STATE:-Ceará}"
 SIPOM_BASE_URL="${SIPOM_BASE_URL:-https://sipom.pm.ce.gov.br}"
 SIPOM_CLIENT_KEY="${SIPOM_CLIENT_KEY:-}"
 SIPOM_SECRET="${SIPOM_SECRET:-}"
+# Cofre de segredos (chaves da API Anthropic dos usuários). Gerada uma única
+# vez e gravada no .env.prod: trocá-la invalida as chaves já cadastradas.
+if [[ -z "${APP_SECRETS_KEY:-}" ]]; then
+  APP_SECRETS_KEY="$(openssl rand -base64 32)"
+  printf '\n# Chave mestra do cofre de segredos — gerada pelo install.sh em %s. NÃO TROQUE.\nAPP_SECRETS_KEY=%s\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$APP_SECRETS_KEY" >> .env.prod
+  log "APP_SECRETS_KEY gerada e gravada no .env.prod"
+fi
 
 # ─── 2. Pacotes de sistema ───────────────────────────────────────────────
 log "Instalando pacotes apt"
@@ -213,6 +221,7 @@ GEOCODER_STATE=${GEOCODER_STATE}
 SIPOM_BASE_URL=${SIPOM_BASE_URL}
 SIPOM_CLIENT_KEY=${SIPOM_CLIENT_KEY}
 SIPOM_SECRET=${SIPOM_SECRET}
+APP_SECRETS_KEY=${APP_SECRETS_KEY}
 EOF
 
 cat > "$REPO_DIR/frontend.env" <<EOF

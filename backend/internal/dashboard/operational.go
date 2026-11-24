@@ -108,7 +108,7 @@ func (r *Repo) Operational(ctx context.Context, w Window, withIncidents bool) (*
 		SELECT COALESCE(NULLIF(x.kind, ''), 'NÃO INFORMADO'), '', COUNT(*)
 		  FROM app.ops_occurrence_weapons x
 		  JOIN app.ops_occurrences o ON o.id = x.occurrence_id
-		 WHERE o.deleted_at IS NULL`+verified+`
+		 WHERE o.deleted_at IS NULL AND x.removed_at IS NULL`+verified+`
 		   AND ($1::date IS NULL OR o.occurred_on >= $1::date)
 		   AND ($2::date IS NULL OR o.occurred_on <= $2::date)
 		 GROUP BY 1 ORDER BY 3 DESC, 1 LIMIT 3`,
@@ -119,7 +119,7 @@ func (r *Repo) Operational(ctx context.Context, w Window, withIncidents bool) (*
 		SELECT COALESCE(NULLIF(x.kind, ''), 'NÃO INFORMADO'), '', COUNT(*)
 		  FROM app.ops_occurrence_vehicles x
 		  JOIN app.ops_occurrences o ON o.id = x.occurrence_id
-		 WHERE o.deleted_at IS NULL`+verified+`
+		 WHERE o.deleted_at IS NULL AND x.removed_at IS NULL`+verified+`
 		   AND ($1::date IS NULL OR o.occurred_on >= $1::date)
 		   AND ($2::date IS NULL OR o.occurred_on <= $2::date)
 		 GROUP BY 1 ORDER BY 3 DESC, 1 LIMIT 3`,
@@ -154,11 +154,11 @@ func (r *Repo) opsTotals(ctx context.Context, p Period) (OperationalTotals, erro
 		     AND ($2::date IS NULL OR o.occurred_on <= $2::date))
 		SELECT
 		  (SELECT COUNT(*) FROM occ),
-		  (SELECT COUNT(*) FROM app.ops_occurrence_weapons  x WHERE x.occurrence_id IN (SELECT id FROM occ)),
-		  (SELECT COALESCE(SUM(grams), 0)::float8 FROM app.ops_occurrence_drugs x WHERE x.occurrence_id IN (SELECT id FROM occ)),
+		  (SELECT COUNT(*) FROM app.ops_occurrence_weapons  x WHERE x.occurrence_id IN (SELECT id FROM occ) AND x.removed_at IS NULL),
+		  (SELECT COALESCE(SUM(grams), 0)::float8 FROM app.ops_occurrence_drugs x WHERE x.occurrence_id IN (SELECT id FROM occ) AND x.removed_at IS NULL),
 		  (SELECT COUNT(*) FROM app.ops_occurrence_people   x WHERE x.occurrence_id IN (SELECT id FROM occ) AND x.role = 'ACUSADO'),
 		  (SELECT COUNT(*) FROM app.ops_occurrence_people   x WHERE x.occurrence_id IN (SELECT id FROM occ) AND x.role = 'ACUSADO' AND x.age < 18),
-		  (SELECT COUNT(*) FROM app.ops_occurrence_vehicles x WHERE x.occurrence_id IN (SELECT id FROM occ))`,
+		  (SELECT COUNT(*) FROM app.ops_occurrence_vehicles x WHERE x.occurrence_id IN (SELECT id FROM occ) AND x.removed_at IS NULL)`,
 		nilDate(p.From), nilDate(p.To),
 	).Scan(&t.Occurrences, &t.Weapons, &t.DrugsGrams, &t.Accused, &t.Adolescents, &t.Vehicles)
 	return t, err
@@ -169,7 +169,7 @@ func (r *Repo) drugKinds(ctx context.Context, p Period) ([]DrugFacet, error) {
 		SELECT COALESCE(NULLIF(x.description, ''), 'NÃO INFORMADA'), COALESCE(SUM(x.grams), 0)::float8
 		  FROM app.ops_occurrence_drugs x
 		  JOIN app.ops_occurrences o ON o.id = x.occurrence_id
-		 WHERE o.deleted_at IS NULL`+verified+`
+		 WHERE o.deleted_at IS NULL AND x.removed_at IS NULL`+verified+`
 		   AND ($1::date IS NULL OR o.occurred_on >= $1::date)
 		   AND ($2::date IS NULL OR o.occurred_on <= $2::date)
 		 GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT 3`, nilDate(p.From), nilDate(p.To))

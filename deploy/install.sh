@@ -184,6 +184,9 @@ sudo -u "$APP_USER" -H bash -c "
 
 # ─── 10. Build do frontend (Next.js standalone) ──────────────────────────
 log "Build do frontend (Next.js)"
+# Versão do build (commit + hora): a aba aberta compara com /version e se
+# atualiza sozinha depois do deploy (VersionWatcher).
+APP_BUILD_ID="$(git -C "$REPO_DIR" rev-parse --short HEAD 2>/dev/null || echo build)-$(date -u +%Y%m%d%H%M%S)"
 sudo -u "$APP_USER" -H bash -c "
   set -e
   cd '$REPO_DIR/frontend'
@@ -194,7 +197,7 @@ sudo -u "$APP_USER" -H bash -c "
   # BACKEND_INTERNAL_URL é interpolado em build time no next.config.ts
   # (vai pro routes-manifest.json), por isso precisa estar no env do build,
   # não só no runtime.
-  BACKEND_INTERNAL_URL='http://127.0.0.1:8080' npm run build
+  BACKEND_INTERNAL_URL='http://127.0.0.1:8080' APP_BUILD_ID='$APP_BUILD_ID' npm run build
 "
 
 # Copia o standalone output pra um diretório estável

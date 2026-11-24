@@ -3,10 +3,19 @@
 // correção de sempre (mesma validação, auditoria e termos aprendidos).
 
 import { api } from "./api";
-import type { OpsOfficer, SipomOccurrence } from "./ops-reports-api";
-import { setOpsSipomField, setOpsSipomMaterial, setOpsSipomNatureza, setSipomSexo, setSipomVehiclePlate } from "./sipom-api";
+import type { OpsOfficer, SipomChangeExtra, SipomOccurrence } from "./ops-reports-api";
+import {
+  addSipomMaterial,
+  type SipomNewMaterial,
+  setOpsSipomField,
+  setOpsSipomMaterial,
+  setOpsSipomNatureza,
+  setSipomMaterialRemoved,
+  setSipomSexo,
+  setSipomVehiclePlate,
+} from "./sipom-api";
 
-export type SipomAIKind = "natureza" | "bairro" | "sexo" | "arma" | "droga" | "veiculo" | "veiculo_placa";
+export type SipomAIKind = "natureza" | "bairro" | "sexo" | "arma" | "droga" | "veiculo" | "veiculo_placa" | "veiculo_outros" | "remover" | "adicionar";
 
 export type SipomAISuggestion = {
   kind: SipomAIKind;
@@ -69,7 +78,7 @@ export function preselect(s: SipomAISuggestion) {
   return s.applicable && (s.confianca === "alta" || !!s.agrees);
 }
 
-type Change = { sipom: SipomOccurrence; officers?: OpsOfficer[] };
+type Change = { sipom: SipomOccurrence; officers?: OpsOfficer[] } & SipomChangeExtra;
 
 /** Aplica a sugestão pelo endpoint de correção correspondente. */
 export function applySipomAISuggestion(occId: string, s: SipomAISuggestion): Promise<Change> {
@@ -102,6 +111,20 @@ export function applySipomAISuggestion(occId: string, s: SipomAISuggestion): Pro
       });
     case "veiculo_placa":
       return setSipomVehiclePlate(occId, s.index!, String(a.placa));
+    case "adicionar": {
+      const { material, ...rest } = a;
+      return addSipomMaterial(occId, { kind: material, ...rest } as unknown as SipomNewMaterial);
+    }
+    case "remover":
+      return setSipomMaterialRemoved(
+        occId,
+        String(a.material) as "armas" | "drogas" | "veiculos",
+        s.index!,
+        true,
+        String(a.motivo ?? ""),
+      );
+    case "veiculo_outros":
+      return setSipomVehiclePlate(occId, s.index!, "", true, String(a.descricao ?? ""));
   }
 }
 

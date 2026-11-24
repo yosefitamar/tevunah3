@@ -1,6 +1,13 @@
 import type { Metadata } from "next";
 import { UI_SCALE_BOOTSTRAP } from "@/lib/ui-scale";
+import VersionWatcher from "@/components/VersionWatcher";
 import "./globals.css";
+
+// HTML sempre renderizado na hora e sem cache (private, no-store): depois de
+// um deploy, o próximo acesso já recebe a versão nova — nem o navegador nem o
+// Cloudflare guardam a página antiga. Os arquivos em /_next/static têm hash
+// no nome e continuam em cache.
+export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "Tevunah · Sistema de Inteligência",
@@ -24,7 +31,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           rel="stylesheet"
         />
       </head>
-      <body>{children}</body>
+      <body>
+        {children}
+        <VersionWatcher />
+      </body>
     </html>
   );
 }

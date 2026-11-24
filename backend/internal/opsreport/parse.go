@@ -201,6 +201,21 @@ type Person struct {
 	Note string
 }
 
+// Removal é a remoção do item de apreensão pelo analista: o item continua
+// gravado (e na mesma posição), mas não vai ao SIPOM nem conta.
+type Removal struct {
+	RemovedAt     *time.Time
+	RemovedByName string
+	RemovedReason string
+	// AddedAt/AddedByName: o item foi incluído pelo analista (nil = veio do
+	// relatório).
+	AddedAt     *time.Time
+	AddedByName string
+}
+
+// Removed diz se o item foi removido da ocorrência.
+func (r Removal) Removed() bool { return r.RemovedAt != nil }
+
 // Weapon é uma arma apreendida.
 type Weapon struct {
 	// ID é o da linha gravada (vazio na prévia): vai ao SIPOM como id
@@ -212,6 +227,7 @@ type Weapon struct {
 	// definiu os três — o recálculo não mexe.
 	SipomTipoID, SipomMarcaID, SipomCalibreID *int
 	SipomManual                               bool
+	Removal
 }
 
 // Drug é uma droga apreendida. Grams/Packages nil = não informado.
@@ -226,6 +242,7 @@ type Drug struct {
 	SipomDrogaID    *int
 	SipomQuantidade *float64
 	SipomManual     bool
+	Removal
 }
 
 // Vehicle é um veículo apreendido.
@@ -247,6 +264,11 @@ type Vehicle struct {
 	// SipomSemPlacaConfirmada: o analista confirmou que a placa não pôde ser
 	// identificada — o veículo vai sem ela.
 	SipomSemPlacaConfirmada bool
+	// SipomOutrosDescricao: descrição do veículo sem placa, que vai ao SIPOM
+	// como material "Outros" (vazio = montada do relatório; ver
+	// OutrosDescricao).
+	SipomOutrosDescricao string
+	Removal
 }
 
 // Officer é um policial da composição ("30079116-2SGT 22410 SOARES").

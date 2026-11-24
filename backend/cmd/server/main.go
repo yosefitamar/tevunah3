@@ -337,6 +337,8 @@ func main() {
 	mux.Handle("POST /api/ai/orientacoes", auth(http.HandlerFunc(a.handleGuidanceCreate)))
 	mux.Handle("PUT /api/ai/orientacoes/{id}", auth(http.HandlerFunc(a.handleGuidanceUpdate)))
 	mux.Handle("POST /api/ai/orientacoes/{id}/decisao", auth(http.HandlerFunc(a.handleGuidanceDecide)))
+	mux.Handle("POST /api/ops-occurrences/{id}/sipom/materiais/{kind}", auth(http.HandlerFunc(a.handleSipomAddMaterial)))
+	mux.Handle("PUT /api/ops-occurrences/{id}/sipom/materiais/{kind}/{pos}/remocao", auth(http.HandlerFunc(a.handleSipomRemoveMaterial)))
 	mux.Handle("POST /api/ops-occurrences/{id}/sipom/ia", auth(http.HandlerFunc(a.handleSipomAISuggest)))
 	mux.Handle("POST /api/ops-occurrences/{id}/sipom/enviar", auth(http.HandlerFunc(a.handleSipomEnviar)))
 	mux.Handle("PUT /api/ops-occurrences/{id}/sipom/pessoas/{pid}/sexo", auth(http.HandlerFunc(a.handleSipomSetSexo)))

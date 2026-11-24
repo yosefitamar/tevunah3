@@ -3,9 +3,16 @@
 // de-para relatório → SIPOM (Admin).
 
 import { api } from "./api";
-import type { OpsOfficer, SipomIntelOfficer, SipomOccurrence, SipomPending, SipomRef } from "./ops-reports-api";
+import type {
+  OpsOfficer,
+  SipomChangeExtra,
+  SipomIntelOfficer,
+  SipomOccurrence,
+  SipomPending,
+  SipomRef,
+} from "./ops-reports-api";
 
-type SipomChange = { sipom: SipomOccurrence; officers: OpsOfficer[] };
+type SipomChange = { sipom: SipomOccurrence; officers: OpsOfficer[] } & SipomChangeExtra;
 
 export type SipomNatureza = { id: number; nome: string; rotulo: string };
 
@@ -319,15 +326,47 @@ export function setSipomSexo(occId: string, personId: string, sexo: 0 | 1 | 2) {
   );
 }
 
+/**
+ * Remove da ocorrência (com o motivo) ou restaura um item de apreensão: o
+ * item removido não vai ao SIPOM nem conta, mas fica gravado.
+ */
+export function setSipomMaterialRemoved(
+  occId: string,
+  kind: "armas" | "drogas" | "veiculos",
+  index: number,
+  remover: boolean,
+  motivo = "",
+) {
+  return api<SipomChange>(
+    `/api/ops-occurrences/${encodeURIComponent(occId)}/sipom/materiais/${kind}/${index}/remocao`,
+    { method: "PUT", body: JSON.stringify({ remover, motivo }) },
+  );
+}
+
+/** Item de apreensão incluído pelo analista, nos campos do relatório. */
+export type SipomNewMaterial =
+  | { kind: "armas"; tipo: string; marca?: string; modelo?: string; calibre?: string; numero?: string }
+  | { kind: "drogas"; descricao: string; gramas?: number | null; porcoes?: number | null }
+  | { kind: "veiculos"; tipo: string; marca?: string; modelo?: string; placa?: string; cor?: string };
+
+/** Inclui um item de apreensão (a tradução para o SIPOM vem do recálculo). */
+export function addSipomMaterial(occId: string, input: SipomNewMaterial) {
+  const { kind, ...body } = input;
+  return api<SipomChange>(`/api/ops-occurrences/${encodeURIComponent(occId)}/sipom/materiais/${kind}`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
 /** Ano de fabricação e do modelo do veículo (pela posição na lista). */
 /**
  * Placa do veículo que o relatório omitiu ou escreveu errado; ou, com placa
  * vazia e `semPlaca`, a confirmação de que ela não pôde ser identificada.
  */
-export function setSipomVehiclePlate(occId: string, index: number, placa: string, semPlaca = false) {
+export function setSipomVehiclePlate(occId: string, index: number, placa: string, semPlaca = false, descricao = "") {
   return api<SipomChange>(`/api/ops-occurrences/${encodeURIComponent(occId)}/sipom/veiculos/${index}/placa`, {
     method: "PUT",
-    body: JSON.stringify({ placa, sem_placa: semPlaca }),
+    body: JSON.stringify({ placa, sem_placa: semPlaca, descricao }),
   });
 }
 

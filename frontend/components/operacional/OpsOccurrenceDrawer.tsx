@@ -251,8 +251,15 @@ export default function OpsOccurrenceDrawer({ occurrenceId, onClose, onChanged }
                   renderPerson={renderPerson}
                   onSipomChange={
                     canIntel
-                      ? (sipom, officers) => {
-                          setData({ ...data, sipom, officers: officers ?? data.officers });
+                      ? (sipom, officers, extra) => {
+                          setData({
+                            ...data,
+                            sipom,
+                            officers: officers ?? data.officers,
+                            weapons: extra?.weapons ?? data.weapons,
+                            drugs: extra?.drugs ?? data.drugs,
+                            vehicles: extra?.vehicles ?? data.vehicles,
+                          });
                           onChanged();
                         }
                       : undefined

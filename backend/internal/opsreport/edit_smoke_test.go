@@ -9,6 +9,7 @@ import (
 	"errors"
 	"os"
 	"testing"
+	"time"
 
 	idb "github.com/belia/tevunah/backend/internal/db"
 	"github.com/belia/tevunah/backend/internal/sipom"
@@ -440,9 +441,10 @@ func TestSmoke_ProcedureAndMaterials(t *testing.T) {
 		t.Errorf("carro vermelho recuperado: %+v", v2)
 	}
 	// "HONDA/CG" não existe tal qual, e "CG" casa dezenas de linhas: fica
-	// pendente, com candidatos para o analista.
-	if v2.SipomMarcaModeloCodigo != nil || !hasString(f2.Pending, sipom.PendVeiculo) {
-		t.Errorf("HONDA CG ambíguo deveria ficar pendente: %+v %v", v2, f2.Pending)
+	// sem marca/modelo, com candidatos. Sem placa isso não pesa — a pendência
+	// é a placa (confirmada a falta, vai como "Outros").
+	if v2.SipomMarcaModeloCodigo != nil || !hasString(f2.Pending, sipom.PendVeiculoPlaca) || hasString(f2.Pending, sipom.PendVeiculo) {
+		t.Errorf("HONDA CG sem placa deveria ficar pendente só da placa: %+v %v", v2, f2.Pending)
 	}
 	if r := cat.ResolveVehicle(sipom.VehicleInput{Kind: "CARRO", Brand: "HONDA", Model: "CG"}, nil); len(r.MarcaModeloCandidates) < 2 {
 		t.Errorf("candidatos de HONDA CG: %d", len(r.MarcaModeloCandidates))
@@ -544,6 +546,87 @@ func TestSmoke_PayloadPhase2(t *testing.T) {
 	if veic.ID != "v1" || veic.TipoID != sipom.MaterialVeiculo || veic.Placa != "ABC1D23" || veic.CodigoMarcaModelo == nil ||
 		veic.AnoFabricacao == nil || *veic.AnoFabricacao != 2019 || veic.Situacao == nil || *veic.Situacao != sipom.VeiculoApreendido {
 		t.Errorf("veículo: %+v", veic)
+	}
+
+	// Sem placa e com a falta confirmada, o mesmo veículo vai como material
+	// "Outros" (recomendação do SIPOM), com a descrição e quantidade 1.
+	so.Vehicles[0].Plate, so.Vehicles[0].SipomSemPlacaConfirmada = "", true
+	so.Vehicles[0].SipomOutrosDescricao = "Moto Honda sem placa, chassi raspado"
+	p, err = BuildSipomPayload(cat, so, PayloadSources{})
+	if err != nil {
+		t.Fatalf("payload sem placa: %v", err)
+	}
+	outros := p.Materiais[2]
+	if outros.ID != "v1" || outros.TipoID != sipom.MaterialOutros || outros.Descricao != "Moto Honda sem placa, chassi raspado" ||
+		outros.Quantidade == nil || *outros.Quantidade != 1 || outros.Placa != "" || outros.CodigoTipo != nil {
+		t.Errorf("veículo sem placa como Outros: %+v", outros)
+	}
+
+	// Item removido pelo analista não vai ao SIPOM.
+	agora := time.Now()
+	so.Drugs[0].RemovedAt = &agora
+	if p, err = BuildSipomPayload(cat, so, PayloadSources{}); err != nil {
+		t.Fatalf("payload com droga removida: %v", err)
+	}
+	for _, m := range p.Materiais {
+		if m.ID == "d1" {
+			t.Errorf("droga removida foi para o payload: %+v", m)
+		}
+	}
+}
+
+// Remover e restaurar um item de apreensão grava quem, quando e o motivo, e o
+// recálculo deixa de cobrar a pendência do item removido. Restaura no fim.
+func TestSmoke_SeizureRemoval(t *testing.T) {
+	db, actor := smokeDB(t)
+	ctx := context.Background()
+	r := New(db)
+	var id string
+	err := db.QueryRowContext(ctx, `
+		SELECT o.id FROM app.ops_occurrences o
+		 WHERE o.deleted_at IS NULL AND 'droga' = ANY(o.sipom_pendencias)
+		   AND (SELECT COUNT(*) FROM app.ops_occurrence_drugs d WHERE d.occurrence_id = o.id) = 1
+		 ORDER BY o.id LIMIT 1`).Scan(&id)
+	if err != nil {
+		t.Skip("sem ocorrência com uma droga pendente")
+	}
+	cat, err := sipom.Load(ctx, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = r.SetSeizureRemoved(ctx, id, "drogas", 0, false, actor, "")
+		_, _, _ = r.RecomputeSipom(ctx, cat, id)
+	})
+	if err := r.SetSeizureRemoved(ctx, id, "drogas", 0, true, actor, "lançada em duplicidade"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := r.RecomputeSipom(ctx, cat, id); err != nil {
+		t.Fatal(err)
+	}
+	so, err := r.FindByID(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := so.Drugs[0]
+	if !d.Removed() || d.RemovedReason != "lançada em duplicidade" || d.RemovedByName == "" {
+		t.Fatalf("remoção não gravada: %+v", d.Removal)
+	}
+	if hasString(so.Sipom.Pending, sipom.PendDroga) {
+		t.Errorf("droga removida não pode deixar pendência: %v", so.Sipom.Pending)
+	}
+	if err := r.SetSeizureRemoved(ctx, id, "drogas", 0, false, actor, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := r.RecomputeSipom(ctx, cat, id); err != nil {
+		t.Fatal(err)
+	}
+	so, _ = r.FindByID(ctx, id)
+	if so.Drugs[0].Removed() || !hasString(so.Sipom.Pending, sipom.PendDroga) {
+		t.Errorf("restaurada, a droga volta a pender: %+v %v", so.Drugs[0].Removal, so.Sipom.Pending)
+	}
+	if err := r.SetSeizureRemoved(ctx, id, "celulares", 0, true, actor, "x"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("tipo desconhecido: %v", err)
 	}
 }
 

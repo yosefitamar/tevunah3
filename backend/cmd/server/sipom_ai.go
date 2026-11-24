@@ -58,6 +58,30 @@ func (a *app) handleSipomAISuggest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Duas chamadas em paralelo: a principal e a das apreensões que faltam
+	// (o schema das duas juntas passa do limite do structured outputs). A
+	// segunda é complemento: se falhar, a principal vale sozinha.
+	type addResult struct {
+		list []sipomai.Suggestion
+		res  *ai.StructuredResult
+	}
+	addCh := make(chan addResult, 1)
+	go func() {
+		res, err := a.ai.Structured(r.Context(), me.ID, ai.StructuredRequest{
+			Feature: sipomai.Feature, System: sipomai.System, Prompt: req.AddPrompt,
+			Schema: sipomai.AddSchema, MaxTokens: 3000, Effort: "low",
+		})
+		if err != nil {
+			log.Printf("sipom ia (apreensões que faltam): %v", err)
+			addCh <- addResult{res: res}
+			return
+		}
+		list, err := req.ParseAdd(res.JSON)
+		if err != nil {
+			log.Printf("sipom ia parse (apreensões que faltam): %v", err)
+		}
+		addCh <- addResult{list: list, res: res}
+	}()
 	res, err := a.ai.Structured(r.Context(), me.ID, ai.StructuredRequest{
 		Feature:   sipomai.Feature,
 		System:    sipomai.System,
@@ -72,6 +96,10 @@ func (a *app) handleSipomAISuggest(w http.ResponseWriter, r *http.Request) {
 			log.Printf("sipom ia parse: %v", err)
 			err = ai.ErrBadOutput
 		}
+	}
+	added := <-addCh
+	if err == nil {
+		suggestions = append(suggestions, added.list...)
 	}
 
 	aid, sid, ip, ua := a.actorInfo(r)
@@ -123,9 +151,14 @@ func (a *app) handleSipomAISuggest(w http.ResponseWriter, r *http.Request) {
 		cidade = &sipomRefJSON{ID: req.CidadeID, Nome: a.sipom.CidadeNome(req.CidadeID)}
 	}
 	cost := 0.0
-	if m := ai.FindModel(res.Model); m != nil {
-		u := res.Usage
-		cost = m.Cost(u.InputTokens, u.OutputTokens, u.CacheWriteTokens, u.CacheReadTokens)
+	for _, x := range []*ai.StructuredResult{res, added.res} {
+		if x == nil {
+			continue
+		}
+		if m := ai.FindModel(x.Model); m != nil {
+			u := x.Usage
+			cost += m.Cost(u.InputTokens, u.OutputTokens, u.CacheWriteTokens, u.CacheReadTokens)
+		}
 	}
 	httpx.OK(w, map[string]any{
 		"suggestions": suggestions,

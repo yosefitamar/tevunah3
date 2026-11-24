@@ -138,7 +138,7 @@ func BuildSipomPayload(cat *sipom.Catalog, so *StoredOccurrence, src PayloadSour
 	// Materiais, um item por arma, droga e veículo. Item sem tradução
 	// completa não chega aqui: é pendência bloqueante.
 	for _, w := range so.Weapons {
-		if w.SipomTipoID == nil {
+		if w.Removed() || w.SipomTipoID == nil {
 			continue
 		}
 		p.Materiais = append(p.Materiais, sipom.PayloadMaterial{
@@ -148,7 +148,7 @@ func BuildSipomPayload(cat *sipom.Catalog, so *StoredOccurrence, src PayloadSour
 		})
 	}
 	for _, d := range so.Drugs {
-		if d.SipomDrogaID == nil || d.SipomQuantidade == nil {
+		if d.Removed() || d.SipomDrogaID == nil || d.SipomQuantidade == nil {
 			continue
 		}
 		id, q := *d.SipomDrogaID, *d.SipomQuantidade
@@ -160,7 +160,14 @@ func BuildSipomPayload(cat *sipom.Catalog, so *StoredOccurrence, src PayloadSour
 	// (o SIPOM ignora para placa já cadastrada; para placa nova, recusa se
 	// faltar — ver VehiclePending).
 	for _, v := range so.Vehicles {
-		if VehiclePending(v) != "" {
+		if v.Removed() || VehiclePending(v) != "" {
+			continue
+		}
+		if VehicleAsOutros(v) {
+			um := 1.0
+			p.Materiais = append(p.Materiais, sipom.PayloadMaterial{
+				ID: v.ID, TipoID: sipom.MaterialOutros, Descricao: OutrosDescricao(v), Quantidade: &um,
+			})
 			continue
 		}
 		sit := v.SipomSituacao

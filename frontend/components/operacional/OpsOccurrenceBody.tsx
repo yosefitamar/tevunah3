@@ -12,6 +12,7 @@ import {
   type OpsPhoto,
   type OpsOfficer,
   type SipomOccurrence,
+  type SipomChangeExtra,
 } from "@/lib/ops-reports-api";
 import { formatBR, formatBRDate } from "@/lib/format";
 import { IntelSummary } from "./IntelStatus";
@@ -89,7 +90,7 @@ type Props = {
   /** Substitui o resumo da participação da inteligência (o drawer põe o controle). */
   intelSlot?: ReactNode;
   /** Ficha gravada com permissão de edição: natureza SIPOM escolhível. */
-  onSipomChange?: (s: SipomOccurrence, officers?: OpsOfficer[]) => void;
+  onSipomChange?: (s: SipomOccurrence, officers?: OpsOfficer[], extra?: SipomChangeExtra) => void;
   /** Ficha gravada com permissão de edição: o analista informa a coordenada. */
   onGeoChange?: (occ: OpsOccurrence) => void;
   /** Ficha gravada com permissão de edição: o analista escreve o histórico de inteligência. */
@@ -300,8 +301,10 @@ export default function OpsOccurrenceBody({
       count: seizures,
       body: (
         <>
-          {seizures === 0 && !occ.seized_objects && <div className="ops-empty">NENHUMA APREENSÃO NO RELATÓRIO</div>}
-          {seizures > 0 &&
+          {seizures === 0 && !occ.seized_objects && !ed.editable && (
+            <div className="ops-empty">NENHUMA APREENSÃO NO RELATÓRIO</div>
+          )}
+          {(seizures > 0 || (s && ed.editable)) &&
             (s ? (
               <OpsBlock title="ARMAS, DROGAS E VEÍCULOS · RELATÓRIO E SIPOM">
                 <SipomMateriais occ={occ} ed={ed} />

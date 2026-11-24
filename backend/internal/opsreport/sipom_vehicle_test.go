@@ -29,7 +29,11 @@ func TestVehiclePending(t *testing.T) {
 			v.Plate, v.SipomCadastroExigido, v.SipomAnoFabricacao = "ABC1D23", true, &ano
 			return v
 		}(), ""},
-		{"sem placa, incompleto", Vehicle{Plate: " ", SipomSituacao: 1, SipomTipoCodigo: &moto}, sipom.PendVeiculo},
+		// Sem placa, a falta de situação, cor ou marca/modelo não importa: vai
+		// como "Outros" (recomendação do SIPOM).
+		{"sem placa, incompleto", Vehicle{Plate: " ", SipomSituacao: 1, SipomTipoCodigo: &moto}, sipom.PendVeiculoPlaca},
+		{"sem placa, sem tipo, confirmada", confirmado(Vehicle{}), ""},
+		{"motoneta sem placa, sem situação", Vehicle{SipomTipoCodigo: &motoneta}, ""},
 		{"motoneta sem placa", completo(&motoneta), ""},
 		{"moto sem placa, sem confirmar", completo(&moto), sipom.PendVeiculoPlaca},
 		{"carro sem placa, sem confirmar", completo(&carro), sipom.PendVeiculoPlaca},
@@ -58,5 +62,27 @@ func TestRejectedVehicles(t *testing.T) {
 	})
 	if !reflect.DeepEqual(got, []string{"v2"}) {
 		t.Errorf("RejectedVehicles = %v, quer [v2]", got)
+	}
+}
+
+func TestVehicleAsOutros(t *testing.T) {
+	motoneta, moto := sipom.VeiculoTipoMotoneta, 4
+	v := Vehicle{Kind: "MOTOCICLETA", Brand: "HONDA", Model: "TITAN", Color: "VERMELHA", SipomTipoCodigo: &moto}
+	if VehicleAsOutros(v) {
+		t.Fatal("moto sem placa só vira Outros depois da confirmação")
+	}
+	v.SipomSemPlacaConfirmada = true
+	if !VehicleAsOutros(v) || OutrosDescricao(v) != "MOTOCICLETA HONDA TITAN, cor VERMELHA, sem placa identificada" {
+		t.Fatalf("descrição montada: %q", OutrosDescricao(v))
+	}
+	v.SipomOutrosDescricao = "Honda Titan vermelha, chassi raspado"
+	if OutrosDescricao(v) != "Honda Titan vermelha, chassi raspado" {
+		t.Fatal("descrição do analista deve valer")
+	}
+	if !VehicleAsOutros(Vehicle{SipomTipoCodigo: &motoneta}) {
+		t.Fatal("ciclomotor sem placa vai direto como Outros")
+	}
+	if VehicleAsOutros(Vehicle{Plate: "ABC1D23", SipomSemPlacaConfirmada: true}) {
+		t.Fatal("com placa não é Outros")
 	}
 }

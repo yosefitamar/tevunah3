@@ -31,6 +31,7 @@ import {
   ScreenRelatorios,
 } from "./screens";
 import SandboxModais from "./sandbox/SandboxModais";
+import { reloadIfStale } from "@/lib/app-version";
 
 const VIEWS: Record<ModuleId, React.ComponentType> = {
   dashboard: Dashboard,
@@ -48,10 +49,34 @@ const VIEWS: Record<ModuleId, React.ComponentType> = {
   sandbox: SandboxModais,
 };
 
+// Tela que o analista escolheu quando a troca recarregou a página.
+const NEXT_MODULE_KEY = "tevunah-next-module";
+
 function AuthenticatedShell() {
   const { sessionExpired, sessionInfo } = useAuth();
   const { settings } = useSystemSettings();
-  const [active, setActive] = useState<ModuleId>("dashboard");
+  const [active, setActiveRaw] = useState<ModuleId>("dashboard");
+  // Troca de tela é o momento de aplicar uma versão nova do sistema (nada
+  // em edição se perde): recarrega e abre direto a tela escolhida.
+  const setActive = (m: ModuleId) => {
+    if (m !== active) {
+      try {
+        sessionStorage.setItem(NEXT_MODULE_KEY, m);
+      } catch {}
+      if (reloadIfStale()) return;
+      try {
+        sessionStorage.removeItem(NEXT_MODULE_KEY);
+      } catch {}
+    }
+    setActiveRaw(m);
+  };
+  useEffect(() => {
+    try {
+      const m = sessionStorage.getItem(NEXT_MODULE_KEY) as ModuleId | null;
+      sessionStorage.removeItem(NEXT_MODULE_KEY);
+      if (m && m in VIEWS) setActiveRaw(m);
+    } catch {}
+  }, []);
   const [collapsed, setCollapsed] = useState(false);
   const [palette, setPalette] = useState<PaletteId>("phosphor");
   // O script do <head> já aplicou a escala salva antes da primeira pintura;

@@ -49,6 +49,9 @@ export const TOPIC_OF_KIND: Record<string, GuidanceTopic> = {
   droga: "apreensoes",
   veiculo: "apreensoes",
   veiculo_placa: "apreensoes",
+  veiculo_outros: "apreensoes",
+  remover: "apreensoes",
+  adicionar: "apreensoes",
 };
 
 export type GuidanceInput = {

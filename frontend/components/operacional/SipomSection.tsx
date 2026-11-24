@@ -10,6 +10,7 @@ import type {
   SipomOccurrence,
   SipomPending,
   SipomRef,
+  SipomChangeExtra,
 } from "@/lib/ops-reports-api";
 import {
   enviarSipom,
@@ -45,7 +46,7 @@ function loadNaturezas(): Promise<SipomNatureza[]> {
   return naturezasCache;
 }
 
-type SipomResult = { sipom: SipomOccurrence; officers?: OpsOfficer[]; area_rule?: SipomAreaRule | null };
+type SipomResult = { sipom: SipomOccurrence; officers?: OpsOfficer[]; area_rule?: SipomAreaRule | null } & SipomChangeExtra;
 
 /**
  * Estado das correções do envio ao SIPOM, compartilhado pelas etapas da ficha:
@@ -71,7 +72,7 @@ export type SipomEdit = {
 export function useSipomEdit(
   occ: OpsOccurrence,
   editable: boolean,
-  onChange?: (s: SipomOccurrence, officers?: OpsOfficer[]) => void,
+  onChange?: (s: SipomOccurrence, officers?: OpsOfficer[], extra?: SipomChangeExtra) => void,
 ): SipomEdit {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -84,7 +85,7 @@ export function useSipomEdit(
     try {
       const r = await fn();
       setAreaRule(r.area_rule ?? null);
-      onChange?.(r.sipom, r.officers);
+      onChange?.(r.sipom, r.officers, r);
       return true;
     } catch (e) {
       setError((e as ApiError).message || "Erro ao gravar");

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/belia/tevunah/backend/internal/audit"
 	"github.com/belia/tevunah/backend/internal/httpx"
@@ -41,17 +42,48 @@ type sipomProcedimentoJSON struct {
 	DelegadoTexto  string `json:"delegado_texto"`
 }
 
+// removalJSON: o item foi removido da ocorrência (não vai ao SIPOM).
+type removalJSON struct {
+	Em     time.Time `json:"em"`
+	Por    string    `json:"por"`
+	Motivo string    `json:"motivo"`
+}
+
+// addedJSON: o item foi incluído pelo analista.
+type addedJSON struct {
+	Em  time.Time `json:"em"`
+	Por string    `json:"por"`
+}
+
+func addedOut(r opsreport.Removal) *addedJSON {
+	if r.AddedAt == nil {
+		return nil
+	}
+	return &addedJSON{Em: *r.AddedAt, Por: r.AddedByName}
+}
+
+func removalOut(r opsreport.Removal) *removalJSON {
+	if r.RemovedAt == nil {
+		return nil
+	}
+	return &removalJSON{Em: *r.RemovedAt, Por: r.RemovedByName, Motivo: r.RemovedReason}
+}
+
 type sipomArmaJSON struct {
-	Index   int           `json:"index"`
-	Tipo    *sipomRefJSON `json:"tipo"`
-	Marca   *sipomRefJSON `json:"marca"`
-	Calibre *sipomRefJSON `json:"calibre"`
-	Manual  bool          `json:"manual"`
-	OK      bool          `json:"ok"`
+	Index      int           `json:"index"`
+	Removido   *removalJSON  `json:"removido"`
+	Adicionado *addedJSON    `json:"adicionado"`
+	Tipo       *sipomRefJSON `json:"tipo"`
+	Marca      *sipomRefJSON `json:"marca"`
+	Calibre    *sipomRefJSON `json:"calibre"`
+	Manual     bool          `json:"manual"`
+	OK         bool          `json:"ok"`
 }
 
 type sipomDrogaJSON struct {
 	Index      int           `json:"index"`
+	Removido   *removalJSON  `json:"removido"`
+	Adicionado *addedJSON    `json:"adicionado"`
 	Droga      *sipomRefJSON `json:"droga"`
 	Unidade    string        `json:"unidade"`
 	Quantidade *float64      `json:"quantidade"`
@@ -61,6 +93,8 @@ type sipomDrogaJSON struct {
 
 type sipomVeiculoJSON struct {
 	Index       int           `json:"index"`
+	Removido    *removalJSON  `json:"removido"`
+	Adicionado  *addedJSON    `json:"adicionado"`
 	Tipo        *sipomRefJSON `json:"tipo"`
 	Cor         *sipomRefJSON `json:"cor"`
 	MarcaModelo *sipomRefJSON `json:"marca_modelo"`
@@ -75,8 +109,14 @@ type sipomVeiculoJSON struct {
 	// SemPlacaConfirmada: o analista confirmou que a placa não pôde ser
 	// identificada.
 	SemPlacaConfirmada bool `json:"sem_placa_confirmada"`
-	Manual             bool `json:"manual"`
-	OK                 bool `json:"ok"`
+	// Outros: sem placa, vai ao SIPOM como material "Outros" com
+	// OutrosDescricao; OutrosDescricaoManual diz se a descrição é do
+	// analista (senão é a montada do relatório).
+	Outros                bool   `json:"outros"`
+	OutrosDescricao       string `json:"outros_descricao"`
+	OutrosDescricaoManual bool   `json:"outros_descricao_manual"`
+	Manual                bool   `json:"manual"`
+	OK                    bool   `json:"ok"`
 }
 
 type sipomMateriaisJSON struct {
@@ -141,31 +181,35 @@ func (a *app) sipomMateriaisJSON(o *opsreport.Occurrence, terms *sipom.TermMap) 
 	out := &sipomMateriaisJSON{Armas: []sipomArmaJSON{}, Drogas: []sipomDrogaJSON{}, Veiculos: []sipomVeiculoJSON{}}
 	for i, w := range o.Weapons {
 		out.Armas = append(out.Armas, sipomArmaJSON{
-			Index: i, Manual: w.SipomManual,
+			Index: i, Manual: w.SipomManual, Removido: removalOut(w.Removal), Adicionado: addedOut(w.Removal),
 			Tipo:    ref(w.SipomTipoID, a.sipom.ArmaTipoNome),
 			Marca:   ref(w.SipomMarcaID, a.sipom.ArmaMarcaNome),
 			Calibre: ref(w.SipomCalibreID, a.sipom.ArmaCalibreNome),
-			OK:      w.SipomTipoID != nil,
+			OK:      w.SipomTipoID != nil || w.Removed(),
 		})
 	}
 	for i, d := range o.Drugs {
-		j := sipomDrogaJSON{Index: i, Manual: d.SipomManual, Quantidade: d.SipomQuantidade}
+		j := sipomDrogaJSON{Index: i, Manual: d.SipomManual, Quantidade: d.SipomQuantidade, Removido: removalOut(d.Removal), Adicionado: addedOut(d.Removal)}
 		if d.SipomDrogaID != nil {
 			if dr, ok := a.sipom.Droga(*d.SipomDrogaID); ok {
 				j.Droga = &sipomRefJSON{ID: dr.ID, Nome: dr.Nome}
 				j.Unidade = dr.Unidade
 			}
 		}
-		j.OK = j.Droga != nil && j.Quantidade != nil
+		j.OK = (j.Droga != nil && j.Quantidade != nil) || d.Removed()
 		out.Drogas = append(out.Drogas, j)
 	}
 	for i, v := range o.Vehicles {
 		j := sipomVeiculoJSON{
 			Index: i, Manual: v.SipomManual, Situacao: v.SipomSituacao, MarcaModeloCandidates: []sipomRefJSON{},
+			Removido: removalOut(v.Removal), Adicionado: addedOut(v.Removal),
 			AnoFabricacao: v.SipomAnoFabricacao, AnoModelo: v.SipomAnoModelo, CadastroExigido: v.SipomCadastroExigido,
-			SemPlacaConfirmada: v.SipomSemPlacaConfirmada,
-			Tipo:               ref(v.SipomTipoCodigo, a.sipom.VeiculoTipoNome),
-			Cor:                ref(v.SipomCorCodigo, a.sipom.VeiculoCorNome),
+			SemPlacaConfirmada:    v.SipomSemPlacaConfirmada,
+			Outros:                opsreport.VehicleAsOutros(v),
+			OutrosDescricao:       opsreport.OutrosDescricao(v),
+			OutrosDescricaoManual: strings.TrimSpace(v.SipomOutrosDescricao) != "",
+			Tipo:                  ref(v.SipomTipoCodigo, a.sipom.VeiculoTipoNome),
+			Cor:                   ref(v.SipomCorCodigo, a.sipom.VeiculoCorNome),
 		}
 		if v.SipomMarcaModeloCodigo != nil {
 			if m, ok := a.sipom.MarcaModelo(*v.SipomMarcaModeloCodigo); ok {
@@ -178,7 +222,7 @@ func (a *app) sipomMateriaisJSON(o *opsreport.Occurrence, terms *sipom.TermMap) 
 				j.MarcaModeloCandidates = append(j.MarcaModeloCandidates, sipomRefJSON{ID: m.Codigo, Nome: m.Descricao})
 			}
 		}
-		j.OK = opsreport.VehiclePending(v) == ""
+		j.OK = opsreport.VehiclePending(v) == "" || v.Removed()
 		out.Veiculos = append(out.Veiculos, j)
 	}
 	return out
@@ -458,6 +502,160 @@ func (a *app) handleSipomSetMaterial(w http.ResponseWriter, r *http.Request) {
 	a.finishSipomChange(w, r, id, "opsreport.sipom.materiais", before, learned)
 }
 
+// PUT /api/ops-occurrences/{id}/sipom/materiais/{kind}/{pos}/remocao
+//
+//	{"remover": true, "motivo": "lançado em duplicidade"}
+//	{"remover": false}                                   (restaura)
+//
+// Remove da ocorrência um item de apreensão (armas | drogas | veiculos)
+// lançado por engano, duplicado ou que não foi apreendido: ele sai do envio
+// ao SIPOM, das pendências e das contagens, mas fica gravado e pode voltar.
+func (a *app) handleSipomRemoveMaterial(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePerm(w, r, "opsreport.update") {
+		return
+	}
+	if a.sipom == nil {
+		httpx.Error(w, http.StatusServiceUnavailable, "catálogo do SIPOM não carregado")
+		return
+	}
+	id, kind := r.PathValue("id"), r.PathValue("kind")
+	pos, err := strconv.Atoi(r.PathValue("pos"))
+	if err != nil || pos < 0 {
+		httpx.Error(w, http.StatusBadRequest, "posição inválida")
+		return
+	}
+	var req struct {
+		Remover bool   `json:"remover"`
+		Motivo  string `json:"motivo"`
+	}
+	if err := httpx.Decode(r, &req); err != nil {
+		httpx.Error(w, http.StatusBadRequest, "corpo inválido")
+		return
+	}
+	motivo := strings.Join(strings.Fields(req.Motivo), " ")
+	if req.Remover && (len([]rune(motivo)) < 3 || len([]rune(motivo)) > 500) {
+		httpx.Error(w, http.StatusBadRequest, "diga o motivo da remoção (3 a 500 caracteres)")
+		return
+	}
+	before, err := a.opsReports.FindByID(r.Context(), id)
+	if err != nil {
+		httpx.Error(w, http.StatusNotFound, "ocorrência não encontrada")
+		return
+	}
+	n := map[string]int{"armas": len(before.Weapons), "drogas": len(before.Drugs), "veiculos": len(before.Vehicles)}
+	count, ok := n[kind]
+	if !ok {
+		httpx.Error(w, http.StatusNotFound, "tipo de material desconhecido")
+		return
+	}
+	if pos >= count {
+		httpx.Error(w, http.StatusNotFound, "item não encontrado")
+		return
+	}
+	me := middleware.UserFrom(r.Context())
+	if err := a.opsReports.SetSeizureRemoved(r.Context(), id, kind, pos, req.Remover, me.ID, motivo); err != nil {
+		log.Printf("sipom remove material %s: %v", kind, err)
+		httpx.Error(w, http.StatusInternalServerError, "erro ao gravar")
+		return
+	}
+	action := "opsreport.sipom.material.remove"
+	if !req.Remover {
+		action = "opsreport.sipom.material.restore"
+	}
+	a.finishSipomChange(w, r, id, action, before, nil)
+}
+
+// POST /api/ops-occurrences/{id}/sipom/materiais/{kind}
+//
+//	armas:    {"tipo", "marca", "modelo", "calibre", "numero"}
+//	drogas:   {"descricao", "gramas", "porcoes"}
+//	veiculos: {"tipo", "marca", "modelo", "placa", "cor"}
+//
+// Inclui um item de apreensão que o relatório não trouxe (ou trouxe errado:
+// o errado é removido, o certo incluído). Os campos são os do relatório; a
+// tradução para o SIPOM vem do recálculo e se corrige como a dos demais.
+func (a *app) handleSipomAddMaterial(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePerm(w, r, "opsreport.update") {
+		return
+	}
+	if a.sipom == nil {
+		httpx.Error(w, http.StatusServiceUnavailable, "catálogo do SIPOM não carregado")
+		return
+	}
+	id, kind := r.PathValue("id"), r.PathValue("kind")
+	var req struct {
+		Tipo      string   `json:"tipo"`
+		Marca     string   `json:"marca"`
+		Modelo    string   `json:"modelo"`
+		Calibre   string   `json:"calibre"`
+		Numero    string   `json:"numero"`
+		Descricao string   `json:"descricao"`
+		Gramas    *float64 `json:"gramas"`
+		Porcoes   *int     `json:"porcoes"`
+		Placa     string   `json:"placa"`
+		Cor       string   `json:"cor"`
+	}
+	if err := httpx.Decode(r, &req); err != nil {
+		httpx.Error(w, http.StatusBadRequest, "corpo inválido")
+		return
+	}
+	clean := func(s string) string {
+		s = strings.ToUpper(strings.Join(strings.Fields(s), " "))
+		if r := []rune(s); len(r) > 200 {
+			s = string(r[:200])
+		}
+		return s
+	}
+	in := opsreport.SeizureInput{Kind: clean(req.Tipo), Brand: clean(req.Marca), Model: clean(req.Modelo),
+		Caliber: clean(req.Calibre), Serial: clean(req.Numero), Description: clean(req.Descricao),
+		Grams: req.Gramas, Packages: req.Porcoes, Color: clean(req.Cor)}
+	switch kind {
+	case "armas":
+		if in.Kind == "" && in.Model == "" {
+			httpx.Error(w, http.StatusBadRequest, "informe o tipo ou o modelo da arma")
+			return
+		}
+	case "drogas":
+		if in.Description == "" {
+			httpx.Error(w, http.StatusBadRequest, "informe a droga")
+			return
+		}
+		if (in.Grams != nil && *in.Grams < 0) || (in.Packages != nil && *in.Packages < 0) {
+			httpx.Error(w, http.StatusBadRequest, "peso e porções não podem ser negativos")
+			return
+		}
+	case "veiculos":
+		if in.Kind == "" && in.Model == "" {
+			httpx.Error(w, http.StatusBadRequest, "informe o tipo ou o modelo do veículo")
+			return
+		}
+		in.Plate = strings.ToUpper(strings.NewReplacer("-", "", " ", "").Replace(strings.TrimSpace(req.Placa)))
+		if in.Plate != "" && !placaRE.MatchString(in.Plate) {
+			httpx.Error(w, http.StatusBadRequest, "placa inválida (ABC1234 ou ABC1D23)")
+			return
+		}
+	default:
+		httpx.Error(w, http.StatusNotFound, "tipo de material desconhecido")
+		return
+	}
+	before, err := a.opsReports.FindByID(r.Context(), id)
+	if err != nil {
+		httpx.Error(w, http.StatusNotFound, "ocorrência não encontrada")
+		return
+	}
+	me := middleware.UserFrom(r.Context())
+	if _, err := a.opsReports.AddSeizure(r.Context(), id, kind, in, me.ID); err != nil {
+		if errors.Is(err, opsreport.ErrNotFound) {
+			httpx.Error(w, http.StatusNotFound, "ocorrência não encontrada")
+			return
+		}
+		log.Printf("sipom add material %s: %v", kind, err)
+		httpx.Error(w, http.StatusInternalServerError, "erro ao gravar")
+		return
+	}
+	a.finishSipomChange(w, r, id, "opsreport.sipom.material.add", before, nil)
+}
+
 // learnTerm grava o termo aprendido (campo + texto do relatório → id) e
 // anota em learned o que mudou. Texto vazio não ensina nada.
 func (a *app) learnTerm(r *http.Request, learned map[string]any, field, term string, id int, actor string) {
@@ -509,5 +707,7 @@ func (a *app) finishSipomChange(w http.ResponseWriter, r *http.Request, id, acti
 	occ := a.toOpsOccurrenceJSON(&after.Occurrence)
 	occ.Sipom = a.sipomJSON(&after.Occurrence, opsreport.SipomPeople(after))
 	a.markAreaLearned(r.Context(), &after.Occurrence, occ.Sipom)
-	httpx.OK(w, map[string]any{"sipom": occ.Sipom, "officers": occ.Officers, "terms_learned": learned})
+	// As listas do relatório também vão: a inclusão de um item muda elas.
+	httpx.OK(w, map[string]any{"sipom": occ.Sipom, "officers": occ.Officers, "terms_learned": learned,
+		"weapons": occ.Weapons, "drugs": occ.Drugs, "vehicles": occ.Vehicles})
 }

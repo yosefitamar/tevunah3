@@ -132,8 +132,8 @@ var PendingLabel = map[string]string{
 	PendDelegado:          "Delegado não identificado pelo nome — escolha, se souber (não é obrigatório)",
 	PendArma:              "Arma sem tipo do SIPOM",
 	PendDroga:             "Droga sem correspondência na lista do SIPOM, ou sem quantidade na unidade dela",
-	PendVeiculo:           "Veículo sem situação; sem placa e sem tipo, cor ou marca/modelo; ou placa nova que o SIPOM recusou (tipo, cor, marca/modelo e ano de fabricação)",
-	PendVeiculoPlaca:      "Veículo sem placa — informe a placa ou confirme que não foi possível identificá-la",
+	PendVeiculo:           "Veículo sem situação, cor ou marca/modelo; ou placa nova que o SIPOM recusou (tipo, cor, marca/modelo e ano de fabricação)",
+	PendVeiculoPlaca:      "Veículo sem placa — informe a placa ou confirme que não foi possível identificá-la (aí ele vai ao SIPOM como OUTROS, com a descrição)",
 	PendEnvioRecusado:     "O SIPOM recusou o último envio — veja o erro na etapa ENVIO, corrija e reenvie pela ficha",
 }
 

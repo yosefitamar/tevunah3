@@ -270,6 +270,9 @@ func translateMaterials(cat *sipom.Catalog, terms *sipom.TermMap, o *Occurrence)
 	okAll := true
 	for i := range o.Weapons {
 		w := &o.Weapons[i]
+		if w.Removed() {
+			continue // removida pelo analista: não vai ao SIPOM
+		}
 		r := cat.ResolveWeapon(sipom.WeaponInput{
 			Kind: w.Kind, Brand: w.Brand, Model: w.Model, Caliber: w.Caliber,
 			TipoID: w.SipomTipoID, MarcaID: w.SipomMarcaID, CalibreID: w.SipomCalibreID, Manual: w.SipomManual,
@@ -283,6 +286,9 @@ func translateMaterials(cat *sipom.Catalog, terms *sipom.TermMap, o *Occurrence)
 	okAll = true
 	for i := range o.Drugs {
 		d := &o.Drugs[i]
+		if d.Removed() {
+			continue
+		}
 		r := cat.ResolveDrug(sipom.DrugInput{
 			Description: d.Description, Grams: d.Grams,
 			DrogaID: d.SipomDrogaID, Quantidade: d.SipomQuantidade, Manual: d.SipomManual,
@@ -296,6 +302,9 @@ func translateMaterials(cat *sipom.Catalog, terms *sipom.TermMap, o *Occurrence)
 	okAll = true
 	for i := range o.Vehicles {
 		v := &o.Vehicles[i]
+		if v.Removed() {
+			continue
+		}
 		r := cat.ResolveVehicle(sipom.VehicleInput{
 			Kind: v.Kind, Brand: v.Brand, Model: v.Model, Color: v.Color, Recovered: o.RecoveredVehicle(),
 			TipoCodigo: v.SipomTipoCodigo, CorCodigo: v.SipomCorCodigo, MarcaModeloCodigo: v.SipomMarcaModeloCodigo,
@@ -403,12 +412,19 @@ func (r *Repo) RecomputeSipom(ctx context.Context, cat *sipom.Catalog, onlyID st
 // VehiclePending diz o que falta para o veículo ir ao SIPOM ("" = nada).
 // Com placa, bastam ela e a situação: placa cadastrada lá é só vinculada.
 // Com placa, cor e marca/modelo (o SIPOM recusa a placa nova sem eles).
-// Sem placa, vão situação, tipo, marca/modelo e cor; e, se não for
-// ciclomotor, o analista antes confirma que a placa não pôde ser
+// Sem placa, o veículo vai como material "Outros" (recomendação do SIPOM:
+// a placa é obrigatória no material Veículo) — direto para o ciclomotor; para
+// carro e moto, depois que o analista confirma que a placa não pôde ser
 // identificada (o relatório costuma omiti-la quando ela existe). Quando o
 // SIPOM recusou o veículo (placa nova, sem cadastro), valem tipo, cor,
 // marca/modelo e o ano de fabricação, que o relatório não traz.
 func VehiclePending(v Vehicle) string {
+	if plate(v.Plate) == "" {
+		if VehicleAsOutros(v) {
+			return ""
+		}
+		return sipom.PendVeiculoPlaca
+	}
 	complete := VehicleComplete(v)
 	switch {
 	case v.SipomSituacao == 0:
@@ -417,17 +433,41 @@ func VehiclePending(v Vehicle) string {
 		if !complete || v.SipomAnoFabricacao == nil {
 			return sipom.PendVeiculo
 		}
-	case plate(v.Plate) == "":
-		if !complete {
-			return sipom.PendVeiculo
-		}
-		if !sipom.PlatelessType(*v.SipomTipoCodigo) && !v.SipomSemPlacaConfirmada {
-			return sipom.PendVeiculoPlaca
-		}
 	case v.SipomCorCodigo == nil || v.SipomMarcaModeloCodigo == nil:
 		return sipom.PendVeiculo
 	}
 	return ""
+}
+
+// VehicleAsOutros diz se o veículo vai ao SIPOM como material "Outros": sem
+// placa e ciclomotor/motoneta, ou com a falta da placa confirmada.
+func VehicleAsOutros(v Vehicle) bool {
+	if plate(v.Plate) != "" {
+		return false
+	}
+	return v.SipomSemPlacaConfirmada || (v.SipomTipoCodigo != nil && sipom.PlatelessType(*v.SipomTipoCodigo))
+}
+
+// OutrosDescricao é a descrição do veículo no material "Outros": a do
+// analista (ou da IA confirmada) ou, sem ela, a montada do relatório.
+func OutrosDescricao(v Vehicle) string {
+	if d := strings.TrimSpace(v.SipomOutrosDescricao); d != "" {
+		return d
+	}
+	var parts []string
+	for _, s := range []string{v.Kind, v.Brand, v.Model} {
+		if s = strings.TrimSpace(s); s != "" {
+			parts = append(parts, s)
+		}
+	}
+	d := strings.Join(parts, " ")
+	if d == "" {
+		d = "Veículo"
+	}
+	if c := strings.TrimSpace(v.Color); c != "" {
+		d += ", cor " + c
+	}
+	return d + ", sem placa identificada"
 }
 
 // VehicleComplete diz se o veículo tem tipo, cor e marca/modelo do SIPOM.

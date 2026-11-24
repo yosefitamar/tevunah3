@@ -37,6 +37,12 @@ export type OpsPerson = {
 export type OpsWeapon = { kind: string; model: string; brand: string; caliber: string; serial: string };
 export type OpsDrug = { description: string; grams: number | null; packages: number | null };
 export type OpsVehicle = { kind: string; brand: string; model: string; plate: string; color: string };
+
+/**
+ * Resposta das correções do SIPOM na ficha. As listas do relatório vêm junto:
+ * a inclusão de um item de apreensão muda elas.
+ */
+export type SipomChangeExtra = { weapons?: OpsWeapon[]; drugs?: OpsDrug[]; vehicles?: OpsVehicle[] };
 export type OpsOfficer = {
   registration: string;
   rank: string;
@@ -185,8 +191,15 @@ export type SipomProcedimento = {
   delegado_texto: string;
 };
 
+/** Remoção de um item de apreensão. */
+export type SipomRemocao = { em: string; por: string; motivo: string };
+
 export type SipomArma = {
   index: number;
+  /** Removido da ocorrência pelo analista: não vai ao SIPOM nem conta. */
+  removido: SipomRemocao | null;
+  /** Incluído pelo analista (null = veio do relatório). */
+  adicionado: { em: string; por: string } | null;
   tipo: SipomRef | null;
   marca: SipomRef | null;
   calibre: SipomRef | null;
@@ -196,6 +209,10 @@ export type SipomArma = {
 
 export type SipomDroga = {
   index: number;
+  /** Removido da ocorrência pelo analista: não vai ao SIPOM nem conta. */
+  removido: SipomRemocao | null;
+  /** Incluído pelo analista (null = veio do relatório). */
+  adicionado: { em: string; por: string } | null;
   droga: SipomRef | null;
   unidade: string;
   quantidade: number | null;
@@ -205,6 +222,10 @@ export type SipomDroga = {
 
 export type SipomVeiculo = {
   index: number;
+  /** Removido da ocorrência pelo analista: não vai ao SIPOM nem conta. */
+  removido: SipomRemocao | null;
+  /** Incluído pelo analista (null = veio do relatório). */
+  adicionado: { em: string; por: string } | null;
   tipo: SipomRef | null;
   cor: SipomRef | null;
   marca_modelo: SipomRef | null;
@@ -222,6 +243,14 @@ export type SipomVeiculo = {
   cadastro_exigido: boolean;
   /** O analista confirmou que a placa não pôde ser identificada. */
   sem_placa_confirmada: boolean;
+  /**
+   * Sem placa, vai ao SIPOM como material OUTROS (recomendação do SIPOM):
+   * ciclomotor direto; carro e moto depois da confirmação.
+   */
+  outros: boolean;
+  /** Descrição do material OUTROS (a do analista ou a montada do relatório). */
+  outros_descricao: string;
+  outros_descricao_manual: boolean;
   manual: boolean;
   ok: boolean;
 };

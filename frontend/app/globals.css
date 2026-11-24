@@ -6193,3 +6193,21 @@ body.session-locked > *:not(.session-overlay-root) {
 .sai-batch-pick { font-size: 12px; }
 .sai-batch-hd input[type="checkbox"] { accent-color: var(--accent); cursor: pointer; }
 .sai-batch-pend { font-size: 11px; color: var(--warn); margin-top: 2px; }
+.sipom-removed { opacity: .75; border-style: dashed; }
+.sipom-removed-line { display: flex; align-items: center; gap: 8px; font-size: 12px; flex-wrap: wrap; }
+.sipom-removed-line .btn { margin-left: auto; }
+.sipom-removed-tag { color: var(--warn); font-weight: 600; font-size: 11px; letter-spacing: .04em; }
+.sipom-remove-bar { display: flex; justify-content: flex-end; margin: -4px 0 8px; }
+.sipom-add-bar { display: flex; align-items: center; gap: 6px; margin-top: 10px; font-size: 11px; }
+.sipom-add { border-color: var(--accent-dim); margin-top: 10px; }
+.sipom-add-hd { display: flex; align-items: center; justify-content: space-between; font-size: 11px; letter-spacing: .04em; color: var(--accent); margin-bottom: 6px; }
+.sipom-added-tag { font-size: 10.5px; letter-spacing: .04em; color: var(--accent); margin-bottom: 2px; }
+
+/* Faixa de versão nova (VersionWatcher) */
+.version-banner {
+  position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 9999;
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 8px 6px 12px; font-size: 11px; letter-spacing: .04em;
+  background: var(--bg-2); color: var(--accent); border: 1px solid var(--accent-dim);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, .45);
+}

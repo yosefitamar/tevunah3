@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { GraduationCap, Sparkles, X } from "lucide-react";
-import type { OpsOfficer, SipomOccurrence } from "@/lib/ops-reports-api";
+import type { OpsOfficer, SipomChangeExtra, SipomOccurrence } from "@/lib/ops-reports-api";
 import {
   CONFIANCA_LABEL,
   applySipomAISuggestions,
@@ -86,7 +86,7 @@ export function SipomAISuggestionList({
 
 type Props = {
   occId: string;
-  onApplied: (s: SipomOccurrence, officers?: OpsOfficer[]) => void;
+  onApplied: (s: SipomOccurrence, officers?: OpsOfficer[], extra?: SipomChangeExtra) => void;
 };
 
 /**
@@ -132,7 +132,7 @@ export default function SipomAIPanel({ occId, onApplied }: Props) {
       occId,
       idx.map((i) => items[i]),
     );
-    if (last) onApplied(last.sipom, last.officers);
+    if (last) onApplied(last.sipom, last.officers, last);
     const failedIdx = new Map<number, string>();
     failed.forEach((f) => failedIdx.set(items.indexOf(f.s), f.error));
     // Ficam na lista as que falharam e as que o analista não marcou.

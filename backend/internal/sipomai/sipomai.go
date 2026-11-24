@@ -32,6 +32,16 @@ const (
 	KindDroga        = "droga"         // PUT .../sipom/materiais/drogas/{pos}
 	KindVeiculo      = "veiculo"       // PUT .../sipom/materiais/veiculos/{pos}
 	KindVeiculoPlaca = "veiculo_placa" // PUT .../sipom/veiculos/{pos}/placa
+	// KindVeiculoOutros: placa não identificada — o veículo vai ao SIPOM como
+	// material "Outros", com a descrição (PUT .../veiculos/{pos}/placa com
+	// sem_placa e descricao).
+	KindVeiculoOutros = "veiculo_outros"
+	// KindRemover: o item de apreensão não deve ir ao SIPOM (duplicado, não
+	// apreendido, ou conforme orientação) — PUT .../materiais/{kind}/{pos}/remocao.
+	KindRemover = "remover"
+	// KindAdicionar: o histórico cita um objeto apreendido que não está na
+	// lista — POST .../materiais/{kind}.
+	KindAdicionar = "adicionar"
 )
 
 // Codes são as pendências que a IA ajuda a resolver.
@@ -103,7 +113,7 @@ type GuidanceRef struct {
 // sectionTopic diz o tema de orientação de cada seção do pedido.
 var sectionTopic = map[string]string{
 	"natureza": "natureza", "bairro": "bairro", "pessoas": "sexo",
-	"armas": "apreensoes", "drogas": "apreensoes", "veiculos": "apreensoes",
+	"armas": "apreensoes", "drogas": "apreensoes", "veiculos": "apreensoes", "apreensoes_ficha": "apreensoes",
 }
 
 // Request é o caso montado para a IA e o que Parse precisa para conferir a
@@ -123,6 +133,10 @@ type Request struct {
 	drugs    []int
 	vehicles map[int]vehicleAsk
 	guidance map[string]Guidance // "G1" → orientação
+	// AddPrompt é o pedido da segunda chamada (apreensões que faltam).
+	AddPrompt   string
+	head        string // ocorrência e histórico, comum aos dois pedidos
+	seizureList string
 	// CidadeID é a cidade da ocorrência no catálogo (0 = não resolvida).
 	CidadeID int
 }
@@ -188,6 +202,7 @@ func Build(cat *sipom.Catalog, terms *sipom.TermMap, so *opsreport.StoredOccurre
 		fmt.Fprintf(&b, "Objetos apreendidos (texto do relatório): %s\n", t)
 	}
 	fmt.Fprintf(&b, "\n## HISTÓRICO\n%s\n", strings.TrimSpace(o.Narrative))
+	req.head = b.String()
 
 	// ── Natureza ──
 	switch {
@@ -264,7 +279,7 @@ func Build(cat *sipom.Catalog, terms *sipom.TermMap, so *opsreport.StoredOccurre
 	if pend[sipom.PendArma] {
 		var lines []string
 		for i, w := range o.Weapons {
-			if w.SipomTipoID != nil {
+			if w.SipomTipoID != nil || w.Removed() {
 				continue
 			}
 			req.weapons = append(req.weapons, i)
@@ -285,7 +300,7 @@ func Build(cat *sipom.Catalog, terms *sipom.TermMap, so *opsreport.StoredOccurre
 	if pend[sipom.PendDroga] {
 		var lines []string
 		for i, d := range o.Drugs {
-			if d.SipomDrogaID != nil && d.SipomQuantidade != nil {
+			if (d.SipomDrogaID != nil && d.SipomQuantidade != nil) || d.Removed() {
 				continue
 			}
 			req.drugs = append(req.drugs, i)
@@ -313,15 +328,26 @@ func Build(cat *sipom.Catalog, terms *sipom.TermMap, so *opsreport.StoredOccurre
 	if pend[sipom.PendVeiculo] || pend[sipom.PendVeiculoPlaca] {
 		var lines []string
 		for i, v := range o.Vehicles {
+			if v.Removed() {
+				continue
+			}
 			ask := vehicleAsk{
 				material: v.SipomSituacao == 0 || !opsreport.VehicleComplete(v),
-				plate:    plateKey(v.Plate) == "" && !v.SipomSemPlacaConfirmada,
+				plate:    plateKey(v.Plate) == "" && !opsreport.VehicleAsOutros(v),
+			}
+			// Sem placa e já indo como "Outros" (ciclomotor ou falta
+			// confirmada), o resto do veículo não importa.
+			if plateKey(v.Plate) == "" && !ask.plate {
+				continue
 			}
 			if !ask.material && !ask.plate {
 				continue
 			}
 			line := fmt.Sprintf("item %d | tipo: %s | marca: %s | modelo: %s | cor: %s | placa: %s",
 				i, v.Kind, v.Brand, v.Model, v.Color, orDash(v.Plate))
+			if ask.plate {
+				line += "\n  SEM PLACA NO RELATÓRIO: se a placa estiver escrita no histórico ou nos objetos, informe-a em placa. Se não estiver, placa null e escreva outros_descricao — o veículo vai ao SIPOM como material OUTROS."
+			}
 			if ask.material {
 				ask.candidates = map[int]bool{}
 				var cands []string
@@ -340,7 +366,7 @@ func Build(cat *sipom.Catalog, terms *sipom.TermMap, so *opsreport.StoredOccurre
 		}
 		if len(lines) > 0 {
 			req.Sections = append(req.Sections, "veiculos")
-			b.WriteString("\n# VEÍCULOS — situação (apreendido ou recuperado: recuperado é veículo roubado/furtado encontrado), tipo, cor e marca/modelo do SIPOM; placa só se aparecer escrita no texto (nunca invente).\n")
+			b.WriteString("\n# VEÍCULOS — situação (apreendido ou recuperado: recuperado é veículo roubado/furtado encontrado), tipo, cor e marca/modelo do SIPOM; placa só se aparecer escrita no texto (nunca invente). outros_descricao (só para veículo sem placa): descrição objetiva em até 300 caracteres — tipo, marca, modelo, cor, chassi/motor se citados, estado (avarias, adulteração) e \"sem placa identificada\" — só o que o relatório diz, sem mencionar o que ele não informa; para os demais, texto vazio.\n")
 			if o.RecoveredVehicle() {
 				b.WriteString("Uma das naturezas fala em recuperação de veículo.\n")
 			}
@@ -353,10 +379,69 @@ func Build(cat *sipom.Catalog, terms *sipom.TermMap, so *opsreport.StoredOccurre
 	if len(req.Sections) == 0 {
 		return nil, false
 	}
+	writeRemoval(&b, req)
 	writeGuidance(&b, req, guidance)
 	fmt.Fprintf(&b, "\nResponda só as seções pedidas: %s. As demais: null ou lista vazia.\n", strings.Join(req.Sections, ", "))
 	req.Prompt = b.String()
+	req.AddPrompt = req.buildAddPrompt()
 	return req, true
+}
+
+// writeRemoval lista as apreensões ativas da ficha para a IA apontar as que
+// não devem ir ao SIPOM. Só entra junto de outra seção: sozinha, não motiva
+// a consulta.
+func writeRemoval(b *strings.Builder, req *Request) {
+	o := &req.so.Occurrence
+	var lines []string
+	for i, w := range o.Weapons {
+		if !w.Removed() {
+			lines = append(lines, fmt.Sprintf("arma %d | %s %s %s %s nº %s", i, w.Kind, w.Brand, w.Model, w.Caliber, orDash(w.Serial)))
+		}
+	}
+	for i, d := range o.Drugs {
+		if !d.Removed() {
+			line := fmt.Sprintf("droga %d | %s", i, d.Description)
+			if d.Grams != nil {
+				line += fmt.Sprintf(" | %g g", *d.Grams)
+			}
+			lines = append(lines, line)
+		}
+	}
+	for i, v := range o.Vehicles {
+		if !v.Removed() {
+			lines = append(lines, fmt.Sprintf("veiculo %d | %s %s %s %s placa %s", i, v.Kind, v.Brand, v.Model, v.Color, orDash(v.Plate)))
+		}
+	}
+	req.Sections = append(req.Sections, "apreensoes_ficha")
+	if len(lines) == 0 {
+		lines = append(lines, "(nenhuma)")
+	}
+	req.seizureList = strings.Join(lines, "\n")
+	b.WriteString("\n# APREENSÕES DA FICHA — em remover, aponte SÓ itens que não devem ir ao SIPOM: lixo de leitura do PDF (data, hora, endereço de site ou texto que não é um objeto), o mesmo objeto lançado duas vezes, item que o histórico diz que não foi apreendido (devolvido ao dono, apenas citado), ou o que uma orientação dos analistas mandar remover. Na dúvida, não remova (lista vazia).\n")
+	b.WriteString(strings.Join(lines, "\n") + "\n")
+}
+
+// buildAddPrompt monta o pedido das apreensões que faltam: a ocorrência, a
+// lista atual e as orientações de apreensões e gerais (com as mesmas
+// referências G1… do pedido principal).
+func (req *Request) buildAddPrompt() string {
+	var b strings.Builder
+	b.WriteString(req.head)
+	b.WriteString("\n# APREENSÕES JÁ NA FICHA\n" + req.seizureList + "\n")
+	b.WriteString("\n# O QUE FALTA — em adicionar, inclua SÓ arma, droga ou veículo que o histórico ou os objetos apreendidos dizem claramente que FOI APREENDIDO e que NÃO está na lista acima (nunca repita um item da lista, mesmo com outra grafia; munição, celular, dinheiro e outros objetos não entram). Peso em gramas e porções só se o texto disser (senão null e 0). Campos que não se aplicam ao material: texto vazio. Na dúvida, lista vazia.\n")
+	var lines []string
+	for i := 1; i <= len(req.guidance); i++ {
+		ref := "G" + strconv.Itoa(i)
+		g := req.guidance[ref]
+		if g.Topic == "apreensoes" || g.Topic == "geral" {
+			lines = append(lines, fmt.Sprintf("%s %s", ref, g.Body))
+		}
+	}
+	if len(lines) > 0 {
+		b.WriteString("\n# ORIENTAÇÕES DOS ANALISTAS — siga-as quando o caso se encaixar; ao seguir uma, ponha a referência em orientacao (senão, texto vazio).\n")
+		b.WriteString(strings.Join(lines, "\n") + "\n")
+	}
+	return b.String()
 }
 
 // maxGuidance limita as orientações por pedido.
@@ -475,6 +560,11 @@ var motivo = map[string]any{"type": "string"}
 // Schema é o formato da resposta (structured outputs). Fixo: o schema
 // compilado fica em cache na Anthropic.
 var Schema = obj(map[string]any{
+	"remover": arr(obj(map[string]any{
+		"material":  map[string]any{"type": "string", "enum": []string{"arma", "droga", "veiculo"}},
+		"item":      map[string]any{"type": "integer"},
+		"confianca": confianca, "motivo": motivo, "orientacao": map[string]any{"type": "string"},
+	})),
 	"natureza": map[string]any{"anyOf": []any{
 		obj(map[string]any{"natureza_id": nullable("integer"), "confianca": confianca, "motivo": motivo, "orientacao": map[string]any{"type": "string"}}),
 		map[string]any{"type": "null"},
@@ -504,13 +594,39 @@ var Schema = obj(map[string]any{
 		"cor_codigo":          nullable("integer"),
 		"marca_modelo_codigo": nullable("integer"),
 		"placa":               nullable("string"),
+		"outros_descricao":    map[string]any{"type": "string"},
 		"confianca":           confianca, "motivo": motivo, "orientacao": map[string]any{"type": "string"},
+	})),
+})
+
+// AddSchema é o formato da segunda chamada, a das apreensões que faltam na
+// ficha. Separada porque, junto da principal, o schema passa do tamanho que o
+// structured outputs aceita ("compiled grammar is too large").
+var AddSchema = obj(map[string]any{
+	"adicionar": arr(obj(map[string]any{
+		"material":  map[string]any{"type": "string", "enum": []string{"arma", "droga", "veiculo"}},
+		"tipo":      map[string]any{"type": "string"},
+		"marca":     map[string]any{"type": "string"},
+		"modelo":    map[string]any{"type": "string"},
+		"calibre":   map[string]any{"type": "string"},
+		"numero":    map[string]any{"type": "string"},
+		"descricao": map[string]any{"type": "string"},
+		"gramas":    nullable("number"),
+		"porcoes":   map[string]any{"type": "integer"},
+		"placa":     map[string]any{"type": "string"},
+		"cor":       map[string]any{"type": "string"},
+		"confianca": confianca, "motivo": motivo, "orientacao": map[string]any{"type": "string"},
 	})),
 })
 
 // ─── Resposta ───
 
 type answer struct {
+	Remover []struct {
+		Material string `json:"material"`
+		Item     int    `json:"item"`
+		meta
+	} `json:"remover"`
 	Natureza *struct {
 		ID *int `json:"natureza_id"`
 		meta
@@ -544,8 +660,26 @@ type answer struct {
 		CorCodigo   *int    `json:"cor_codigo"`
 		MarcaModelo *int    `json:"marca_modelo_codigo"`
 		Placa       *string `json:"placa"`
+		OutrosDesc  string  `json:"outros_descricao"`
 		meta
 	} `json:"veiculos"`
+}
+
+type addAnswer struct {
+	Adicionar []struct {
+		Material  string   `json:"material"`
+		Tipo      string   `json:"tipo"`
+		Marca     string   `json:"marca"`
+		Modelo    string   `json:"modelo"`
+		Calibre   string   `json:"calibre"`
+		Numero    string   `json:"numero"`
+		Descricao string   `json:"descricao"`
+		Gramas    *float64 `json:"gramas"`
+		Porcoes   int      `json:"porcoes"`
+		Placa     string   `json:"placa"`
+		Cor       string   `json:"cor"`
+		meta
+	} `json:"adicionar"`
 }
 
 type meta struct {
@@ -706,7 +840,14 @@ func (req *Request) Parse(raw []byte) ([]Suggestion, error) {
 		i := v.Item
 		vh := o.Vehicles[i]
 		target := fmt.Sprintf("Veículo %d: %s", i+1, strings.TrimSpace(vh.Kind+" "+vh.Brand+" "+vh.Model+" "+vh.Color))
-		if ask.material {
+		foundPlate := ""
+		if ask.plate && v.Placa != nil {
+			if p := normalizePlate(*v.Placa); p != "" && strings.Contains(plateKey(o.Narrative+" "+o.SeizedObjects), p) {
+				foundPlate = p
+			}
+		}
+		// Sem placa, tipo/cor/marca só importam se a placa apareceu no texto.
+		if ask.material && (!ask.plate || foundPlate != "") {
 			s := Suggestion{Kind: KindVeiculo, Code: sipom.PendVeiculo, Index: &i, Target: target,
 				Confianca: v.conf(), Motivo: v.Motivo, Guidance: req.cite(v.meta)}
 			situ := map[string]int{"apreendido": sipom.VeiculoApreendido, "recuperado": sipom.VeiculoRecuperado}[v.Situacao]
@@ -757,15 +898,171 @@ func (req *Request) Parse(raw []byte) ([]Suggestion, error) {
 			}
 			out = append(out, s)
 		}
-		if ask.plate && v.Placa != nil {
-			if p := normalizePlate(*v.Placa); p != "" && strings.Contains(plateKey(o.Narrative+" "+o.SeizedObjects), p) {
-				out = append(out, Suggestion{Kind: KindVeiculoPlaca, Code: sipom.PendVeiculoPlaca, Index: &i,
-					Target: target, Value: "placa " + p, Confianca: v.conf(), Motivo: v.Motivo, Guidance: req.cite(v.meta),
-					Applicable: true, Apply: map[string]any{"placa": p}})
+		switch {
+		case foundPlate != "":
+			out = append(out, Suggestion{Kind: KindVeiculoPlaca, Code: sipom.PendVeiculoPlaca, Index: &i,
+				Target: target, Value: "placa " + foundPlate, Confianca: v.conf(), Motivo: v.Motivo, Guidance: req.cite(v.meta),
+				Applicable: true, Apply: map[string]any{"placa": foundPlate}})
+		case ask.plate:
+			desc := strings.Join(strings.Fields(v.OutrosDesc), " ")
+			if r := []rune(desc); len(r) > 300 {
+				desc = string(r[:300])
 			}
+			if desc == "" {
+				desc = opsreport.OutrosDescricao(vh)
+			}
+			// Dizer que a placa não pôde ser identificada é do analista: a
+			// sugestão nunca vem marcada (no máximo confiança média).
+			conf := v.conf()
+			if conf == "alta" {
+				conf = "media"
+			}
+			out = append(out, Suggestion{Kind: KindVeiculoOutros, Code: sipom.PendVeiculoPlaca, Index: &i,
+				Target: target, Value: "sem placa → OUTROS: " + desc, Confianca: conf,
+				Motivo: "A placa não aparece no relatório. " + v.Motivo, Guidance: req.cite(v.meta),
+				Applicable: true, Apply: map[string]any{"descricao": desc}})
 		}
 	}
+	for _, x := range a.Remover {
+		if !once(KindRemover+x.Material, x.Item) {
+			continue
+		}
+		var kind, target string
+		var removed bool
+		i := x.Item
+		switch x.Material {
+		case "arma":
+			if i < 0 || i >= len(o.Weapons) {
+				continue
+			}
+			w := o.Weapons[i]
+			kind, removed = "armas", w.Removed()
+			target = fmt.Sprintf("Arma %d: %s", i+1, strings.TrimSpace(w.Kind+" "+w.Brand+" "+w.Model+" "+w.Caliber))
+		case "droga":
+			if i < 0 || i >= len(o.Drugs) {
+				continue
+			}
+			kind, removed = "drogas", o.Drugs[i].Removed()
+			target = fmt.Sprintf("Droga %d: %s", i+1, o.Drugs[i].Description)
+		case "veiculo":
+			if i < 0 || i >= len(o.Vehicles) {
+				continue
+			}
+			v := o.Vehicles[i]
+			kind, removed = "veiculos", v.Removed()
+			target = fmt.Sprintf("Veículo %d: %s", i+1, strings.TrimSpace(v.Kind+" "+v.Brand+" "+v.Model+" "+v.Color+" "+v.Plate))
+		default:
+			continue
+		}
+		if removed {
+			continue
+		}
+		g := req.cite(x.meta)
+		// Remover é decisão do analista: só vem marcada com confiança alta
+		// quando segue uma orientação.
+		conf := x.conf()
+		if conf == "alta" && g == nil {
+			conf = "media"
+		}
+		motivo := strings.TrimSpace(x.Motivo)
+		if r := []rune(motivo); len(r) > 400 {
+			motivo = string(r[:400])
+		}
+		out = append(out, Suggestion{Kind: KindRemover, Code: "remocao", Index: &i, Target: target,
+			Value: "remover da ocorrência (não vai ao SIPOM)", Confianca: conf, Motivo: motivo, Guidance: g,
+			Applicable: true, Apply: map[string]any{"material": kind, "motivo": "Sugerido pela IA: " + motivo}})
+	}
 	return out, nil
+}
+
+// ParseAdd confere a resposta da segunda chamada (apreensões que faltam).
+func (req *Request) ParseAdd(raw []byte) ([]Suggestion, error) {
+	var a addAnswer
+	if err := json.Unmarshal(raw, &a); err != nil {
+		return nil, err
+	}
+	o := &req.so.Occurrence
+	out := []Suggestion{}
+	for _, x := range a.Adicionar {
+		f := func(s string) string { return strings.ToUpper(strings.Join(strings.Fields(s), " ")) }
+		apply := map[string]any{}
+		var target, value string
+		switch x.Material {
+		case "arma":
+			if f(x.Tipo) == "" && f(x.Modelo) == "" {
+				continue
+			}
+			target, apply["material"] = "Nova arma", "armas"
+			apply["tipo"], apply["marca"], apply["modelo"], apply["calibre"], apply["numero"] = f(x.Tipo), f(x.Marca), f(x.Modelo), f(x.Calibre), f(x.Numero)
+			value = strings.Join(strings.Fields(f(x.Tipo)+" "+f(x.Marca)+" "+f(x.Modelo)+" "+f(x.Calibre)), " ")
+			if n := f(x.Numero); n != "" {
+				value += " nº " + n
+			}
+		case "droga":
+			d := f(x.Descricao)
+			if d == "" || req.hasDrug(d) {
+				continue
+			}
+			target, apply["material"], apply["descricao"] = "Nova droga", "drogas", d
+			value = d
+			if x.Gramas != nil && *x.Gramas > 0 {
+				apply["gramas"] = *x.Gramas
+				value += fmt.Sprintf(" · %g g", *x.Gramas)
+			}
+			if x.Porcoes > 0 {
+				apply["porcoes"] = x.Porcoes
+				value += fmt.Sprintf(" · %d porção(ões)", x.Porcoes)
+			}
+		case "veiculo":
+			if f(x.Tipo) == "" && f(x.Modelo) == "" {
+				continue
+			}
+			placa := normalizePlate(x.Placa)
+			if placa != "" && !strings.Contains(plateKey(o.Narrative+" "+o.SeizedObjects), placa) {
+				placa = "" // placa que não está no texto não entra
+			}
+			if placa != "" && req.hasPlate(placa) {
+				continue
+			}
+			target, apply["material"] = "Novo veículo", "veiculos"
+			apply["tipo"], apply["marca"], apply["modelo"], apply["placa"], apply["cor"] = f(x.Tipo), f(x.Marca), f(x.Modelo), placa, f(x.Cor)
+			value = strings.Join(strings.Fields(f(x.Tipo)+" "+f(x.Marca)+" "+f(x.Modelo)+" "+f(x.Cor)), " ")
+			if placa != "" {
+				value += " · placa " + placa
+			}
+		default:
+			continue
+		}
+		g := req.cite(x.meta)
+		conf := x.conf()
+		if conf == "alta" && g == nil {
+			conf = "media" // incluir é decisão do analista, salvo orientação
+		}
+		out = append(out, Suggestion{Kind: KindAdicionar, Code: "inclusao", Target: target,
+			Value: "incluir: " + value, Confianca: conf, Motivo: x.Motivo, Guidance: g,
+			Applicable: true, Apply: apply})
+	}
+	return out, nil
+}
+
+// hasDrug diz se a ficha já tem (ativa) uma droga com a descrição.
+func (req *Request) hasDrug(desc string) bool {
+	for _, d := range req.so.Drugs {
+		if !d.Removed() && strings.EqualFold(strings.TrimSpace(d.Description), desc) {
+			return true
+		}
+	}
+	return false
+}
+
+// hasPlate diz se a ficha já tem (ativo) um veículo com a placa.
+func (req *Request) hasPlate(p string) bool {
+	for _, v := range req.so.Vehicles {
+		if !v.Removed() && plateKey(v.Plate) == p {
+			return true
+		}
+	}
+	return false
 }
 
 // versionInText diz se os trechos com algarismo da descrição DENATRAN

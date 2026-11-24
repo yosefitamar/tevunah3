@@ -463,6 +463,8 @@ func (a *app) handleSipomSetVehiclePlate(w http.ResponseWriter, r *http.Request)
 	var req struct {
 		Placa    string `json:"placa"`
 		SemPlaca bool   `json:"sem_placa"`
+		// Descricao: a do material "Outros" do veículo sem placa.
+		Descricao string `json:"descricao"`
 	}
 	if err := httpx.Decode(r, &req); err != nil {
 		httpx.Error(w, http.StatusBadRequest, "corpo inválido")
@@ -486,7 +488,12 @@ func (a *app) handleSipomSetVehiclePlate(w http.ResponseWriter, r *http.Request)
 		httpx.Error(w, http.StatusBadRequest, "informe a placa ou confirme que ela não foi identificada, não os dois")
 		return
 	}
-	if err := a.opsReports.SetVehiclePlate(r.Context(), id, pos, placa, req.SemPlaca); err != nil {
+	desc := strings.Join(strings.Fields(req.Descricao), " ")
+	if len([]rune(desc)) > 500 {
+		httpx.Error(w, http.StatusBadRequest, "descrição com no máximo 500 caracteres")
+		return
+	}
+	if err := a.opsReports.SetVehiclePlate(r.Context(), id, pos, placa, req.SemPlaca, desc); err != nil {
 		log.Printf("sipom set vehicle plate: %v", err)
 		httpx.Error(w, http.StatusInternalServerError, "erro ao gravar")
 		return

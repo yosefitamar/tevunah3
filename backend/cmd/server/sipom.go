@@ -771,15 +771,15 @@ func sipomAuditSnapshot(so *opsreport.StoredOccurrence) map[string]any {
 	}
 	armas := make([]map[string]any, 0, len(so.Weapons))
 	for _, w := range so.Weapons {
-		armas = append(armas, map[string]any{"tipo": w.SipomTipoID, "marca": w.SipomMarcaID, "calibre": w.SipomCalibreID, "manual": w.SipomManual})
+		armas = append(armas, map[string]any{"removido": w.Removed(), "motivo_remocao": w.RemovedReason, "tipo": w.SipomTipoID, "marca": w.SipomMarcaID, "calibre": w.SipomCalibreID, "manual": w.SipomManual})
 	}
 	drogas := make([]map[string]any, 0, len(so.Drugs))
 	for _, d := range so.Drugs {
-		drogas = append(drogas, map[string]any{"droga": d.SipomDrogaID, "quantidade": d.SipomQuantidade, "manual": d.SipomManual})
+		drogas = append(drogas, map[string]any{"removido": d.Removed(), "motivo_remocao": d.RemovedReason, "droga": d.SipomDrogaID, "quantidade": d.SipomQuantidade, "manual": d.SipomManual})
 	}
 	veiculos := make([]map[string]any, 0, len(so.Vehicles))
 	for _, v := range so.Vehicles {
-		veiculos = append(veiculos, map[string]any{"placa": v.Plate, "sem_placa_confirmada": v.SipomSemPlacaConfirmada, "tipo": v.SipomTipoCodigo, "cor": v.SipomCorCodigo,
+		veiculos = append(veiculos, map[string]any{"removido": v.Removed(), "motivo_remocao": v.RemovedReason, "placa": v.Plate, "sem_placa_confirmada": v.SipomSemPlacaConfirmada, "outros_descricao": v.SipomOutrosDescricao, "tipo": v.SipomTipoCodigo, "cor": v.SipomCorCodigo,
 			"marca_modelo": v.SipomMarcaModeloCodigo, "situacao": v.SipomSituacao, "manual": v.SipomManual})
 	}
 	return map[string]any{

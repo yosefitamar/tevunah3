@@ -1,14 +1,19 @@
 "use client";
 
 import { Fragment, useEffect, useState } from "react";
-import { Check, Search } from "lucide-react";
-import type { OpsOccurrence, SipomArma, SipomDroga, SipomRef, SipomVeiculo } from "@/lib/ops-reports-api";
+import { Check, Plus, RotateCcw, Search, Trash2, X } from "lucide-react";
+import type { OpsOccurrence, SipomArma, SipomDroga, SipomRef, SipomRemocao, SipomVeiculo } from "@/lib/ops-reports-api";
+import { useModal } from "@/contexts/ModalContext";
+import { formatBR } from "@/lib/format";
 import { formatGrams } from "@/lib/ops-reports-api";
 import {
+  addSipomMaterial,
+  type SipomNewMaterial,
   getSipomCatalogo,
   searchSipomMarcasModelos,
   setOpsSipomMaterial,
   setOpsSipomProcedimento,
+  setSipomMaterialRemoved,
   setSipomVehiclePlate,
   setSipomVehicleYears,
   type SipomCatalogo,
@@ -177,41 +182,191 @@ export function SipomMateriais({ occ, ed }: PartProps) {
   const s = occ.sipom!;
   const { editable, busy } = ed;
   const { cat, error } = useCatalogo(editable);
+  const modal = useModal();
   const setMat = (index: number, input: SipomMaterialInput) =>
     !!occ.id && ed.run(() => setOpsSipomMaterial(occ.id!, index, input));
   const { armas, drogas, veiculos } = s.materiais;
+
+  // Remover pede o motivo (fica na ficha e na auditoria); restaurar, não.
+  async function setRemoved(kind: "armas" | "drogas" | "veiculos", index: number, remover: boolean, what: string) {
+    if (!occ.id) return;
+    let motivo = "";
+    if (remover) {
+      const r = await modal.prompt({
+        title: "REMOVER DA OCORRÊNCIA",
+        message: `${what} deixa de ir ao SIPOM e de contar nas estatísticas. O item continua gravado e pode ser restaurado.`,
+        label: "MOTIVO",
+        type: "textarea",
+        placeholder: "Ex.: lançado em duplicidade; devolvido ao proprietário no local",
+        confirm: "REMOVER",
+        validate: (v) => (v.trim().length < 3 ? "Diga o motivo da remoção" : null),
+      });
+      if (r == null) return;
+      motivo = r.trim();
+    }
+    await ed.run(() => setSipomMaterialRemoved(occ.id!, kind, index, remover, motivo));
+  }
+  const item = (
+    kind: "armas" | "drogas" | "veiculos",
+    index: number,
+    removido: SipomRemocao | null,
+    what: string,
+    adicionado: { em: string; por: string } | null,
+  ) => ({
+    removido,
+    adicionado,
+    editable,
+    busy,
+    onRemove: () => setRemoved(kind, index, true, what),
+    onRestore: () => setRemoved(kind, index, false, what),
+  });
 
   return (
     <>
       {error && CAT_ERROR}
       {armas.length > 0 && <div className="ops-sub">ARMAS ({armas.length})</div>}
       {armas.map((a) => (
-        <ArmaRow key={"a" + a.index} a={a} raw={occ.weapons[a.index]} cat={cat} editable={editable} busy={busy} onSave={(input) => setMat(a.index, input)} />
+        <Removable key={"a" + a.index} {...item("armas", a.index, a.removido, `A arma ${a.index + 1}`, a.adicionado)}>
+          <ArmaRow a={a} raw={occ.weapons[a.index]} cat={cat} editable={editable} busy={busy} onSave={(input) => setMat(a.index, input)} />
+        </Removable>
       ))}
       {drogas.length > 0 && <div className="ops-sub">DROGAS ({drogas.length})</div>}
       {drogas.map((d) => (
-        <DrogaRow key={"d" + d.index} d={d} raw={occ.drugs[d.index]} cat={cat} editable={editable} busy={busy} onSave={(input) => setMat(d.index, input)} />
+        <Removable key={"d" + d.index} {...item("drogas", d.index, d.removido, `A droga ${d.index + 1}`, d.adicionado)}>
+          <DrogaRow d={d} raw={occ.drugs[d.index]} cat={cat} editable={editable} busy={busy} onSave={(input) => setMat(d.index, input)} />
+        </Removable>
       ))}
       {veiculos.length > 0 && <div className="ops-sub">VEÍCULOS ({veiculos.length})</div>}
       {veiculos.map((v) => (
-        <Fragment key={"v" + v.index}>
+        <Removable key={"v" + v.index} {...item("veiculos", v.index, v.removido, `O veículo ${v.index + 1}`, v.adicionado)}>
           <VeiculoRow v={v} raw={occ.vehicles[v.index]} cat={cat} editable={editable} busy={busy} onSave={(input) => setMat(v.index, input)} />
           <VeiculoPlaca
             v={v}
             placa={occ.vehicles[v.index]?.plate ?? ""}
             editable={editable}
             busy={busy}
-            onSave={(placa, semPlaca) => !!occ.id && ed.run(() => setSipomVehiclePlate(occ.id!, v.index, placa, semPlaca))}
+            onSave={(placa, semPlaca, desc) =>
+              !!occ.id && ed.run(() => setSipomVehiclePlate(occ.id!, v.index, placa, semPlaca, desc))
+            }
           />
-          <VeiculoAnos
+          {!v.outros && <VeiculoAnos
             v={v}
             editable={editable}
             busy={busy}
             onSave={(fab, mod) => !!occ.id && ed.run(() => setSipomVehicleYears(occ.id!, v.index, fab, mod))}
-          />
-        </Fragment>
+          />}
+        </Removable>
       ))}
+      {editable && occ.id && (
+        <AddMaterial busy={busy} onAdd={(input) => ed.run(() => addSipomMaterial(occ.id!, input))} />
+      )}
     </>
+  );
+}
+
+const ADD_LABEL = { armas: "ARMA", drogas: "DROGA", veiculos: "VEÍCULO" } as const;
+
+/**
+ * Inclusão de item de apreensão que o relatório não trouxe (ou trouxe
+ * errado — o errado se remove, o certo se inclui aqui). Os campos são os do
+ * relatório; a tradução para o SIPOM é feita depois, como nos demais itens.
+ */
+function AddMaterial({ busy, onAdd }: { busy: boolean; onAdd: (input: SipomNewMaterial) => Promise<boolean> }) {
+  const [kind, setKind] = useState<keyof typeof ADD_LABEL | null>(null);
+  const [f, setF] = useState<Record<string, string>>({});
+  const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement>) => setF((cur) => ({ ...cur, [k]: e.target.value }));
+  const num = (k: string) => (f[k]?.trim() ? Number(f[k].replace(",", ".")) : null);
+  const open = (k: keyof typeof ADD_LABEL) => {
+    setKind(k);
+    setF({});
+  };
+
+  if (!kind) {
+    return (
+      <div className="sipom-add-bar">
+        <span className="muted">INCLUIR ITEM:</span>
+        {(Object.keys(ADD_LABEL) as (keyof typeof ADD_LABEL)[]).map((k) => (
+          <button key={k} type="button" className="btn btn-sm" disabled={busy} onClick={() => open(k)}>
+            <Plus size={12} /> {ADD_LABEL[k]}
+          </button>
+        ))}
+      </div>
+    );
+  }
+
+  const field = (k: string, label: string, opts: { span?: 1 | 2 | 3 | 4; placeholder?: string; mono?: boolean } = {}) => (
+    <OpsField label={label} span={opts.span}>
+      <input
+        className={"ops-input" + (opts.mono ? " mono" : "")}
+        value={f[k] ?? ""}
+        placeholder={opts.placeholder}
+        onChange={set(k)}
+        disabled={busy}
+      />
+    </OpsField>
+  );
+  const valid =
+    kind === "drogas"
+      ? !!f.descricao?.trim() && (num("gramas") ?? 0) >= 0 && !Number.isNaN(num("gramas") ?? 0) && !Number.isNaN(num("porcoes") ?? 0)
+      : !!(f.tipo?.trim() || f.modelo?.trim());
+
+  async function save() {
+    if (!kind) return;
+    let input: SipomNewMaterial;
+    if (kind === "drogas") {
+      input = { kind, descricao: f.descricao ?? "", gramas: num("gramas"), porcoes: num("porcoes") };
+    } else if (kind === "armas") {
+      input = { kind, tipo: f.tipo ?? "", marca: f.marca, modelo: f.modelo, calibre: f.calibre, numero: f.numero };
+    } else {
+      input = { kind, tipo: f.tipo ?? "", marca: f.marca, modelo: f.modelo, placa: f.placa, cor: f.cor };
+    }
+    if (await onAdd(input)) setKind(null);
+  }
+
+  return (
+    <div className="sipom-material sipom-add">
+      <div className="sipom-add-hd">
+        <span>INCLUIR {ADD_LABEL[kind]}</span>
+        <button type="button" className="action-btn" onClick={() => setKind(null)} aria-label="Cancelar" disabled={busy}>
+          <X size={13} />
+        </button>
+      </div>
+      <OpsFields edit>
+        {kind === "armas" && (
+          <>
+            {field("tipo", "TIPO", { placeholder: "REVÓLVER, PISTOLA, ESPINGARDA…" })}
+            {field("marca", "MARCA", { placeholder: "TAURUS" })}
+            {field("modelo", "MODELO", { placeholder: "RT 85" })}
+            {field("calibre", "CALIBRE", { placeholder: ".38" })}
+            {field("numero", "Nº DE SÉRIE", { span: 2, mono: true })}
+          </>
+        )}
+        {kind === "drogas" && (
+          <>
+            {field("descricao", "DROGA", { span: 2, placeholder: "MACONHA, COCAÍNA, CRACK…" })}
+            {field("gramas", "PESO (G)", { placeholder: "15" })}
+            {field("porcoes", "PORÇÕES", { placeholder: "3" })}
+          </>
+        )}
+        {kind === "veiculos" && (
+          <>
+            {field("tipo", "TIPO", { placeholder: "MOTOCICLETA, CARRO…" })}
+            {field("marca", "MARCA", { placeholder: "HONDA" })}
+            {field("modelo", "MODELO", { placeholder: "CG 160 TITAN" })}
+            {field("cor", "COR", { placeholder: "VERMELHA" })}
+            {field("placa", "PLACA", { mono: true, placeholder: "ABC1D23 (VAZIO = SEM PLACA)" })}
+          </>
+        )}
+      </OpsFields>
+      <OpsActions>
+        <button type="button" className="btn btn-ghost btn-sm" onClick={() => setKind(null)} disabled={busy}>
+          CANCELAR
+        </button>
+        <button type="button" className="btn btn-primary btn-sm" onClick={save} disabled={busy || !valid}>
+          <Check size={12} strokeWidth={2} /> INCLUIR
+        </button>
+      </OpsActions>
+    </div>
   );
 }
 
@@ -411,19 +566,21 @@ function VeiculoRow({ v, raw, cat, editable, busy, onSave }: RowProps<{ v: Sipom
   // Cor e marca/modelo são sempre obrigatórios; o tipo, sem placa (vai como
   // MOTONETA) ou depois que o SIPOM recusou a placa.
   const semPlaca = !raw?.plate?.trim();
-  // Sem placa, só ciclomotor/motoneta (tipos DENATRAN 2 e 3) vai ao SIPOM.
-  const ciclomotor = !!v.tipo && [2, 3].includes(v.tipo.id);
-  const required = v.cadastro_exigido || semPlaca;
+  const required = v.cadastro_exigido;
   const comPlacaIncompleto = !semPlaca && !v.cadastro_exigido && (!v.cor || !v.marca_modelo);
   return (
     <div className="sipom-material">
       <MaterialHead raw={rawText} ok={v.ok} manual={v.manual} />
-      {semPlaca && !v.cadastro_exigido && (ciclomotor ? (
-        <div className="banner banner-info">CICLOMOTOR SEM PLACA: VAI AO SIPOM SEM ELA — INFORME TIPO, COR E MARCA/MODELO</div>
-      ) : v.sem_placa_confirmada ? (
-        <div className="banner banner-info">PLACA NÃO IDENTIFICADA (CONFIRMADO): VAI AO SIPOM SEM ELA — INFORME TIPO, COR E MARCA/MODELO</div>
+      {/* Recomendação do SIPOM: a placa é obrigatória no material Veículo —
+          sem ela, o veículo vai como OUTROS, com a descrição. */}
+      {semPlaca && (v.outros ? (
+        <div className="banner banner-info">
+          SEM PLACA: VAI AO SIPOM COMO MATERIAL OUTROS, COM A DESCRIÇÃO ABAIXO (TIPO, COR E MARCA/MODELO NÃO SÃO ENVIADOS)
+        </div>
       ) : (
-        <div className="banner banner-error">⚠ SEM PLACA: INFORME A PLACA OU CONFIRME QUE NÃO FOI POSSÍVEL IDENTIFICÁ-LA</div>
+        <div className="banner banner-error">
+          ⚠ SEM PLACA: INFORME A PLACA OU CONFIRME QUE NÃO FOI POSSÍVEL IDENTIFICÁ-LA — AÍ ELE VAI COMO MATERIAL OUTROS
+        </div>
       ))}
       {comPlacaIncompleto && (
         <div className="banner banner-error">⚠ INFORME COR E MARCA/MODELO DO VEÍCULO</div>
@@ -431,7 +588,7 @@ function VeiculoRow({ v, raw, cat, editable, busy, onSave }: RowProps<{ v: Sipom
       {v.cadastro_exigido && (
         <div className="banner banner-info">O SIPOM NÃO TEM ESTA PLACA: INFORME TIPO, COR, MARCA/MODELO E ANO DE FABRICAÇÃO E REENVIE</div>
       )}
-      {editable ? (
+      {semPlaca ? null : editable ? (
         <>
           <OpsFields edit>
             <OpsField label="TIPO" missing={required && !tipo}>
@@ -509,8 +666,8 @@ function VeiculoRow({ v, raw, cat, editable, busy, onSave }: RowProps<{ v: Sipom
 }
 
 // Placa do veículo: o relatório às vezes a omite ("ident. suprimida") ou a
-// escreve errado. Sem ela, moto e carro só vão ao SIPOM depois que o
-// analista confirma que a placa não pôde ser identificada.
+// escreve errado. Sem ela, o veículo vai como material OUTROS — moto e carro
+// depois que o analista confirma que a placa não pôde ser identificada.
 function VeiculoPlaca({
   v,
   placa,
@@ -522,16 +679,26 @@ function VeiculoPlaca({
   placa: string;
   editable: boolean;
   busy: boolean;
-  onSave: (placa: string, semPlaca: boolean) => void;
+  onSave: (placa: string, semPlaca: boolean, descricao?: string) => void;
 }) {
   const norm = (x: string) => x.toUpperCase().replace(/[^A-Z0-9]/g, "");
   const [val, setVal] = useState(norm(placa));
   useEffect(() => setVal(norm(placa)), [placa]);
+  const [desc, setDesc] = useState(v.outros_descricao);
+  useEffect(() => setDesc(v.outros_descricao), [v.outros_descricao]);
   const valid = val === "" || /^[A-Z]{3}[0-9][A-Z0-9][0-9]{2}$/.test(val);
   if (!editable) {
-    return <MaterialRead fields={[["PLACA", placa || (v.sem_placa_confirmada ? "NÃO IDENTIFICADA" : undefined)]]} />;
+    return (
+      <MaterialRead
+        fields={[
+          ["PLACA", placa || (v.outros ? "NÃO IDENTIFICADA" : undefined)],
+          ...(v.outros ? ([["DESCRIÇÃO (OUTROS)", v.outros_descricao]] as [string, string][]) : []),
+        ]}
+      />
+    );
   }
   return (
+    <>
     <OpsFields edit>
       <OpsField label="PLACA" missing={!val && !v.sem_placa_confirmada}>
         <input
@@ -552,9 +719,9 @@ function VeiculoPlaca({
         >
           <Check size={12} strokeWidth={2} /> GRAVAR PLACA
         </button>
-        {!placa && !v.sem_placa_confirmada && (
+        {!placa && !v.outros && (
           <button type="button" className="btn btn-sm" disabled={busy || val !== ""} onClick={() => onSave("", true)}>
-            PLACA NÃO IDENTIFICADA
+            PLACA NÃO IDENTIFICADA · ENVIAR COMO OUTROS
           </button>
         )}
         {!placa && v.sem_placa_confirmada && (
@@ -564,6 +731,36 @@ function VeiculoPlaca({
         )}
       </OpsActions>
     </OpsFields>
+    {!placa && v.outros && (
+      <OpsFields edit>
+        <OpsField label={"DESCRIÇÃO NO SIPOM (OUTROS · QUANTIDADE 1)" + (v.outros_descricao_manual ? "" : " — MONTADA DO RELATÓRIO")} span={4}>
+          <textarea
+            className="ops-input"
+            rows={2}
+            maxLength={500}
+            value={desc}
+            disabled={busy}
+            onChange={(e) => setDesc(e.target.value)}
+          />
+        </OpsField>
+        <OpsActions>
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            disabled={busy || desc.trim() === v.outros_descricao.trim() || desc.trim().length < 3}
+            onClick={() => onSave("", true, desc.trim())}
+          >
+            <Check size={12} strokeWidth={2} /> GRAVAR DESCRIÇÃO
+          </button>
+          {v.outros_descricao_manual && (
+            <button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={() => onSave("", true, "")}>
+              USAR A DO RELATÓRIO
+            </button>
+          )}
+        </OpsActions>
+      </OpsFields>
+    )}
+    </>
   );
 }
 
@@ -645,4 +842,62 @@ function opts(list: SipomRef[] | undefined, current?: SipomRef | null) {
     out.unshift({ value: String(current.id), label: current.nome });
   }
   return out;
+}
+
+/**
+ * Item de apreensão que o analista pode remover da ocorrência (lançado por
+ * engano, duplicado, não apreendido). Removido, some o editor e fica a
+ * marca, com quem, quando, o motivo e o RESTAURAR.
+ */
+function Removable({
+  removido,
+  adicionado,
+  editable,
+  busy,
+  onRemove,
+  onRestore,
+  children,
+}: {
+  removido: SipomRemocao | null;
+  adicionado: { em: string; por: string } | null;
+  editable: boolean;
+  busy: boolean;
+  onRemove: () => void;
+  onRestore: () => void;
+  children: React.ReactNode;
+}) {
+  if (removido) {
+    return (
+      <div className="sipom-material sipom-removed">
+        <div className="sipom-removed-line">
+          <span className="sipom-removed-tag">REMOVIDO · NÃO VAI AO SIPOM</span>
+          <span className="muted">
+            {removido.por.toUpperCase()} · {formatBR(removido.em)} · {removido.motivo}
+          </span>
+          {editable && (
+            <button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={onRestore}>
+              <RotateCcw size={12} /> RESTAURAR
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="sipom-removable">
+      {adicionado && (
+        <div className="sipom-added-tag">
+          INCLUÍDO POR {adicionado.por.toUpperCase()} EM {formatBR(adicionado.em)} — NÃO VEIO DO RELATÓRIO
+        </div>
+      )}
+      {children}
+      {editable && (
+        <div className="sipom-remove-bar">
+          <button type="button" className="ops-field-btn" disabled={busy} onClick={onRemove} title="Tirar este item da ocorrência">
+            <Trash2 size={11} /> REMOVER DA OCORRÊNCIA
+          </button>
+        </div>
+      )}
+    </div>
+  );
 }

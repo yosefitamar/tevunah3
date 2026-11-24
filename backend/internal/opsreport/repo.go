@@ -591,9 +591,9 @@ func (r *Repo) List(ctx context.Context, opts ListOpts) ([]StoredOccurrence, int
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT `+occSelect+`,
 		       (SELECT COUNT(*) FROM app.ops_occurrence_people p WHERE p.occurrence_id = o.id),
-		       (SELECT COUNT(*) FROM app.ops_occurrence_weapons w WHERE w.occurrence_id = o.id),
-		       (SELECT COUNT(*) FROM app.ops_occurrence_drugs d WHERE d.occurrence_id = o.id),
-		       (SELECT COUNT(*) FROM app.ops_occurrence_vehicles v WHERE v.occurrence_id = o.id),
+		       (SELECT COUNT(*) FROM app.ops_occurrence_weapons w WHERE w.occurrence_id = o.id AND w.removed_at IS NULL),
+		       (SELECT COUNT(*) FROM app.ops_occurrence_drugs d WHERE d.occurrence_id = o.id AND d.removed_at IS NULL),
+		       (SELECT COUNT(*) FROM app.ops_occurrence_vehicles v WHERE v.occurrence_id = o.id AND v.removed_at IS NULL),
 		       COALESCE((SELECT jsonb_agg(p.name ORDER BY p.position)
 		                   FROM app.ops_occurrence_people p
 		                  WHERE p.occurrence_id = o.id AND p.role = 'ACUSADO'), '[]'::jsonb)::text
@@ -805,12 +805,16 @@ func (r *Repo) FindByID(ctx context.Context, id string) (*StoredOccurrence, erro
 // materials carrega armas, drogas e veículos da ocorrência, com a tradução
 // para o SIPOM.
 func (r *Repo) materials(ctx context.Context, id string) (weapons []Weapon, drugs []Drug, vehicles []Vehicle, err error) {
-	if err := r.each(ctx, `SELECT id, kind, model, brand, caliber, serial,
-		       sipom_tipo_id, sipom_marca_id, sipom_calibre_id, sipom_manual
-		  FROM app.ops_occurrence_weapons WHERE occurrence_id = $1 ORDER BY position`, id, func(rows *sql.Rows) error {
+	if err := r.each(ctx, `SELECT x.id, x.kind, x.model, x.brand, x.caliber, x.serial,
+		       x.sipom_tipo_id, x.sipom_marca_id, x.sipom_calibre_id, x.sipom_manual,
+		       x.removed_at, COALESCE(NULLIF(u.display_name, ''), u.email, ''), x.removed_reason,
+		       x.added_at, COALESCE(NULLIF(ad.display_name, ''), ad.email, '')
+		  FROM app.ops_occurrence_weapons x LEFT JOIN app.users u ON u.id = x.removed_by LEFT JOIN app.users ad ON ad.id = x.added_by
+		 WHERE x.occurrence_id = $1 ORDER BY x.position`, id, func(rows *sql.Rows) error {
 		var w Weapon
 		if err := rows.Scan(&w.ID, &w.Kind, &w.Model, &w.Brand, &w.Caliber, &w.Serial,
-			&w.SipomTipoID, &w.SipomMarcaID, &w.SipomCalibreID, &w.SipomManual); err != nil {
+			&w.SipomTipoID, &w.SipomMarcaID, &w.SipomCalibreID, &w.SipomManual,
+			&w.RemovedAt, &w.RemovedByName, &w.RemovedReason, &w.AddedAt, &w.AddedByName); err != nil {
 			return err
 		}
 		weapons = append(weapons, w)
@@ -818,13 +822,17 @@ func (r *Repo) materials(ctx context.Context, id string) (weapons []Weapon, drug
 	}); err != nil {
 		return nil, nil, nil, err
 	}
-	if err := r.each(ctx, `SELECT id, description, grams::float8, packages,
-		       sipom_droga_id, sipom_quantidade::float8, sipom_manual
-		  FROM app.ops_occurrence_drugs WHERE occurrence_id = $1 ORDER BY position`, id, func(rows *sql.Rows) error {
+	if err := r.each(ctx, `SELECT x.id, x.description, x.grams::float8, x.packages,
+		       x.sipom_droga_id, x.sipom_quantidade::float8, x.sipom_manual,
+		       x.removed_at, COALESCE(NULLIF(u.display_name, ''), u.email, ''), x.removed_reason,
+		       x.added_at, COALESCE(NULLIF(ad.display_name, ''), ad.email, '')
+		  FROM app.ops_occurrence_drugs x LEFT JOIN app.users u ON u.id = x.removed_by LEFT JOIN app.users ad ON ad.id = x.added_by
+		 WHERE x.occurrence_id = $1 ORDER BY x.position`, id, func(rows *sql.Rows) error {
 		var d Drug
 		var g sql.NullFloat64
 		var p sql.NullInt64
-		if err := rows.Scan(&d.ID, &d.Description, &g, &p, &d.SipomDrogaID, &d.SipomQuantidade, &d.SipomManual); err != nil {
+		if err := rows.Scan(&d.ID, &d.Description, &g, &p, &d.SipomDrogaID, &d.SipomQuantidade, &d.SipomManual,
+			&d.RemovedAt, &d.RemovedByName, &d.RemovedReason, &d.AddedAt, &d.AddedByName); err != nil {
 			return err
 		}
 		if g.Valid {
@@ -839,14 +847,19 @@ func (r *Repo) materials(ctx context.Context, id string) (weapons []Weapon, drug
 	}); err != nil {
 		return nil, nil, nil, err
 	}
-	if err := r.each(ctx, `SELECT id, kind, brand, model, plate, color,
-		       sipom_tipo_codigo, sipom_cor_codigo, sipom_marca_modelo_codigo, sipom_situacao, sipom_manual,
-		       sipom_ano_fabricacao, sipom_ano_modelo, sipom_cadastro_exigido, sipom_sem_placa_confirmada
-		  FROM app.ops_occurrence_vehicles WHERE occurrence_id = $1 ORDER BY position`, id, func(rows *sql.Rows) error {
+	if err := r.each(ctx, `SELECT x.id, x.kind, x.brand, x.model, x.plate, x.color,
+		       x.sipom_tipo_codigo, x.sipom_cor_codigo, x.sipom_marca_modelo_codigo, x.sipom_situacao, x.sipom_manual,
+		       x.sipom_ano_fabricacao, x.sipom_ano_modelo, x.sipom_cadastro_exigido, x.sipom_sem_placa_confirmada,
+		       x.sipom_outros_descricao,
+		       x.removed_at, COALESCE(NULLIF(u.display_name, ''), u.email, ''), x.removed_reason,
+		       x.added_at, COALESCE(NULLIF(ad.display_name, ''), ad.email, '')
+		  FROM app.ops_occurrence_vehicles x LEFT JOIN app.users u ON u.id = x.removed_by LEFT JOIN app.users ad ON ad.id = x.added_by
+		 WHERE x.occurrence_id = $1 ORDER BY x.position`, id, func(rows *sql.Rows) error {
 		var v Vehicle
 		if err := rows.Scan(&v.ID, &v.Kind, &v.Brand, &v.Model, &v.Plate, &v.Color,
 			&v.SipomTipoCodigo, &v.SipomCorCodigo, &v.SipomMarcaModeloCodigo, &v.SipomSituacao, &v.SipomManual,
-			&v.SipomAnoFabricacao, &v.SipomAnoModelo, &v.SipomCadastroExigido, &v.SipomSemPlacaConfirmada); err != nil {
+			&v.SipomAnoFabricacao, &v.SipomAnoModelo, &v.SipomCadastroExigido, &v.SipomSemPlacaConfirmada,
+			&v.SipomOutrosDescricao, &v.RemovedAt, &v.RemovedByName, &v.RemovedReason, &v.AddedAt, &v.AddedByName); err != nil {
 			return err
 		}
 		vehicles = append(vehicles, v)
@@ -1265,12 +1278,81 @@ func (r *Repo) SetVehicleYears(ctx context.Context, id string, pos int, fabricac
 // SetVehiclePlate grava a placa do veículo — a que o relatório omitiu ou
 // escreveu errado — ou, com placa vazia, se o analista confirmou que ela
 // não pôde ser identificada. Com placa, a confirmação cai.
-func (r *Repo) SetVehiclePlate(ctx context.Context, id string, pos int, placa string, semPlaca bool) error {
+//
+// Sem placa, descricao é a do material "Outros" (vazio = montada do
+// relatório); com placa ela é limpa.
+func (r *Repo) SetVehiclePlate(ctx context.Context, id string, pos int, placa string, semPlaca bool, descricao string) error {
 	return r.execOne(ctx, `
-		UPDATE app.ops_occurrence_vehicles v SET plate = $3, sipom_sem_placa_confirmada = $4 AND $3 = ''
+		UPDATE app.ops_occurrence_vehicles v
+		   SET plate = $3, sipom_sem_placa_confirmada = $4 AND $3 = '',
+		       sipom_outros_descricao = CASE WHEN $3 = '' THEN $5 ELSE '' END
 		  FROM app.ops_occurrences o
 		 WHERE v.occurrence_id = $1 AND v.position = $2 AND o.id = v.occurrence_id AND o.deleted_at IS NULL`,
-		id, pos, placa, semPlaca)
+		id, pos, placa, semPlaca, descricao)
+}
+
+// Tipos de item de apreensão (como na rota .../materiais/{kind}/{pos}).
+var seizureTables = map[string]string{
+	"armas": "app.ops_occurrence_weapons", "drogas": "app.ops_occurrence_drugs", "veiculos": "app.ops_occurrence_vehicles",
+}
+
+// SetSeizureRemoved remove (com o motivo) ou restaura um item de apreensão.
+// A linha fica: só as colunas da remoção mudam.
+func (r *Repo) SetSeizureRemoved(ctx context.Context, id, kind string, pos int, remove bool, actor, reason string) error {
+	table, ok := seizureTables[kind]
+	if !ok {
+		return ErrNotFound
+	}
+	return r.execOne(ctx, `
+		UPDATE `+table+` x
+		   SET removed_at = CASE WHEN $3 THEN now() END,
+		       removed_by = CASE WHEN $3 THEN $4::uuid END,
+		       removed_reason = CASE WHEN $3 THEN $5 ELSE '' END
+		  FROM app.ops_occurrences o
+		 WHERE x.occurrence_id = $1 AND x.position = $2 AND o.id = x.occurrence_id AND o.deleted_at IS NULL`,
+		id, pos, remove, actor, reason)
+}
+
+// SeizureInput é o item de apreensão incluído pelo analista, nos campos do
+// relatório (a tradução para o SIPOM vem do recálculo).
+type SeizureInput struct {
+	Kind, Brand, Model, Caliber, Serial string // arma; veículo usa Kind, Brand, Model
+	Description                         string // droga
+	Grams                               *float64
+	Packages                            *int
+	Plate, Color                        string // veículo
+}
+
+// AddSeizure inclui um item no fim da lista do tipo e devolve a posição.
+func (r *Repo) AddSeizure(ctx context.Context, id, kind string, in SeizureInput, actor string) (int, error) {
+	table, ok := seizureTables[kind]
+	if !ok {
+		return 0, ErrNotFound
+	}
+	var cols, vals string
+	args := []any{id, actor}
+	switch kind {
+	case "armas":
+		cols, vals = "kind, model, brand, caliber, serial", "$3::text, $4::text, $5::text, $6::text, $7::text"
+		args = append(args, in.Kind, in.Model, in.Brand, in.Caliber, in.Serial)
+	case "drogas":
+		cols, vals = "description, grams, packages", "$3::text, $4::numeric, $5::integer"
+		args = append(args, in.Description, nilFloat(in.Grams), nilInt(in.Packages))
+	case "veiculos":
+		cols, vals = "kind, brand, model, plate, color", "$3::text, $4::text, $5::text, $6::text, $7::text"
+		args = append(args, in.Kind, in.Brand, in.Model, in.Plate, in.Color)
+	}
+	var pos int
+	err := r.db.QueryRowContext(ctx, `
+		INSERT INTO `+table+` (occurrence_id, position, added_by, added_at, `+cols+`)
+		SELECT o.id, COALESCE((SELECT MAX(x.position) + 1 FROM `+table+` x WHERE x.occurrence_id = o.id), 0),
+		       $2::uuid, now(), `+vals+`
+		  FROM app.ops_occurrences o WHERE o.id = $1 AND o.deleted_at IS NULL
+		RETURNING position`, args...).Scan(&pos)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, ErrNotFound
+	}
+	return pos, err
 }
 
 // MarkVehiclesCadastroExigido marca os veículos que o SIPOM recusou por

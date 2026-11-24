@@ -251,6 +251,8 @@ export type SipomVeiculo = {
   /** Descrição do material OUTROS (a do analista ou a montada do relatório). */
   outros_descricao: string;
   outros_descricao_manual: boolean;
+  /** Tem placa, mas o analista decidiu mandar como OUTROS. */
+  como_outros: boolean;
   manual: boolean;
   ok: boolean;
 };

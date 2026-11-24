@@ -411,8 +411,9 @@ func (a *app) handleSipomSetVehicleYears(w http.ResponseWriter, r *http.Request)
 	}
 	maxYear := time.Now().Year() + 1
 	for _, y := range []*int{req.AnoFabricacao, req.AnoModelo} {
-		if y != nil && (*y < 1900 || *y > maxYear) {
-			httpx.Error(w, http.StatusBadRequest, "ano entre 1900 e "+strconv.Itoa(maxYear))
+		if y != nil && (*y < sipom.AnoMinimoVeiculo || *y > maxYear) {
+			httpx.Error(w, http.StatusBadRequest, "ano entre "+strconv.Itoa(sipom.AnoMinimoVeiculo)+" e "+strconv.Itoa(maxYear)+
+				" — se não souber o ano, deixe em branco ou envie o veículo como OUTROS")
 			return
 		}
 	}
@@ -499,6 +500,58 @@ func (a *app) handleSipomSetVehiclePlate(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	a.finishSipomChange(w, r, id, "opsreport.sipom.veiculo.placa", before, nil)
+}
+
+// PUT /api/ops-occurrences/{id}/sipom/veiculos/{pos}/outros
+//
+//	{"como_outros": true, "descricao": "..."}   vai como material "Outros"
+//	{"como_outros": false}                       volta a ir como veículo
+//
+// Para veículo com placa que não dá para cadastrar no SIPOM como veículo
+// (placa nova sem o ano de fabricação, por exemplo). Sem placa ele já vai
+// como "Outros".
+func (a *app) handleSipomSetVehicleOutros(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePerm(w, r, "opsreport.update") {
+		return
+	}
+	if a.sipom == nil {
+		httpx.Error(w, http.StatusServiceUnavailable, "catálogo do SIPOM não carregado")
+		return
+	}
+	id := r.PathValue("id")
+	pos, err := strconv.Atoi(r.PathValue("pos"))
+	if err != nil || pos < 0 {
+		httpx.Error(w, http.StatusBadRequest, "posição inválida")
+		return
+	}
+	var req struct {
+		ComoOutros bool   `json:"como_outros"`
+		Descricao  string `json:"descricao"`
+	}
+	if err := httpx.Decode(r, &req); err != nil {
+		httpx.Error(w, http.StatusBadRequest, "corpo inválido")
+		return
+	}
+	desc := strings.Join(strings.Fields(req.Descricao), " ")
+	if len([]rune(desc)) > 500 {
+		httpx.Error(w, http.StatusBadRequest, "descrição com no máximo 500 caracteres")
+		return
+	}
+	before, err := a.opsReports.FindByID(r.Context(), id)
+	if err != nil {
+		httpx.Error(w, http.StatusNotFound, "ocorrência não encontrada")
+		return
+	}
+	if pos >= len(before.Vehicles) {
+		httpx.Error(w, http.StatusNotFound, "veículo não encontrado")
+		return
+	}
+	if err := a.opsReports.SetVehicleComoOutros(r.Context(), id, pos, req.ComoOutros, desc); err != nil {
+		log.Printf("sipom veículo como outros: %v", err)
+		httpx.Error(w, http.StatusInternalServerError, "erro ao gravar")
+		return
+	}
+	a.finishSipomChange(w, r, id, "opsreport.sipom.veiculo.outros", before, nil)
 }
 
 // placaRE: placa antiga (ABC1234) ou Mercosul (ABC1D23).

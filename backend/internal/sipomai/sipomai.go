@@ -15,6 +15,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/belia/tevunah/backend/internal/opsreport"
 	"github.com/belia/tevunah/backend/internal/sipom"
@@ -42,6 +43,12 @@ const (
 	// KindAdicionar: o histórico cita um objeto apreendido que não está na
 	// lista — POST .../materiais/{kind}.
 	KindAdicionar = "adicionar"
+	// Da recusa do SIPOM: o ano do veículo (PUT .../veiculos/{pos}/ano), o
+	// veículo com placa como "Outros" (PUT .../veiculos/{pos}/outros) e a
+	// explicação do que a IA não resolve (só informa).
+	KindVeiculoAno        = "veiculo_ano"
+	KindVeiculoComoOutros = "veiculo_como_outros"
+	KindRecusaInfo        = "recusa_info"
 )
 
 // Codes são as pendências que a IA ajuda a resolver.
@@ -49,6 +56,7 @@ var Codes = []string{
 	sipom.PendNatureza, sipom.PendNatConfirm, sipom.PendBairroCatalogo,
 	sipom.PendPessoaSexo, sipom.PendPessoaSexoConfirm,
 	sipom.PendArma, sipom.PendDroga, sipom.PendVeiculo, sipom.PendVeiculoPlaca,
+	sipom.PendEnvioRecusado,
 }
 
 // Handles diz se a IA tem o que fazer com as pendências da ocorrência.
@@ -114,6 +122,7 @@ type GuidanceRef struct {
 var sectionTopic = map[string]string{
 	"natureza": "natureza", "bairro": "bairro", "pessoas": "sexo",
 	"armas": "apreensoes", "drogas": "apreensoes", "veiculos": "apreensoes", "apreensoes_ficha": "apreensoes",
+	"recusa": "recusa",
 }
 
 // Request é o caso montado para a IA e o que Parse precisa para conferir a
@@ -134,9 +143,14 @@ type Request struct {
 	vehicles map[int]vehicleAsk
 	guidance map[string]Guidance // "G1" → orientação
 	// AddPrompt é o pedido da segunda chamada (apreensões que faltam).
-	AddPrompt   string
-	head        string // ocorrência e histórico, comum aos dois pedidos
-	seizureList string
+	AddPrompt string
+	// RefusalPrompt é o pedido da terceira chamada: a recusa do SIPOM no
+	// último envio (vazio = a ficha não foi recusada).
+	RefusalPrompt string
+	refusalRefs   []opsreport.MaterialRef
+	guidanceOrder []string // referências G1… na ordem
+	head          string   // ocorrência e histórico, comum aos dois pedidos
+	seizureList   string
 	// CidadeID é a cidade da ocorrência no catálogo (0 = não resolvida).
 	CidadeID int
 }
@@ -188,6 +202,7 @@ func Build(cat *sipom.Catalog, terms *sipom.TermMap, so *opsreport.StoredOccurre
 	if so.Sipom.CidadeID != nil {
 		req.CidadeID = *so.Sipom.CidadeID
 	}
+	req.assignGuidance(guidance)
 	var b strings.Builder
 	o := &so.Occurrence
 
@@ -376,15 +391,69 @@ func Build(cat *sipom.Catalog, terms *sipom.TermMap, so *opsreport.StoredOccurre
 		}
 	}
 
+	if pend[sipom.PendEnvioRecusado] && strings.TrimSpace(so.Sipom.Send.Erro) != "" {
+		req.RefusalPrompt = req.buildRefusalPrompt()
+	}
 	if len(req.Sections) == 0 {
-		return nil, false
+		if req.RefusalPrompt == "" {
+			return nil, false
+		}
+		return req, true // só a recusa: sem pedido principal
 	}
 	writeRemoval(&b, req)
-	writeGuidance(&b, req, guidance)
+	topics := map[string]bool{"geral": true}
+	for _, s := range req.Sections {
+		topics[sectionTopic[s]] = true
+	}
+	req.writeGuidance(&b, topics, "Ao seguir uma, ponha a referência dela (ex.: \"G1\") em orientacao; senão, texto vazio.")
 	fmt.Fprintf(&b, "\nResponda só as seções pedidas: %s. As demais: null ou lista vazia.\n", strings.Join(req.Sections, ", "))
 	req.Prompt = b.String()
 	req.AddPrompt = req.buildAddPrompt()
 	return req, true
+}
+
+// buildRefusalPrompt monta o pedido da recusa: a mensagem do SIPOM, a que
+// item da ficha cada "materiais.N" se refere, e as ações possíveis.
+func (req *Request) buildRefusalPrompt() string {
+	o := &req.so.Occurrence
+	var b strings.Builder
+	b.WriteString(req.head)
+	fmt.Fprintf(&b, "\n# RECUSA DO SIPOM NO ÚLTIMO ENVIO\nMensagem: %s\n", strings.TrimSpace(req.so.Sipom.Send.Erro))
+	req.refusalRefs = opsreport.PayloadMaterialRefs(req.so)
+	if len(req.refusalRefs) > 0 {
+		b.WriteString("\nMateriais do envio (\"materiais.N\" na mensagem = a linha N):\n")
+		for n, m := range req.refusalRefs {
+			switch m.Kind {
+			case "armas":
+				w := o.Weapons[m.Index]
+				fmt.Fprintf(&b, "materiais.%d = arma %d | %s %s %s %s\n", n, m.Index, w.Kind, w.Brand, w.Model, w.Caliber)
+			case "drogas":
+				fmt.Fprintf(&b, "materiais.%d = droga %d | %s\n", n, m.Index, o.Drugs[m.Index].Description)
+			case "veiculos":
+				v := o.Vehicles[m.Index]
+				fmt.Fprintf(&b, "materiais.%d = veiculo %d | %s %s %s %s | placa %s | ano fabricação %s | ano modelo %s\n",
+					n, m.Index, v.Kind, v.Brand, v.Model, v.Color, orDash(v.Plate), yearOrDash(v.SipomAnoFabricacao), yearOrDash(v.SipomAnoModelo))
+			}
+		}
+	}
+	b.WriteString(`
+# O QUE FAZER — proponha em acoes a correção de cada item recusado, só com estas ações:
+- "ano": ano_fabricacao (e ano_modelo, se souber; senão 0) do veículo. SÓ se o ano estiver escrito no relatório ou vier de uma orientação dos analistas — nunca estime.
+- "outros": mandar o veículo como material OUTROS (sem cadastro de veículo no SIPOM), com descricao objetiva (tipo, marca, modelo, cor, placa). Use quando uma orientação mandar, ou quando o dado exigido (ano) não existe no relatório e uma orientação permitir.
+- "remover": tirar o item da ocorrência (lançado por engano, não apreendido).
+Em material use arma | droga | veiculo e em item o número do item na ficha (o que vem depois de "veiculo", "arma" ou "droga" na lista acima, não o N de materiais.N).
+Em explicacao, diga em uma ou duas frases o que a recusa significa e o que falta para resolver — sobretudo quando não há ação possível (ex.: OPM não permitida para o cliente é configuração do SIPOM; ano que o relatório não traz depende do analista).
+`)
+	req.writeGuidance(&b, map[string]bool{"recusa": true, "apreensoes": true, "geral": true},
+		"Ao seguir uma, ponha a referência dela (ex.: \"G1\") em orientacao da ação; senão, texto vazio.")
+	return b.String()
+}
+
+func yearOrDash(y *int) string {
+	if y == nil {
+		return "—"
+	}
+	return strconv.Itoa(*y)
 }
 
 // writeRemoval lista as apreensões ativas da ficha para a IA apontar as que
@@ -429,36 +498,21 @@ func (req *Request) buildAddPrompt() string {
 	b.WriteString(req.head)
 	b.WriteString("\n# APREENSÕES JÁ NA FICHA\n" + req.seizureList + "\n")
 	b.WriteString("\n# O QUE FALTA — em adicionar, inclua SÓ arma, droga ou veículo que o histórico ou os objetos apreendidos dizem claramente que FOI APREENDIDO e que NÃO está na lista acima (nunca repita um item da lista, mesmo com outra grafia; munição, celular, dinheiro e outros objetos não entram). Peso em gramas e porções só se o texto disser (senão null e 0). Campos que não se aplicam ao material: texto vazio. Na dúvida, lista vazia.\n")
-	var lines []string
-	for i := 1; i <= len(req.guidance); i++ {
-		ref := "G" + strconv.Itoa(i)
-		g := req.guidance[ref]
-		if g.Topic == "apreensoes" || g.Topic == "geral" {
-			lines = append(lines, fmt.Sprintf("%s %s", ref, g.Body))
-		}
-	}
-	if len(lines) > 0 {
-		b.WriteString("\n# ORIENTAÇÕES DOS ANALISTAS — siga-as quando o caso se encaixar; ao seguir uma, ponha a referência em orientacao (senão, texto vazio).\n")
-		b.WriteString(strings.Join(lines, "\n") + "\n")
-	}
+	req.writeGuidance(&b, map[string]bool{"apreensoes": true, "geral": true},
+		"Ao seguir uma, ponha a referência em orientacao (senão, texto vazio).")
 	return b.String()
 }
 
 // maxGuidance limita as orientações por pedido.
 const maxGuidance = 40
 
-// writeGuidance põe no pedido as orientações dos temas pedidos (mais as
-// gerais) que valem para a cidade da ocorrência. As da cidade vêm antes das
-// de todas as cidades.
-func writeGuidance(b *strings.Builder, req *Request, all []Guidance) {
-	topics := map[string]bool{"geral": true}
-	for _, s := range req.Sections {
-		topics[sectionTopic[s]] = true
-	}
+// assignGuidance dá as referências G1… às orientações que valem para a
+// cidade da ocorrência — as da cidade antes das de todas as cidades. As
+// referências são as mesmas nos três pedidos.
+func (req *Request) assignGuidance(all []Guidance) {
 	var local, global []Guidance
 	for _, g := range all {
 		switch {
-		case !topics[g.Topic]:
 		case g.CidadeID == nil:
 			global = append(global, g)
 		case *g.CidadeID == req.CidadeID:
@@ -469,19 +523,32 @@ func writeGuidance(b *strings.Builder, req *Request, all []Guidance) {
 	if len(list) > maxGuidance {
 		list = list[:maxGuidance]
 	}
-	if len(list) == 0 {
-		return
-	}
-	b.WriteString("\n# ORIENTAÇÕES DOS ANALISTAS — siga-as quando o caso se encaixar (valem mais que as regras gerais), mas continue escolhendo só opções das listas. Ao seguir uma, ponha a referência dela (ex.: \"G1\") em orientacao; senão, texto vazio.\n")
 	for i, g := range list {
 		ref := "G" + strconv.Itoa(i+1)
 		req.guidance[ref] = g
+		req.guidanceOrder = append(req.guidanceOrder, ref)
+	}
+}
+
+// writeGuidance põe no pedido as orientações dos temas indicados.
+func (req *Request) writeGuidance(b *strings.Builder, topics map[string]bool, cite string) {
+	var lines []string
+	for _, ref := range req.guidanceOrder {
+		g := req.guidance[ref]
+		if !topics[g.Topic] {
+			continue
+		}
 		scope := g.Topic
 		if g.CidadeID != nil {
 			scope += " · " + req.cat.CidadeNome(*g.CidadeID)
 		}
-		fmt.Fprintf(b, "%s [%s] %s\n", ref, scope, g.Body)
+		lines = append(lines, fmt.Sprintf("%s [%s] %s", ref, scope, g.Body))
 	}
+	if len(lines) == 0 {
+		return
+	}
+	b.WriteString("\n# ORIENTAÇÕES DOS ANALISTAS — siga-as quando o caso se encaixar (valem mais que as regras gerais), mas continue escolhendo só opções das listas. " + cite + "\n")
+	b.WriteString(strings.Join(lines, "\n") + "\n")
 }
 
 func writeRefs(b *strings.Builder, title string, refs []sipom.Ref) {
@@ -618,6 +685,142 @@ var AddSchema = obj(map[string]any{
 		"confianca": confianca, "motivo": motivo, "orientacao": map[string]any{"type": "string"},
 	})),
 })
+
+// RefusalSchema é o formato da terceira chamada (recusa do SIPOM).
+var RefusalSchema = obj(map[string]any{
+	"explicacao": map[string]any{"type": "string"},
+	"acoes": arr(obj(map[string]any{
+		"acao":           map[string]any{"type": "string", "enum": []string{"ano", "outros", "remover"}},
+		"material":       map[string]any{"type": "string", "enum": []string{"arma", "droga", "veiculo"}},
+		"item":           map[string]any{"type": "integer"},
+		"ano_fabricacao": map[string]any{"type": "integer"},
+		"ano_modelo":     map[string]any{"type": "integer"},
+		"descricao":      map[string]any{"type": "string"},
+		"confianca":      confianca, "motivo": motivo, "orientacao": map[string]any{"type": "string"},
+	})),
+})
+
+type refusalAnswer struct {
+	Explicacao string `json:"explicacao"`
+	Acoes      []struct {
+		Acao          string `json:"acao"`
+		Material      string `json:"material"`
+		Item          int    `json:"item"`
+		AnoFabricacao int    `json:"ano_fabricacao"`
+		AnoModelo     int    `json:"ano_modelo"`
+		Descricao     string `json:"descricao"`
+		meta
+	} `json:"acoes"`
+}
+
+// ParseRefusal confere a resposta da recusa. O ano só passa se estiver no
+// relatório ou vier de uma orientação citada (a IA não pode estimar).
+func (req *Request) ParseRefusal(raw []byte) ([]Suggestion, error) {
+	var a refusalAnswer
+	if err := json.Unmarshal(raw, &a); err != nil {
+		return nil, err
+	}
+	o := &req.so.Occurrence
+	text := o.Narrative + " " + o.SeizedObjects
+	out := []Suggestion{}
+	if e := strings.TrimSpace(a.Explicacao); e != "" {
+		out = append(out, Suggestion{Kind: KindRecusaInfo, Code: sipom.PendEnvioRecusado, Target: "Recusa do SIPOM",
+			Value: e, Confianca: "media", Motivo: strings.TrimSpace(req.so.Sipom.Send.Erro)})
+	}
+	seen := map[string]bool{}
+	for _, x := range a.Acoes {
+		// Marca como vista só a ação aceita: uma inválida (ano estimado) não
+		// pode barrar a válida seguinte para o mesmo item.
+		key := x.Acao + x.Material + strconv.Itoa(x.Item)
+		if seen[key] {
+			continue
+		}
+		g := req.cite(x.meta)
+		conf := x.conf()
+		if conf == "alta" && g == nil {
+			conf = "media" // decisão do analista, salvo orientação
+		}
+		i := x.Item
+		if x.Acao == "remover" {
+			kinds := map[string]string{"arma": "armas", "droga": "drogas", "veiculo": "veiculos"}
+			k, ok := kinds[x.Material]
+			if !ok || !req.activeItem(k, i) {
+				continue
+			}
+			seen[key] = true
+			out = append(out, Suggestion{Kind: KindRemover, Code: sipom.PendEnvioRecusado, Index: &i,
+				Target: req.itemLabel(k, i), Value: "remover da ocorrência (não vai ao SIPOM)", Confianca: conf,
+				Motivo: x.Motivo, Guidance: g, Applicable: true,
+				Apply: map[string]any{"material": k, "motivo": "Sugerido pela IA (recusa do SIPOM): " + strings.TrimSpace(x.Motivo)}})
+			continue
+		}
+		if x.Material != "veiculo" || !req.activeItem("veiculos", i) {
+			continue
+		}
+		target := req.itemLabel("veiculos", i)
+		switch x.Acao {
+		case "ano":
+			fab, mod := x.AnoFabricacao, x.AnoModelo
+			maxYear := time.Now().Year() + 1
+			if fab < sipom.AnoMinimoVeiculo || fab > maxYear {
+				continue
+			}
+			// Ano que não está no texto só vale com orientação citada.
+			if g == nil && !strings.Contains(text, strconv.Itoa(fab)) {
+				continue
+			}
+			apply := map[string]any{"ano_fabricacao": fab}
+			value := fmt.Sprintf("ano de fabricação %d", fab)
+			if mod >= fab && mod <= fab+1 {
+				apply["ano_modelo"] = mod
+				value += fmt.Sprintf(" · modelo %d", mod)
+			}
+			seen[key] = true
+			out = append(out, Suggestion{Kind: KindVeiculoAno, Code: sipom.PendEnvioRecusado, Index: &i, Target: target,
+				Value: value, Confianca: conf, Motivo: x.Motivo, Guidance: g, Applicable: true, Apply: apply})
+		case "outros":
+			desc := strings.Join(strings.Fields(x.Descricao), " ")
+			if r := []rune(desc); len(r) > 300 {
+				desc = string(r[:300])
+			}
+			if desc == "" {
+				desc = opsreport.OutrosDescricao(o.Vehicles[i])
+			}
+			seen[key] = true
+			out = append(out, Suggestion{Kind: KindVeiculoComoOutros, Code: sipom.PendEnvioRecusado, Index: &i, Target: target,
+				Value: "enviar como OUTROS: " + desc, Confianca: conf, Motivo: x.Motivo, Guidance: g, Applicable: true,
+				Apply: map[string]any{"descricao": desc}})
+		}
+	}
+	return out, nil
+}
+
+// activeItem diz se o item existe na ficha e não foi removido.
+func (req *Request) activeItem(kind string, i int) bool {
+	o := &req.so.Occurrence
+	switch kind {
+	case "armas":
+		return i >= 0 && i < len(o.Weapons) && !o.Weapons[i].Removed()
+	case "drogas":
+		return i >= 0 && i < len(o.Drugs) && !o.Drugs[i].Removed()
+	case "veiculos":
+		return i >= 0 && i < len(o.Vehicles) && !o.Vehicles[i].Removed()
+	}
+	return false
+}
+
+func (req *Request) itemLabel(kind string, i int) string {
+	o := &req.so.Occurrence
+	switch kind {
+	case "armas":
+		w := o.Weapons[i]
+		return fmt.Sprintf("Arma %d: %s", i+1, strings.TrimSpace(w.Kind+" "+w.Brand+" "+w.Model+" "+w.Caliber))
+	case "drogas":
+		return fmt.Sprintf("Droga %d: %s", i+1, o.Drugs[i].Description)
+	}
+	v := o.Vehicles[i]
+	return fmt.Sprintf("Veículo %d: %s", i+1, strings.TrimSpace(v.Kind+" "+v.Brand+" "+v.Model+" "+v.Color+" "+v.Plate))
+}
 
 // ─── Resposta ───
 

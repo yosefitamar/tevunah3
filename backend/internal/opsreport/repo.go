@@ -850,7 +850,7 @@ func (r *Repo) materials(ctx context.Context, id string) (weapons []Weapon, drug
 	if err := r.each(ctx, `SELECT x.id, x.kind, x.brand, x.model, x.plate, x.color,
 		       x.sipom_tipo_codigo, x.sipom_cor_codigo, x.sipom_marca_modelo_codigo, x.sipom_situacao, x.sipom_manual,
 		       x.sipom_ano_fabricacao, x.sipom_ano_modelo, x.sipom_cadastro_exigido, x.sipom_sem_placa_confirmada,
-		       x.sipom_outros_descricao,
+		       x.sipom_outros_descricao, x.sipom_como_outros,
 		       x.removed_at, COALESCE(NULLIF(u.display_name, ''), u.email, ''), x.removed_reason,
 		       x.added_at, COALESCE(NULLIF(ad.display_name, ''), ad.email, '')
 		  FROM app.ops_occurrence_vehicles x LEFT JOIN app.users u ON u.id = x.removed_by LEFT JOIN app.users ad ON ad.id = x.added_by
@@ -859,7 +859,7 @@ func (r *Repo) materials(ctx context.Context, id string) (weapons []Weapon, drug
 		if err := rows.Scan(&v.ID, &v.Kind, &v.Brand, &v.Model, &v.Plate, &v.Color,
 			&v.SipomTipoCodigo, &v.SipomCorCodigo, &v.SipomMarcaModeloCodigo, &v.SipomSituacao, &v.SipomManual,
 			&v.SipomAnoFabricacao, &v.SipomAnoModelo, &v.SipomCadastroExigido, &v.SipomSemPlacaConfirmada,
-			&v.SipomOutrosDescricao, &v.RemovedAt, &v.RemovedByName, &v.RemovedReason, &v.AddedAt, &v.AddedByName); err != nil {
+			&v.SipomOutrosDescricao, &v.SipomComoOutros, &v.RemovedAt, &v.RemovedByName, &v.RemovedReason, &v.AddedAt, &v.AddedByName); err != nil {
 			return err
 		}
 		vehicles = append(vehicles, v)
@@ -1279,6 +1279,17 @@ func (r *Repo) ConfirmSipomSexos(ctx context.Context, ids []string) ([]string, i
 		}
 	}
 	return out, people, rows.Err()
+}
+
+// SetVehicleComoOutros manda (ou deixa de mandar) como "Outros" um veículo
+// com placa, com a descrição (vazio = montada do relatório).
+func (r *Repo) SetVehicleComoOutros(ctx context.Context, id string, pos int, on bool, descricao string) error {
+	return r.execOne(ctx, `
+		UPDATE app.ops_occurrence_vehicles v
+		   SET sipom_como_outros = $3, sipom_outros_descricao = CASE WHEN $3 THEN $4 ELSE sipom_outros_descricao END
+		  FROM app.ops_occurrences o
+		 WHERE v.occurrence_id = $1 AND v.position = $2 AND o.id = v.occurrence_id AND o.deleted_at IS NULL`,
+		id, pos, on, descricao)
 }
 
 // SetVehicleYears grava ano de fabricação e do modelo do veículo (nil limpa).

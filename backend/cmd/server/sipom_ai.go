@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"sync"
 
 	"github.com/belia/tevunah/backend/internal/ai"
 	"github.com/belia/tevunah/backend/internal/audit"
@@ -58,48 +59,77 @@ func (a *app) handleSipomAISuggest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Duas chamadas em paralelo: a principal e a das apreensões que faltam
-	// (o schema das duas juntas passa do limite do structured outputs). A
-	// segunda é complemento: se falhar, a principal vale sozinha.
-	type addResult struct {
+	// Até três chamadas em paralelo (juntas, o schema passa do limite do
+	// structured outputs): a principal (pendências), a das apreensões que
+	// faltam e a da recusa do SIPOM. A das apreensões é complemento — se
+	// falhar, as outras valem sozinhas.
+	type call struct {
+		name   string
+		prompt string
+		schema map[string]any
+		max    int
+		parse  func([]byte) ([]sipomai.Suggestion, error)
+		// filled by the goroutine
 		list []sipomai.Suggestion
 		res  *ai.StructuredResult
+		err  error
 	}
-	addCh := make(chan addResult, 1)
-	go func() {
-		res, err := a.ai.Structured(r.Context(), me.ID, ai.StructuredRequest{
-			Feature: sipomai.Feature, System: sipomai.System, Prompt: req.AddPrompt,
-			Schema: sipomai.AddSchema, MaxTokens: 3000, Effort: "low",
-		})
-		if err != nil {
-			log.Printf("sipom ia (apreensões que faltam): %v", err)
-			addCh <- addResult{res: res}
-			return
+	calls := []*call{
+		{name: "principal", prompt: req.Prompt, schema: sipomai.Schema, max: 6000, parse: req.Parse},
+		{name: "apreensões que faltam", prompt: req.AddPrompt, schema: sipomai.AddSchema, max: 3000, parse: req.ParseAdd},
+		{name: "recusa", prompt: req.RefusalPrompt, schema: sipomai.RefusalSchema, max: 3000, parse: req.ParseRefusal},
+	}
+	var wg sync.WaitGroup
+	for _, c := range calls {
+		if c.prompt == "" {
+			continue
 		}
-		list, err := req.ParseAdd(res.JSON)
-		if err != nil {
-			log.Printf("sipom ia parse (apreensões que faltam): %v", err)
-		}
-		addCh <- addResult{list: list, res: res}
-	}()
-	res, err := a.ai.Structured(r.Context(), me.ID, ai.StructuredRequest{
-		Feature:   sipomai.Feature,
-		System:    sipomai.System,
-		Prompt:    req.Prompt,
-		Schema:    sipomai.Schema,
-		MaxTokens: 6000,
-		Effort:    "low",
-	})
+		wg.Add(1)
+		go func(c *call) {
+			defer wg.Done()
+			c.res, c.err = a.ai.Structured(r.Context(), me.ID, ai.StructuredRequest{
+				Feature: sipomai.Feature, System: sipomai.System, Prompt: c.prompt,
+				Schema: c.schema, MaxTokens: c.max, Effort: "low",
+			})
+			if c.err == nil {
+				if c.list, c.err = c.parse(c.res.JSON); c.err != nil {
+					log.Printf("sipom ia parse (%s): %v", c.name, c.err)
+					c.err = ai.ErrBadOutput
+				}
+			} else {
+				log.Printf("sipom ia (%s): %v", c.name, c.err)
+			}
+		}(c)
+	}
+	wg.Wait()
+	// Erro que vale para a resposta: o da principal ou, sem ela, o da recusa.
+	// Os de chave, limite e recusa da IA valem de qualquer uma.
+	err = nil
 	var suggestions []sipomai.Suggestion
-	if err == nil {
-		if suggestions, err = req.Parse(res.JSON); err != nil {
-			log.Printf("sipom ia parse: %v", err)
-			err = ai.ErrBadOutput
+	var res *ai.StructuredResult
+	ran := 0
+	for _, c := range calls {
+		if c.prompt == "" {
+			continue
+		}
+		ran++
+		if res == nil && c.res != nil {
+			res = c.res
+		}
+		if c.err == nil {
+			suggestions = append(suggestions, c.list...)
+		} else if c.name != "apreensões que faltam" && err == nil {
+			err = c.err
 		}
 	}
-	added := <-addCh
-	if err == nil {
-		suggestions = append(suggestions, added.list...)
+	// Uma das chamadas deu certo: mostra o que veio, salvo erro de chave/limite.
+	if err != nil && len(suggestions) > 0 && !errors.Is(err, ai.ErrNoKey) && !errors.Is(err, ai.ErrKeyRejected) &&
+		!errors.Is(err, ai.ErrKeyForbidden) {
+		err = nil
+	}
+	if ran == 0 {
+		httpx.OK(w, map[string]any{"suggestions": []sipomai.Suggestion{}, "sections": []string{}})
+		return
 	}
 
 	aid, sid, ip, ua := a.actorInfo(r)
@@ -110,9 +140,16 @@ func (a *app) handleSipomAISuggest(w http.ResponseWriter, r *http.Request) {
 		ResourceID:   &id,
 	}
 	if res != nil {
+		in, outTok := 0, 0
+		for _, c := range calls {
+			if c.res != nil {
+				in += c.res.Usage.InputTokens
+				outTok += c.res.Usage.OutputTokens
+			}
+		}
 		after := map[string]any{
-			"model": res.Model, "sections": req.Sections,
-			"input_tokens": res.Usage.InputTokens, "output_tokens": res.Usage.OutputTokens,
+			"model": res.Model, "sections": req.Sections, "recusa": req.RefusalPrompt != "",
+			"input_tokens": in, "output_tokens": outTok,
 		}
 		if err != nil {
 			after["error"] = err.Error()
@@ -151,7 +188,8 @@ func (a *app) handleSipomAISuggest(w http.ResponseWriter, r *http.Request) {
 		cidade = &sipomRefJSON{ID: req.CidadeID, Nome: a.sipom.CidadeNome(req.CidadeID)}
 	}
 	cost := 0.0
-	for _, x := range []*ai.StructuredResult{res, added.res} {
+	for _, c := range calls {
+		x := c.res
 		if x == nil {
 			continue
 		}

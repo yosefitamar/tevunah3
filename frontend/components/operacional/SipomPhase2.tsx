@@ -14,6 +14,7 @@ import {
   setOpsSipomMaterial,
   setOpsSipomProcedimento,
   setSipomMaterialRemoved,
+  setSipomVehicleComoOutros,
   setSipomVehiclePlate,
   setSipomVehicleYears,
   type SipomCatalogo,
@@ -248,6 +249,7 @@ export function SipomMateriais({ occ, ed }: PartProps) {
             onSave={(placa, semPlaca, desc) =>
               !!occ.id && ed.run(() => setSipomVehiclePlate(occ.id!, v.index, placa, semPlaca, desc))
             }
+            onComoOutros={(on, desc) => !!occ.id && ed.run(() => setSipomVehicleComoOutros(occ.id!, v.index, on, desc))}
           />
           {!v.outros && <VeiculoAnos
             v={v}
@@ -585,10 +587,18 @@ function VeiculoRow({ v, raw, cat, editable, busy, onSave }: RowProps<{ v: Sipom
       {comPlacaIncompleto && (
         <div className="banner banner-error">⚠ INFORME COR E MARCA/MODELO DO VEÍCULO</div>
       )}
-      {v.cadastro_exigido && (
-        <div className="banner banner-info">O SIPOM NÃO TEM ESTA PLACA: INFORME TIPO, COR, MARCA/MODELO E ANO DE FABRICAÇÃO E REENVIE</div>
+      {!semPlaca && v.como_outros && (
+        <div className="banner banner-info">
+          VAI AO SIPOM COMO MATERIAL OUTROS (ESCOLHA DO ANALISTA), COM A DESCRIÇÃO ABAIXO — SEM CADASTRO DE VEÍCULO
+        </div>
       )}
-      {semPlaca ? null : editable ? (
+      {v.cadastro_exigido && !v.como_outros && (
+        <div className="banner banner-info">
+          O SIPOM NÃO TEM ESTA PLACA: INFORME TIPO, COR, MARCA/MODELO E ANO DE FABRICAÇÃO E REENVIE — OU ENVIE O VEÍCULO COMO
+          OUTROS
+        </div>
+      )}
+      {semPlaca || v.como_outros ? null : editable ? (
         <>
           <OpsFields edit>
             <OpsField label="TIPO" missing={required && !tipo}>
@@ -674,12 +684,15 @@ function VeiculoPlaca({
   editable,
   busy,
   onSave,
+  onComoOutros,
 }: {
   v: SipomVeiculo;
   placa: string;
   editable: boolean;
   busy: boolean;
   onSave: (placa: string, semPlaca: boolean, descricao?: string) => void;
+  /** Veículo com placa enviado como OUTROS (ou de volta como veículo). */
+  onComoOutros: (on: boolean, descricao?: string) => void;
 }) {
   const norm = (x: string) => x.toUpperCase().replace(/[^A-Z0-9]/g, "");
   const [val, setVal] = useState(norm(placa));
@@ -729,9 +742,25 @@ function VeiculoPlaca({
             DESFAZER “NÃO IDENTIFICADA”
           </button>
         )}
+        {placa && !v.outros && (
+          <button
+            type="button"
+            className="btn btn-sm"
+            disabled={busy}
+            onClick={() => onComoOutros(true, "")}
+            title="Sem o cadastro de veículo no SIPOM (ex.: placa nova sem o ano de fabricação)"
+          >
+            ENVIAR COMO OUTROS
+          </button>
+        )}
+        {placa && v.como_outros && (
+          <button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={() => onComoOutros(false)}>
+            VOLTAR A ENVIAR COMO VEÍCULO
+          </button>
+        )}
       </OpsActions>
     </OpsFields>
-    {!placa && v.outros && (
+    {v.outros && (
       <OpsFields edit>
         <OpsField label={"DESCRIÇÃO NO SIPOM (OUTROS · QUANTIDADE 1)" + (v.outros_descricao_manual ? "" : " — MONTADA DO RELATÓRIO")} span={4}>
           <textarea
@@ -748,12 +777,17 @@ function VeiculoPlaca({
             type="button"
             className="btn btn-primary btn-sm"
             disabled={busy || desc.trim() === v.outros_descricao.trim() || desc.trim().length < 3}
-            onClick={() => onSave("", true, desc.trim())}
+            onClick={() => (placa ? onComoOutros(true, desc.trim()) : onSave("", true, desc.trim()))}
           >
             <Check size={12} strokeWidth={2} /> GRAVAR DESCRIÇÃO
           </button>
           {v.outros_descricao_manual && (
-            <button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={() => onSave("", true, "")}>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              disabled={busy}
+              onClick={() => (placa ? onComoOutros(true, "") : onSave("", true, ""))}
+            >
               USAR A DO RELATÓRIO
             </button>
           )}

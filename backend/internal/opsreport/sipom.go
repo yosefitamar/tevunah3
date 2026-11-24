@@ -419,6 +419,9 @@ func (r *Repo) RecomputeSipom(ctx context.Context, cat *sipom.Catalog, onlyID st
 // SIPOM recusou o veículo (placa nova, sem cadastro), valem tipo, cor,
 // marca/modelo e o ano de fabricação, que o relatório não traz.
 func VehiclePending(v Vehicle) string {
+	if v.SipomComoOutros {
+		return "" // vai como "Outros": só a descrição importa
+	}
 	if plate(v.Plate) == "" {
 		if VehicleAsOutros(v) {
 			return ""
@@ -442,6 +445,9 @@ func VehiclePending(v Vehicle) string {
 // VehicleAsOutros diz se o veículo vai ao SIPOM como material "Outros": sem
 // placa e ciclomotor/motoneta, ou com a falta da placa confirmada.
 func VehicleAsOutros(v Vehicle) bool {
+	if v.SipomComoOutros {
+		return true
+	}
 	if plate(v.Plate) != "" {
 		return false
 	}
@@ -467,7 +473,42 @@ func OutrosDescricao(v Vehicle) string {
 	if c := strings.TrimSpace(v.Color); c != "" {
 		d += ", cor " + c
 	}
+	if p := plate(v.Plate); p != "" {
+		return d + ", placa " + p
+	}
 	return d + ", sem placa identificada"
+}
+
+// MaterialRef é um item da aba Materiais do envio: o tipo (armas | drogas |
+// veiculos) e a posição dele na ficha.
+type MaterialRef struct {
+	Kind  string
+	Index int
+}
+
+// PayloadMaterialRefs diz, na ordem dos materiais do corpo enviado ao SIPOM,
+// a que item da ficha cada um corresponde — para ligar o "materiais.N" de uma
+// recusa ao item. Segue os mesmos filtros de BuildSipomPayload, com uma
+// diferença: o veículo que o SIPOM recusou (cadastro exigido) conta, porque
+// estava no envio recusado — depois dele é que ficou pendente.
+func PayloadMaterialRefs(so *StoredOccurrence) []MaterialRef {
+	var out []MaterialRef
+	for i, w := range so.Weapons {
+		if !w.Removed() && w.SipomTipoID != nil {
+			out = append(out, MaterialRef{"armas", i})
+		}
+	}
+	for i, d := range so.Drugs {
+		if !d.Removed() && d.SipomDrogaID != nil && d.SipomQuantidade != nil {
+			out = append(out, MaterialRef{"drogas", i})
+		}
+	}
+	for i, v := range so.Vehicles {
+		if !v.Removed() && (VehiclePending(v) == "" || v.SipomCadastroExigido) {
+			out = append(out, MaterialRef{"veiculos", i})
+		}
+	}
+	return out
 }
 
 // VehicleComplete diz se o veículo tem tipo, cor e marca/modelo do SIPOM.

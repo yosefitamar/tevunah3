@@ -12,10 +12,16 @@ import {
   setOpsSipomNatureza,
   setSipomMaterialRemoved,
   setSipomSexo,
+  setSipomVehicleComoOutros,
   setSipomVehiclePlate,
+  setSipomVehicleYears,
 } from "./sipom-api";
 
-export type SipomAIKind = "natureza" | "bairro" | "sexo" | "arma" | "droga" | "veiculo" | "veiculo_placa" | "veiculo_outros" | "remover" | "adicionar";
+export type SipomAIKind = "natureza" | "bairro" | "sexo" | "arma" | "droga" | "veiculo" | "veiculo_placa" | "veiculo_outros" | "remover"
+  | "adicionar"
+  | "veiculo_ano"
+  | "veiculo_como_outros"
+  | "recusa_info";
 
 export type SipomAISuggestion = {
   kind: SipomAIKind;
@@ -57,6 +63,7 @@ export const SIPOM_AI_CODES = new Set([
   "droga",
   "veiculo",
   "veiculo_placa",
+  "envio_recusado",
 ]);
 
 export function sipomAIHandles(codes: string[]) {
@@ -111,6 +118,12 @@ export function applySipomAISuggestion(occId: string, s: SipomAISuggestion): Pro
       });
     case "veiculo_placa":
       return setSipomVehiclePlate(occId, s.index!, String(a.placa));
+    case "veiculo_ano":
+      return setSipomVehicleYears(occId, s.index!, num("ano_fabricacao"), opt("ano_modelo") ?? null);
+    case "veiculo_como_outros":
+      return setSipomVehicleComoOutros(occId, s.index!, true, String(a.descricao ?? ""));
+    case "recusa_info":
+      return Promise.reject(new Error("a explicação da recusa não é uma correção"));
     case "adicionar": {
       const { material, ...rest } = a;
       return addSipomMaterial(occId, { kind: material, ...rest } as unknown as SipomNewMaterial);

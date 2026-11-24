@@ -3,7 +3,7 @@
 
 import { api } from "./api";
 
-export type GuidanceTopic = "natureza" | "bairro" | "sexo" | "apreensoes" | "geral";
+export type GuidanceTopic = "natureza" | "bairro" | "sexo" | "apreensoes" | "recusa" | "geral";
 export type GuidanceStatus = "pendente" | "aprovada" | "recusada" | "desativada";
 
 export type Guidance = {
@@ -30,6 +30,7 @@ export const GUIDANCE_TOPIC_LABEL: Record<GuidanceTopic, string> = {
   bairro: "BAIRRO",
   sexo: "SEXO DOS ENVOLVIDOS",
   apreensoes: "APREENSÕES",
+  recusa: "RECUSA DO SIPOM",
   geral: "GERAL",
 };
 
@@ -52,6 +53,9 @@ export const TOPIC_OF_KIND: Record<string, GuidanceTopic> = {
   veiculo_outros: "apreensoes",
   remover: "apreensoes",
   adicionar: "apreensoes",
+  veiculo_ano: "recusa",
+  veiculo_como_outros: "recusa",
+  recusa_info: "recusa",
 };
 
 export type GuidanceInput = {

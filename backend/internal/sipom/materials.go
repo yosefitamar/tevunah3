@@ -16,6 +16,10 @@ const (
 	VeiculoRecuperado = 2
 )
 
+// AnoMinimoVeiculo: ano de fabricação/modelo abaixo disto é valor provisório
+// (o SIPOM recusou 1900 como "Ano inválido"), não ano de verdade.
+const AnoMinimoVeiculo = 1950
+
 // VeiculoTipoMotoneta (código DENATRAN): o tipo do ciclomotor sem placa.
 // Regra do batalhão para o SIPOM.
 const VeiculoTipoMotoneta = 3

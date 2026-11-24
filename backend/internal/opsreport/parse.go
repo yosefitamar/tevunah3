@@ -268,6 +268,9 @@ type Vehicle struct {
 	// como material "Outros" (vazio = montada do relatório; ver
 	// OutrosDescricao).
 	SipomOutrosDescricao string
+	// SipomComoOutros: o analista decidiu mandar como "Outros" um veículo
+	// que tem placa (placa nova sem o ano de fabricação, por exemplo).
+	SipomComoOutros bool
 	Removal
 }
 

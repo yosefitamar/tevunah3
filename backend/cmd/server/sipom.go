@@ -530,9 +530,6 @@ func (a *app) handleSipomMapUpsert(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// sipomRecomputeOne refaz a tradução de uma ocorrência depois de mudança
-// que a afeta (vínculo de pessoa). Falha só registra: a ficha já foi gravada
-// e o próximo recálculo corrige.
 // sipomCorrected é o recálculo depois de uma correção do analista: a ficha
 // que o SIPOM tinha recusado volta para a fila de envio (a recusa vale até o
 // analista mexer nela).
@@ -551,6 +548,9 @@ func (a *app) clearRefusal(ctx context.Context, id string) {
 	}
 }
 
+// sipomRecomputeOne refaz a tradução de uma ocorrência depois de mudança
+// que a afeta (vínculo de pessoa). Falha só registra: a ficha já foi gravada
+// e o próximo recálculo corrige.
 func (a *app) sipomRecomputeOne(ctx context.Context, id string) {
 	if a.sipom == nil {
 		return
@@ -800,7 +800,7 @@ func sipomAuditSnapshot(so *opsreport.StoredOccurrence) map[string]any {
 	}
 	veiculos := make([]map[string]any, 0, len(so.Vehicles))
 	for _, v := range so.Vehicles {
-		veiculos = append(veiculos, map[string]any{"removido": v.Removed(), "motivo_remocao": v.RemovedReason, "placa": v.Plate, "sem_placa_confirmada": v.SipomSemPlacaConfirmada, "outros_descricao": v.SipomOutrosDescricao, "tipo": v.SipomTipoCodigo, "cor": v.SipomCorCodigo,
+		veiculos = append(veiculos, map[string]any{"removido": v.Removed(), "motivo_remocao": v.RemovedReason, "placa": v.Plate, "sem_placa_confirmada": v.SipomSemPlacaConfirmada, "outros_descricao": v.SipomOutrosDescricao, "como_outros": v.SipomComoOutros, "tipo": v.SipomTipoCodigo, "cor": v.SipomCorCodigo,
 			"marca_modelo": v.SipomMarcaModeloCodigo, "situacao": v.SipomSituacao, "manual": v.SipomManual})
 	}
 	return map[string]any{

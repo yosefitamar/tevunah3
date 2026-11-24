@@ -31,6 +31,7 @@ const EXAMPLES: Record<GuidanceTopic, string> = {
   natureza: "Ex.: Resistência sem outro crime na ficha vai como CONTRAVENÇÃO PENAL.",
   sexo: "Ex.: \"Nacional\" sem outro indício não define o sexo; use o nome.",
   apreensoes: "Ex.: \"Trouxinha\" de maconha conta como uma unidade de 1 g quando o peso não vier.",
+  recusa: "Ex.: Quando o SIPOM exigir o ano de fabricação e o relatório não trouxer, envie o veículo como OUTROS com a placa na descrição.",
   geral: "Ex.: Ficha da Operação X sempre se refere ao 2º BPRAIO.",
 };
 

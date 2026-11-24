@@ -343,6 +343,14 @@ export function setSipomMaterialRemoved(
   );
 }
 
+/** Veículo com placa enviado como material OUTROS (ou de volta como veículo). */
+export function setSipomVehicleComoOutros(occId: string, index: number, comoOutros: boolean, descricao = "") {
+  return api<SipomChange>(`/api/ops-occurrences/${encodeURIComponent(occId)}/sipom/veiculos/${index}/outros`, {
+    method: "PUT",
+    body: JSON.stringify({ como_outros: comoOutros, descricao }),
+  });
+}
+
 /** Item de apreensão incluído pelo analista, nos campos do relatório. */
 export type SipomNewMaterial =
   | { kind: "armas"; tipo: string; marca?: string; modelo?: string; calibre?: string; numero?: string }

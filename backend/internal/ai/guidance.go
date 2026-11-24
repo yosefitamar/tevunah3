@@ -24,6 +24,7 @@ var GuidanceTopics = map[string]string{
 	"bairro":     "Bairro",
 	"sexo":       "Sexo dos envolvidos",
 	"apreensoes": "Apreensões",
+	"recusa":     "Recusa do SIPOM",
 	"geral":      "Geral",
 }
 

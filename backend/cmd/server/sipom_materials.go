@@ -115,8 +115,10 @@ type sipomVeiculoJSON struct {
 	Outros                bool   `json:"outros"`
 	OutrosDescricao       string `json:"outros_descricao"`
 	OutrosDescricaoManual bool   `json:"outros_descricao_manual"`
-	Manual                bool   `json:"manual"`
-	OK                    bool   `json:"ok"`
+	// ComoOutros: tem placa, mas o analista decidiu mandar como "Outros".
+	ComoOutros bool `json:"como_outros"`
+	Manual     bool `json:"manual"`
+	OK         bool `json:"ok"`
 }
 
 type sipomMateriaisJSON struct {
@@ -206,6 +208,7 @@ func (a *app) sipomMateriaisJSON(o *opsreport.Occurrence, terms *sipom.TermMap) 
 			AnoFabricacao: v.SipomAnoFabricacao, AnoModelo: v.SipomAnoModelo, CadastroExigido: v.SipomCadastroExigido,
 			SemPlacaConfirmada:    v.SipomSemPlacaConfirmada,
 			Outros:                opsreport.VehicleAsOutros(v),
+			ComoOutros:            v.SipomComoOutros,
 			OutrosDescricao:       opsreport.OutrosDescricao(v),
 			OutrosDescricaoManual: strings.TrimSpace(v.SipomOutrosDescricao) != "",
 			Tipo:                  ref(v.SipomTipoCodigo, a.sipom.VeiculoTipoNome),

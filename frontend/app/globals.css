@@ -6148,31 +6148,12 @@ body.session-locked > *:not(.session-overlay-root) {
 .sai-hd .muted { color: var(--fg-3); }
 .sai-ttl { font-weight: 600; }
 .sai-btn, .sai-close { margin-left: auto; }
-.sai-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
-.sai-item { display: flex; gap: 8px; padding: 6px 2px; border-top: 1px solid var(--line); }
-.sai-item:first-child { border-top: 0; }
-.sai-item--off { opacity: .6; }
-.sai-check { padding-top: 1px; }
-.sai-body { flex: 1; min-width: 0; }
-.sai-line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12.5px; }
-.sai-target { color: var(--fg-2); }
-.sai-arrow { color: var(--fg-3); }
-.sai-value { color: var(--fg-0); font-weight: 600; }
-.sai-current { font-size: 11.5px; }
-.sai-agree { font-size: 10px; letter-spacing: .05em; color: var(--accent); }
-.sai-line .pill { margin-left: auto; }
 .sai-motivo { font-size: 11.5px; color: var(--fg-3); margin-top: 2px; }
 .sai-err { font-size: 11.5px; color: var(--crit); margin-top: 2px; }
-.sai-ft { display: flex; justify-content: flex-end; gap: 8px; }
 .modal.sai-batch { width: 980px; max-width: calc(100vw - 32px); }
 .sai-batch .modal-bd { display: flex; flex-direction: column; gap: 10px; }
-.sai-batch-list { max-height: calc(100vh - 300px); overflow: auto; border: 1px solid var(--line); }
-.sai-batch-occ { padding: 8px 10px; border-top: 1px solid var(--line); }
-.sai-batch-occ:first-child { border-top: 0; }
-.sai-batch-hd { display: flex; align-items: center; gap: 10px; font-size: 12px; margin-bottom: 2px; }
 .sai-batch-nat { color: var(--fg-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
 .sai-guid { font-size: 11.5px; color: var(--accent); margin-top: 2px; }
-.sai-line .ops-field-btn { margin-left: 4px; }
 .guid-form { display: flex; flex-direction: column; gap: 10px; }
 .guid-context { font-size: 12px; padding: 6px 8px; border: 1px solid var(--line); background: var(--bg-2); }
 .guid-city { height: 30px; display: flex; align-items: center; gap: 6px; font-size: 12px; }
@@ -6239,3 +6220,82 @@ body.session-locked > *:not(.session-overlay-root) {
   color: var(--fg-2);
   font-family: inherit;
 }
+
+/* ── Sugestões da IA em grade: campo · como está → sugestão · confiança ── */
+.sai-grid { display: flex; flex-direction: column; }
+.sai-row {
+  display: grid;
+  grid-template-columns: 22px minmax(120px, 0.9fr) minmax(140px, 1fr) 16px minmax(180px, 1.35fr) 78px 64px;
+  column-gap: 10px;
+  align-items: start;
+  padding: 8px 6px;
+  border-top: 1px solid var(--line);
+  font-size: 12.5px;
+}
+.sai-grid > .sai-row:first-child { border-top: 0; }
+.sai-row--hd {
+  padding-top: 6px; padding-bottom: 6px;
+  font-size: 10px; letter-spacing: .06em; color: var(--fg-3);
+  background: var(--bg-2);
+}
+.sai-row--on { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.sai-row--off { opacity: .55; }
+.sai-cell { min-width: 0; overflow-wrap: anywhere; line-height: 1.35; }
+.sai-cell--check { padding-top: 1px; cursor: pointer; }
+.sai-cell--check input, .sai-all input { accent-color: var(--accent); cursor: pointer; }
+.sai-field { display: flex; flex-direction: column; gap: 1px; }
+.sai-field-lbl { font-size: 10px; letter-spacing: .06em; color: var(--fg-3); text-transform: uppercase; }
+.sai-field-detail { color: var(--fg-1); }
+.sai-now { color: var(--fg-2); }
+.sai-none { color: var(--fg-3); }
+.sai-keep { font-size: 10px; letter-spacing: .05em; color: var(--accent); }
+.sai-to { color: var(--fg-3); text-align: center; }
+.sai-new { display: flex; flex-direction: column; gap: 2px; padding-left: 8px; border-left: 2px solid var(--accent); }
+.sai-row--off .sai-new { border-left-color: var(--line-2); }
+.sai-new-val { color: var(--fg-0); font-weight: 600; }
+.sai-na { font-size: 10px; letter-spacing: .05em; color: var(--fg-3); }
+.sai-conf .pill { white-space: nowrap; }
+.sai-act { justify-self: end; }
+.sai-why { grid-column: 2 / -1; display: flex; flex-direction: column; gap: 2px; margin-top: 4px; }
+.sai-ft { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.sai-ft .sai-all { margin-right: auto; }
+.sai-all { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; letter-spacing: .04em; color: var(--fg-1); cursor: pointer; }
+.sai-all--off { opacity: .5; cursor: default; }
+
+.sai-batch-bar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 6px 8px; border: 1px solid var(--line); background: var(--bg-2);
+}
+.sai-batch-count { margin-left: auto; font-size: 11px; color: var(--fg-2); letter-spacing: .03em; }
+.sai-batch-count b { color: var(--fg-0); }
+.sai-batch-list { max-height: calc(100vh - 340px); overflow: auto; border: 1px solid var(--line); }
+.sai-batch-colhd { position: sticky; top: 0; z-index: 2; border-bottom: 1px solid var(--line); }
+.sai-batch-colhd .sai-row { padding-left: 17px; padding-right: 17px; }
+.sai-batch-occ { padding: 10px 10px 4px; border-top: 1px solid var(--line-2); }
+.sai-batch-colhd + .sai-batch-occ, .sai-batch-list > .sai-batch-occ:first-child { border-top: 0; }
+.sai-batch-occ--quiet { padding-bottom: 10px; }
+.sai-batch-occ .sai-grid { margin-top: 6px; border: 1px solid var(--line); }
+.sai-batch-hd { display: flex; align-items: center; gap: 10px; font-size: 12px; }
+.sai-batch-hd .mono { font-weight: 600; color: var(--fg-0); }
+.sai-batch-n { font-size: 11px; color: var(--fg-3); font-variant-numeric: tabular-nums; }
+
+@media (max-width: 760px) {
+  .sai-row { grid-template-columns: 22px 1fr auto; row-gap: 4px; }
+  .sai-row--hd { display: none; }
+  .sai-now, .sai-new, .sai-why { grid-column: 2 / -1; }
+  .sai-to { display: none; }
+  .sai-now::before { content: "HOJE: "; font-size: 10px; color: var(--fg-3); }
+}
+
+/* Análise guardada: de quando é, quem pediu e se a ficha mudou depois. */
+.sai-saved { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 10.5px; letter-spacing: .05em; }
+.sai-info { color: var(--fg-3); }
+.sai-stale { color: var(--warn); }
+.sai-empty { margin-right: auto; font-size: 11px; }
+.sai-row--done { opacity: .7; }
+.sai-row--done .sai-new { border-left-color: var(--line-2); }
+.sai-st { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; letter-spacing: .05em; color: var(--fg-3); }
+.sai-st--done { color: var(--accent); }
+.sai-batch-saved { font-size: 10px; letter-spacing: .05em; color: var(--fg-3); white-space: nowrap; }
+.sai-batch-pick { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+.sai-batch-redo { color: var(--fg-2); }

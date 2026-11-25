@@ -2,12 +2,19 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/belia/tevunah/backend/internal/ai"
 	"github.com/belia/tevunah/backend/internal/audit"
@@ -76,6 +83,14 @@ func (a *app) handleSipomAISuggest(w http.ResponseWriter, r *http.Request) {
 	if dg != nil {
 		sections = append(sections, "delegacia")
 	}
+	// Nova verificação: a análise anterior (e o que o analista fez com ela)
+	// entra em cada pedido.
+	prev, err := a.ai.LatestAnalysis(r.Context(), sipomai.Feature, id)
+	if err != nil {
+		log.Printf("sipom ia análise anterior: %v", err)
+		prev = nil
+	}
+	prevText := a.sipomPrevious(prev).Prompt()
 
 	// Até cinco chamadas em paralelo (juntas, o schema passa do limite do
 	// structured outputs): a principal (pendências), a das apreensões que
@@ -115,7 +130,7 @@ func (a *app) handleSipomAISuggest(w http.ResponseWriter, r *http.Request) {
 		go func(c *call) {
 			defer wg.Done()
 			c.res, c.err = a.ai.Structured(r.Context(), me.ID, ai.StructuredRequest{
-				Feature: sipomai.Feature, System: sipomai.System, Prompt: c.prompt,
+				Feature: sipomai.Feature, System: sipomai.System, Prompt: c.prompt + prevText,
 				Schema: c.schema, MaxTokens: c.max, Effort: "low",
 			})
 			if c.err == nil {
@@ -211,10 +226,6 @@ func (a *app) handleSipomAISuggest(w http.ResponseWriter, r *http.Request) {
 			log.Printf("sipom ia uso das orientações: %v", err)
 		}
 	}
-	var cidade *sipomRefJSON
-	if so.Sipom.CidadeID != nil && *so.Sipom.CidadeID != 0 {
-		cidade = &sipomRefJSON{ID: *so.Sipom.CidadeID, Nome: a.sipom.CidadeNome(*so.Sipom.CidadeID)}
-	}
 	cost := 0.0
 	for _, c := range calls {
 		x := c.res
@@ -226,13 +237,231 @@ func (a *app) handleSipomAISuggest(w http.ResponseWriter, r *http.Request) {
 			cost += m.Cost(u.InputTokens, u.OutputTokens, u.CacheWriteTokens, u.CacheReadTokens)
 		}
 	}
+	in, outTok := 0, 0
+	for _, c := range calls {
+		if c.res != nil {
+			in += c.res.Usage.InputTokens
+			outTok += c.res.Usage.OutputTokens
+		}
+	}
+	// Guardada: a tela mostra esta análise sem consultar de novo.
+	saved := &ai.Analysis{Feature: sipomai.Feature, OccurrenceID: id, CreatedBy: me.ID, Model: res.Model,
+		InputTokens: in, OutputTokens: outTok, CostUSD: cost, Sections: sections, Fingerprint: sipomFingerprint(so)}
+	if prev != nil {
+		saved.PreviousID = &prev.ID
+	}
+	if aid, at, err := a.ai.SaveAnalysis(r.Context(), ai.NewAnalysis{
+		Feature: sipomai.Feature, OccurrenceID: id, UserID: me.ID, PreviousID: saved.PreviousID,
+		Model: res.Model, InputTokens: in, OutputTokens: outTok, CostUSD: cost,
+		Sections: sections, Suggestions: suggestions, Fingerprint: saved.Fingerprint,
+	}); err != nil {
+		log.Printf("sipom ia (gravar análise): %v", err)
+		saved = nil
+	} else {
+		saved.ID, saved.CreatedAt, saved.AuthorName = aid, at, me.DisplayName
+		if saved.AuthorName == "" {
+			saved.AuthorName = me.Email
+		}
+	}
 	httpx.OK(w, map[string]any{
 		"suggestions": suggestions,
 		"sections":    sections,
 		"model":       res.Model,
 		"cost_usd":    cost,
-		"cidade":      cidade,
+		"cidade":      a.sipomCidade(so),
+		"analysis":    a.analysisJSON(saved, so, prev != nil),
 	})
+}
+
+// GET /api/ops-occurrences/{id}/sipom/ia
+//
+// A última análise guardada da ocorrência, sem consultar a IA. analysis
+// null = nunca foi analisada.
+func (a *app) handleSipomAIGet(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePerm(w, r, "opsreport.update") {
+		return
+	}
+	id := r.PathValue("id")
+	so, err := a.opsReports.FindByID(r.Context(), id)
+	if err != nil {
+		httpx.Error(w, http.StatusNotFound, "ocorrência não encontrada")
+		return
+	}
+	an, err := a.ai.LatestAnalysis(r.Context(), sipomai.Feature, id)
+	if err != nil {
+		log.Printf("sipom ia (ler análise): %v", err)
+		httpx.Error(w, http.StatusInternalServerError, "erro ao ler a análise")
+		return
+	}
+	if an == nil {
+		httpx.OK(w, map[string]any{"analysis": nil, "suggestions": []sipomai.Suggestion{}, "sections": []string{}})
+		return
+	}
+	suggestions := []sipomai.Suggestion{}
+	_ = json.Unmarshal(an.Suggestions, &suggestions)
+	httpx.OK(w, map[string]any{
+		"suggestions": suggestions,
+		"sections":    nonNil(an.Sections),
+		"model":       an.Model,
+		"cost_usd":    an.CostUSD,
+		"cidade":      a.sipomCidade(so),
+		"analysis":    a.analysisJSON(an, so, an.PreviousID != nil),
+	})
+}
+
+// PUT /api/ops-occurrences/{id}/sipom/ia/{aid}/resultado
+//
+// O que o analista fez com a análise: aplicadas, não aceitas (estavam à
+// vista e ele não marcou) e as que falharam ao gravar, pela posição. Entra
+// na próxima verificação.
+func (a *app) handleSipomAIResult(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePerm(w, r, "opsreport.update") {
+		return
+	}
+	id, aid := r.PathValue("id"), r.PathValue("aid")
+	var req struct {
+		Aplicadas []int             `json:"aplicadas"`
+		Recusadas []int             `json:"recusadas"`
+		Falhas    map[string]string `json:"falhas"`
+	}
+	if err := httpx.Decode(r, &req); err != nil {
+		httpx.Error(w, http.StatusBadRequest, "corpo inválido")
+		return
+	}
+	an, err := a.ai.AnalysisByID(r.Context(), sipomai.Feature, id, aid)
+	if err != nil {
+		if errors.Is(err, ai.ErrAnalysisNotFound) {
+			httpx.Error(w, http.StatusConflict, "a análise não é mais a última desta ocorrência")
+			return
+		}
+		log.Printf("sipom ia resultado: %v", err)
+		httpx.Error(w, http.StatusInternalServerError, "erro ao ler a análise")
+		return
+	}
+	var list []json.RawMessage
+	_ = json.Unmarshal(an.Suggestions, &list)
+	valid := func(xs []int) []int {
+		out := []int{}
+		for _, x := range xs {
+			if x >= 0 && x < len(list) {
+				out = append(out, x)
+			}
+		}
+		return out
+	}
+	falhas := map[string]string{}
+	for k, v := range req.Falhas {
+		if n, err := strconv.Atoi(k); err == nil && n >= 0 && n < len(list) {
+			if rs := []rune(strings.TrimSpace(v)); len(rs) > 300 {
+				v = string(rs[:300])
+			}
+			falhas[strconv.Itoa(n)] = strings.TrimSpace(v)
+		}
+	}
+	an.MergeResult(valid(req.Aplicadas), valid(req.Recusadas), falhas)
+	fp := ""
+	if so, err := a.opsReports.FindByID(r.Context(), id); err == nil {
+		fp = sipomFingerprint(so)
+	}
+	if err := a.ai.SaveAnalysisResult(r.Context(), an, fp); err != nil {
+		log.Printf("sipom ia resultado (gravar): %v", err)
+		httpx.Error(w, http.StatusInternalServerError, "erro ao gravar o resultado")
+		return
+	}
+	so, err := a.opsReports.FindByID(r.Context(), id)
+	if err != nil {
+		httpx.Error(w, http.StatusNotFound, "ocorrência não encontrada")
+		return
+	}
+	httpx.OK(w, map[string]any{"analysis": a.analysisJSON(an, so, an.PreviousID != nil)})
+}
+
+// sipomCidade é a cidade da ocorrência no catálogo (orientação só da cidade).
+func (a *app) sipomCidade(so *opsreport.StoredOccurrence) *sipomRefJSON {
+	if so.Sipom.CidadeID == nil || *so.Sipom.CidadeID == 0 {
+		return nil
+	}
+	return &sipomRefJSON{ID: *so.Sipom.CidadeID, Nome: a.sipom.CidadeNome(*so.Sipom.CidadeID)}
+}
+
+// sipomFingerprint resume o estado da ficha que a análise considerou: as
+// pendências e a última correção. Mudou, a análise pode estar velha.
+func sipomFingerprint(so *opsreport.StoredOccurrence) string {
+	p := append([]string(nil), so.Sipom.Pending...)
+	sort.Strings(p)
+	upd := ""
+	if so.UpdatedAt != nil {
+		upd = so.UpdatedAt.UTC().Format(time.RFC3339Nano)
+	}
+	h := sha256.Sum256([]byte(strings.Join(p, ",") + "|" + upd))
+	return hex.EncodeToString(h[:8])
+}
+
+// sipomPrevious traduz a análise guardada para o pedido da nova verificação.
+func (a *app) sipomPrevious(an *ai.Analysis) *sipomai.Previous {
+	if an == nil {
+		return nil
+	}
+	p := &sipomai.Previous{
+		When:     an.CreatedAt.In(a.agencyLocation()).Format("02/01/2006 15:04"),
+		Applied:  map[int]bool{},
+		Rejected: map[int]bool{},
+		Failed:   map[int]string{},
+		Reviewed: an.ResultAt != nil,
+	}
+	_ = json.Unmarshal(an.Suggestions, &p.Suggestions)
+	for _, i := range an.Applied {
+		p.Applied[i] = true
+	}
+	for _, i := range an.Rejected {
+		p.Rejected[i] = true
+	}
+	for k, v := range an.Failed {
+		if n, err := strconv.Atoi(k); err == nil {
+			p.Failed[n] = v
+		}
+	}
+	return p
+}
+
+type sipomAnalysisJSON struct {
+	ID        string    `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	Author    string    `json:"author"`
+	Model     string    `json:"model"`
+	CostUSD   float64   `json:"cost_usd"`
+	// Stale: a ficha mudou depois da análise (por fora dela).
+	Stale bool `json:"stale"`
+	// Refined: esta análise recebeu a anterior.
+	Refined bool `json:"refined"`
+	// Status por posição: "aplicada" | "recusada" | "falhou".
+	Status map[string]string `json:"status"`
+	Errors map[string]string `json:"errors"`
+}
+
+func (a *app) analysisJSON(an *ai.Analysis, so *opsreport.StoredOccurrence, refined bool) *sipomAnalysisJSON {
+	if an == nil {
+		return nil
+	}
+	st := map[string]string{}
+	for _, i := range an.Rejected {
+		st[strconv.Itoa(i)] = "recusada"
+	}
+	for k := range an.Failed {
+		st[k] = "falhou"
+	}
+	for _, i := range an.Applied {
+		st[strconv.Itoa(i)] = "aplicada"
+	}
+	errs := an.Failed
+	if errs == nil {
+		errs = map[string]string{}
+	}
+	return &sipomAnalysisJSON{
+		ID: an.ID, CreatedAt: an.CreatedAt, Author: an.AuthorName, Model: an.Model, CostUSD: an.CostUSD,
+		Stale: an.Fingerprint != "" && an.Fingerprint != sipomFingerprint(so), Refined: refined,
+		Status: st, Errors: errs,
+	}
 }
 
 // sipomReread monta a releitura quando a ficha tem pendência que pode ser

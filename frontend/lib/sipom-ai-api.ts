@@ -62,6 +62,24 @@ export type SipomAISuggestion = {
   guidance?: { id: string; body: string; author: string; date: string; pending: boolean };
 };
 
+/** Situação de cada sugestão de uma análise guardada, pela posição. */
+export type SipomAIStatus = "aplicada" | "recusada" | "falhou";
+
+/** A análise guardada: a tela a mostra sem consultar a IA de novo. */
+export type SipomAIAnalysis = {
+  id: string;
+  created_at: string;
+  author: string;
+  model: string;
+  cost_usd: number;
+  /** A ficha mudou depois da análise (por fora dela). */
+  stale: boolean;
+  /** Feita a partir da análise anterior (nova verificação). */
+  refined: boolean;
+  status: Record<string, SipomAIStatus>;
+  errors: Record<string, string>;
+};
+
 export type SipomAIResult = {
   suggestions: SipomAISuggestion[];
   sections: string[];
@@ -69,6 +87,8 @@ export type SipomAIResult = {
   cost_usd?: number;
   /** Cidade da ocorrência no catálogo do SIPOM (orientação só da cidade). */
   cidade?: { id: number; nome: string } | null;
+  /** A análise guardada (null = a ficha nunca foi analisada). */
+  analysis?: SipomAIAnalysis | null;
 };
 
 /** Pendências com que a IA ajuda (as mesmas de internal/sipomai.Codes). */
@@ -105,11 +125,55 @@ export function sipomAIHandles(codes: string[]) {
   return codes.some((c) => SIPOM_AI_CODES.has(c));
 }
 
+const normalize = (r: SipomAIResult): SipomAIResult => ({
+  ...r,
+  // Servidor antigo devolvia null quando nenhuma chamada sugeria nada.
+  suggestions: r.suggestions ?? [],
+  sections: r.sections ?? [],
+});
+
+/** Nova verificação: consulta a IA (com a análise anterior, se houver) e guarda. */
 export function suggestSipomAI(occId: string) {
-  return api<SipomAIResult>(`/api/ops-occurrences/${encodeURIComponent(occId)}/sipom/ia`, { method: "POST" }).then(
-    // Servidor antigo devolvia null quando nenhuma chamada sugeria nada.
-    (r) => ({ ...r, suggestions: r.suggestions ?? [], sections: r.sections ?? [] }),
+  return api<SipomAIResult>(`/api/ops-occurrences/${encodeURIComponent(occId)}/sipom/ia`, { method: "POST" }).then(normalize);
+}
+
+/** A última análise guardada, sem consultar a IA (analysis null = nunca analisada). */
+export function getSipomAIAnalysis(occId: string) {
+  return api<SipomAIResult>(`/api/ops-occurrences/${encodeURIComponent(occId)}/sipom/ia`).then(normalize);
+}
+
+/** Registra o que o analista fez com a análise; entra na próxima verificação. */
+export function recordSipomAIResult(
+  occId: string,
+  analysisId: string,
+  result: { aplicadas: number[]; recusadas: number[]; falhas: Record<string, string> },
+) {
+  return api<{ analysis: SipomAIAnalysis }>(
+    `/api/ops-occurrences/${encodeURIComponent(occId)}/sipom/ia/${encodeURIComponent(analysisId)}/resultado`,
+    { method: "PUT", body: JSON.stringify(result) },
   );
+}
+
+/** Pode ser marcada: aplicável e ainda não aplicada. */
+export function selectable(s: SipomAISuggestion, status?: SipomAIStatus) {
+  return s.applicable && status !== "aplicada";
+}
+
+/**
+ * Resultado da revisão a registrar: as aplicadas, as que falharam e as que
+ * estavam à vista (marcáveis) e o analista não marcou.
+ */
+export function reviewResult(
+  items: SipomAISuggestion[],
+  chosen: number[],
+  failed: { s: SipomAISuggestion; error: string }[],
+  status: Record<string, SipomAIStatus> = {},
+) {
+  const falhas: Record<string, string> = {};
+  failed.forEach((f) => (falhas[String(items.indexOf(f.s))] = f.error));
+  const aplicadas = chosen.filter((i) => !(String(i) in falhas));
+  const recusadas = items.flatMap((s, i) => (selectable(s, status[String(i)]) && !chosen.includes(i) ? [i] : []));
+  return { aplicadas, recusadas, falhas };
 }
 
 export const CONFIANCA_LABEL: Record<SipomAISuggestion["confianca"], string> = {
@@ -118,9 +182,12 @@ export const CONFIANCA_LABEL: Record<SipomAISuggestion["confianca"], string> = {
   baixa: "BAIXA",
 };
 
-/** Marcada por padrão: aplicável e com confiança alta (ou concordando com a sugestão que já havia). */
-export function preselect(s: SipomAISuggestion) {
-  return s.applicable && (s.confianca === "alta" || !!s.agrees);
+/**
+ * Marcada por padrão: aplicável, ainda não aplicada nem recusada antes, e com
+ * confiança alta (ou concordando com a sugestão que já havia).
+ */
+export function preselect(s: SipomAISuggestion, status?: SipomAIStatus) {
+  return selectable(s, status) && status !== "recusada" && (s.confianca === "alta" || !!s.agrees);
 }
 
 type Change = { sipom: SipomOccurrence; officers?: OpsOfficer[]; occurrence?: OpsOccurrence } & SipomChangeExtra;

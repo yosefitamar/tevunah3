@@ -4,11 +4,23 @@ import { useEffect, useRef, useState } from "react";
 import { Sparkles, Square, X } from "lucide-react";
 import {
   applySipomAISuggestions,
-  preselect,
+  getSipomAIAnalysis,
+  recordSipomAIResult,
+  reviewResult,
+  selectable,
   suggestSipomAI,
+  type SipomAIAnalysis,
+  type SipomAIResult,
   type SipomAISuggestion,
 } from "@/lib/sipom-ai-api";
-import { SipomAISuggestionList } from "../operacional/SipomAIPanel";
+import { formatBR } from "@/lib/format";
+import {
+  SelectAllBox,
+  SipomAISuggestionList,
+  SuggestionHeader,
+  preselectIdx,
+  selectableIdx,
+} from "../operacional/SipomAIPanel";
 import { TOPIC_OF_KIND } from "@/lib/ai-guidance-api";
 import type { ApiError } from "@/lib/api";
 import GuidanceModal from "../ia/GuidanceModal";
@@ -41,6 +53,10 @@ type Row = {
   checked: Set<number>;
   errors: Map<number, string>;
   cidade?: { id: number; nome: string } | null;
+  /** A análise guardada desta ficha. */
+  analysis?: SipomAIAnalysis | null;
+  /** Veio da análise guardada (sem consultar a IA agora). */
+  saved?: boolean;
 };
 
 const empty = (): Row => ({ status: "fila", suggestions: [], checked: new Set(), errors: new Map() });
@@ -60,6 +76,8 @@ export default function SipomAIBatchModal({ items, onClose, onDone }: Props) {
   const [cost, setCost] = useState(0);
   const [applied, setApplied] = useState(0);
   const [teach, setTeach] = useState<{ occId: string; s: SipomAISuggestion } | null>(null);
+  // Refazer as fichas que já têm análise guardada (a IA usa a anterior).
+  const [redo, setRedo] = useState(false);
   const [taught, setTaught] = useState(0);
   const stopRef = useRef(false);
   const busy = phase === "asking" || phase === "applying";
@@ -87,14 +105,30 @@ export default function SipomAIBatchModal({ items, onClose, onDone }: Props) {
         const it = todo[next++];
         patch(it.id, { status: "consultando" });
         try {
-          const r = await suggestSipomAI(it.id);
-          setCost((c) => c + (r.cost_usd ?? 0));
-          const checked = new Set(r.suggestions.flatMap((s, i) => (preselect(s) ? [i] : [])));
+          // A análise guardada (e ainda válida para a ficha) vale sem nova
+          // consulta, a não ser que o analista peça para refazer.
+          let r: SipomAIResult | null = null;
+          let saved = false;
+          if (!redo) {
+            const g = await getSipomAIAnalysis(it.id).catch(() => null);
+            if (g?.analysis && !g.analysis.stale) {
+              r = g;
+              saved = true;
+            }
+          }
+          if (!r) {
+            r = await suggestSipomAI(it.id);
+            setCost((c) => c + (r!.cost_usd ?? 0));
+          }
+          const st = r.analysis?.status ?? {};
           patch(it.id, {
             status: r.suggestions.length ? "ok" : "vazia",
             suggestions: r.suggestions,
-            checked,
+            checked: preselectIdx(r.suggestions, st),
+            errors: new Map(Object.entries(r.analysis?.errors ?? {}).map(([k, v]) => [Number(k), v])),
             cidade: r.cidade ?? null,
+            analysis: r.analysis ?? null,
+            saved,
           });
         } catch (e) {
           const err = e as ApiError;
@@ -127,11 +161,23 @@ export default function SipomAIBatchModal({ items, onClose, onDone }: Props) {
       total += idx.length - failed.length;
       const errors = new Map<number, string>();
       failed.forEach((f) => errors.set(row.suggestions.indexOf(f.s), f.error));
+      // O que foi feito fica na análise: a próxima verificação usa.
+      let analysis = row.analysis ?? null;
+      if (analysis) {
+        try {
+          analysis = (
+            await recordSipomAIResult(it.id, analysis.id, reviewResult(row.suggestions, idx, failed, analysis.status))
+          ).analysis;
+        } catch {
+          // Auxiliar: as correções já foram gravadas.
+        }
+      }
       patch(it.id, {
         status: failed.length ? "erro" : "aplicada",
         info: failed.length ? `${failed.length} não aplicada(s)` : `${idx.length} aplicada(s)`,
         checked: new Set(),
         errors,
+        analysis,
       });
     }
     setApplied(total);
@@ -149,6 +195,26 @@ export default function SipomAIBatchModal({ items, onClose, onDone }: Props) {
   const asked = list.filter((x) => !["fila", "consultando"].includes(x.row.status)).length;
   const selected = list.reduce((n, x) => n + x.row.checked.size, 0);
   const withSuggestions = list.filter((x) => x.row.suggestions.length > 0);
+  const suggestionCount = withSuggestions.reduce((n, x) => n + x.row.suggestions.length, 0);
+  const selectableTotal = withSuggestions.reduce(
+    (n, x) => n + selectableIdx(x.row.suggestions, x.row.analysis?.status).length,
+    0,
+  );
+  const savedCount = list.filter((x) => x.row.saved).length;
+  const reviewing = phase === "review";
+  // Seleção em massa: todas as aplicáveis, só as de alta confiança, nenhuma.
+  const selectWhere = (pick: (s: SipomAISuggestion) => boolean) =>
+    setRows((cur) => {
+      const next = { ...cur };
+      for (const { it, row } of withSuggestions) {
+        const st = row.analysis?.status ?? {};
+        next[it.id] = {
+          ...row,
+          checked: new Set(row.suggestions.flatMap((s, i) => (selectable(s, st[String(i)]) && pick(s) ? [i] : []))),
+        };
+      }
+      return next;
+    });
 
   const close = () => {
     if (busy) return;
@@ -173,7 +239,8 @@ export default function SipomAIBatchModal({ items, onClose, onDone }: Props) {
             <div className="banner banner-info">
               A IA LÊ CADA FICHA E SUGERE NATUREZA, BAIRRO, SEXO DOS ENVOLVIDOS E A TRADUÇÃO DAS APREENSÕES — SÓ ENTRE AS
               OPÇÕES DO CATÁLOGO DO SIPOM. NADA É GRAVADO ANTES DE VOCÊ REVISAR. O CUSTO VAI PARA A SUA CONTA ANTHROPIC.
-              ESCOLHA ABAIXO AS OCORRÊNCIAS QUE A IA VAI ANALISAR.
+              FICHA JÁ ANALISADA (E SEM MUDANÇA DESDE ENTÃO) REAPROVEITA A ANÁLISE SALVA, SEM CUSTO. ESCOLHA ABAIXO AS
+              OCORRÊNCIAS QUE A IA VAI ANALISAR.
             </div>
           )}
           {phase === "intro" && (
@@ -189,15 +256,20 @@ export default function SipomAIBatchModal({ items, onClose, onDone }: Props) {
                 />
                 {chosen.size === items.length ? "TODAS SELECIONADAS" : `${chosen.size} DE ${items.length} SELECIONADA(S)`}
               </label>
+              <label className="check sai-batch-redo">
+                <input type="checkbox" checked={redo} onChange={(e) => setRedo(e.target.checked)} />
+                REFAZER AS QUE JÁ TÊM ANÁLISE SALVA (A IA USA A ANTERIOR PARA MELHORAR)
+              </label>
             </div>
           )}
           {phase !== "intro" && (
             <div className="banner banner-info" role="status">
               {phase === "asking" && `CONSULTANDO A IA… ${asked} DE ${queue.length}`}
               {phase === "review" &&
-                `${withSuggestions.length} FICHA(S) COM SUGESTÃO · ${selected} MARCADA(S) PARA APLICAR · ALTA CONFIANÇA JÁ VEM MARCADA`}
+                "REVISE: À ESQUERDA COMO ESTÁ, À DIREITA O QUE A IA SUGERE. SÓ O QUE ESTIVER MARCADO É GRAVADO · ALTA CONFIANÇA JÁ VEM MARCADA"}
               {phase === "applying" && "APLICANDO…"}
               {phase === "done" && `CONCLUÍDO · ${applied} SUGESTÃO(ÕES) APLICADA(S)`}
+              {savedCount > 0 && ` · ${savedCount} ANÁLISE(S) SALVA(S) REAPROVEITADA(S), SEM CUSTO`}
               {cost > 0 && ` · CUSTO DA CONSULTA: US$ ${cost.toFixed(4)}`}
             </div>
           )}
@@ -208,10 +280,53 @@ export default function SipomAIBatchModal({ items, onClose, onDone }: Props) {
             </div>
           )}
 
+          {phase !== "intro" && suggestionCount > 0 && (
+            <div className="sai-batch-bar">
+              <SelectAllBox
+                total={selectableTotal}
+                checked={selected}
+                disabled={!reviewing}
+                label={selected === selectableTotal && selected > 0 ? "TODAS SELECIONADAS" : "SELECIONAR TODAS"}
+                onChange={(on) => selectWhere(() => on)}
+              />
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                disabled={!reviewing}
+                onClick={() => selectWhere((s) => s.confianca === "alta" || !!s.agrees)}
+              >
+                SÓ ALTA CONFIANÇA
+              </button>
+              <button type="button" className="btn btn-ghost btn-sm" disabled={!reviewing || selected === 0} onClick={() => selectWhere(() => false)}>
+                LIMPAR
+              </button>
+              <span className="sai-batch-count">
+                <b>{selected}</b> DE {selectableTotal} MARCADA(S) · {suggestionCount} SUGESTÃO(ÕES) EM {withSuggestions.length} FICHA(S)
+              </span>
+            </div>
+          )}
+
           <div className="sai-batch-list">
+            {phase !== "intro" && suggestionCount > 0 && (
+              <div className="sai-batch-colhd">
+                <SuggestionHeader />
+              </div>
+            )}
             {list.map(({ it, row }) => (
-              <section key={it.id} className="sai-batch-occ">
+              <section key={it.id} className={"sai-batch-occ" + (row.suggestions.length ? "" : " sai-batch-occ--quiet")}>
                 <div className="sai-batch-hd">
+                  {phase !== "intro" && row.suggestions.length > 0 && (
+                    <SelectAllBox
+                      total={selectableIdx(row.suggestions, row.analysis?.status).length}
+                      checked={row.checked.size}
+                      disabled={!reviewing}
+                      onChange={(on) =>
+                        patch(it.id, {
+                          checked: on ? new Set(selectableIdx(row.suggestions, row.analysis?.status)) : new Set(),
+                        })
+                      }
+                    />
+                  )}
                   {phase === "intro" && (
                     <input
                       type="checkbox"
@@ -223,6 +338,16 @@ export default function SipomAIBatchModal({ items, onClose, onDone }: Props) {
                   <span className="mono">{it.ficha || "—"}</span>
                   <span className="muted">{it.date}</span>
                   <span className="sai-batch-nat">{it.natures.join(" · ")}</span>
+                  {row.suggestions.length > 0 && (
+                    <span className="sai-batch-n">
+                      {row.checked.size}/{selectableIdx(row.suggestions, row.analysis?.status).length}
+                    </span>
+                  )}
+                  {row.saved && row.analysis && (
+                    <span className="sai-batch-saved" title={`Análise de ${row.analysis.author}`}>
+                      SALVA · {formatBR(row.analysis.created_at)}
+                    </span>
+                  )}
                   <span className={"pill " + PILL[row.status]}>{LABEL[row.status]}</span>
                 </div>
                 {phase === "intro" && it.pendencias.length > 0 && (
@@ -231,7 +356,9 @@ export default function SipomAIBatchModal({ items, onClose, onDone }: Props) {
                 {row.info && <div className={row.status === "erro" ? "sai-err" : "muted"}>{row.info}</div>}
                 {row.suggestions.length > 0 && (
                   <SipomAISuggestionList
+                    header={false}
                     items={row.suggestions}
+                    status={row.analysis?.status}
                     checked={row.checked}
                     errors={row.errors}
                     disabled={phase !== "review"}

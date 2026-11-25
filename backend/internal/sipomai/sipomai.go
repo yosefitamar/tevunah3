@@ -581,10 +581,10 @@ func vehicleCandidates(cat *sipom.Catalog, terms *sipom.TermMap, v opsreport.Veh
 	}
 	add(cat.ResolveVehicle(sipom.VehicleInput{Kind: v.Kind, Brand: v.Brand, Model: v.Model, Color: v.Color}, terms).MarcaModeloCandidates)
 	if q := strings.TrimSpace(v.Brand + " " + v.Model); q != "" {
-		add(cat.SearchMarcasModelos(q, 20))
+		add(cat.SuggestMarcasModelos(q, 20))
 	}
 	if q := strings.TrimSpace(v.Model); q != "" {
-		add(cat.SearchMarcasModelos(q, 20))
+		add(cat.SuggestMarcasModelos(q, 20))
 	}
 	return out
 }

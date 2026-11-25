@@ -645,6 +645,88 @@ func (c *Catalog) MarcaModelo(code int) (MarcaModelo, bool) {
 	return m, ok
 }
 
+// SuggestMarcasModelos é a busca para listar candidatos: a exata e, sem
+// resultado, a que tolera um erro de digitação por palavra ("NXR160 BROZ"
+// acha "NXR160 BROS"). Só sugere — nunca escolhe sozinha.
+func (c *Catalog) SuggestMarcasModelos(q string, limit int) []MarcaModelo {
+	if out := c.SearchMarcasModelos(q, limit); len(out) > 0 {
+		return out
+	}
+	return c.fuzzyMarcasModelos(q, limit)
+}
+
+// fuzzyMarcasModelos: cada palavra do termo aparece na descrição ou, com 4
+// letras ou mais, difere de uma palavra dela em no máximo uma letra.
+func (c *Catalog) fuzzyMarcasModelos(q string, limit int) []MarcaModelo {
+	words := strings.Fields(key(q))
+	if len(words) == 0 {
+		return nil
+	}
+	var out []MarcaModelo
+	for _, m := range c.marcasModelos {
+		k := key(m.Descricao)
+		toks := strings.Fields(k)
+		ok, fuzzy := true, false
+		for _, w := range words {
+			if strings.Contains(k, w) {
+				continue
+			}
+			if !nearToken(w, toks) {
+				ok = false
+				break
+			}
+			fuzzy = true
+		}
+		if ok && fuzzy {
+			out = append(out, m)
+			if limit > 0 && len(out) >= limit {
+				break
+			}
+		}
+	}
+	return out
+}
+
+// nearToken diz se alguma palavra difere de w em no máximo uma letra
+// (troca, falta ou sobra). Palavras curtas não entram: "CG" vira qualquer coisa.
+func nearToken(w string, toks []string) bool {
+	a := []rune(w)
+	if len(a) < 4 {
+		return false
+	}
+	for _, t := range toks {
+		if b := []rune(t); len(b) >= 4 && editDistanceAtMostOne(a, b) {
+			return true
+		}
+	}
+	return false
+}
+
+func editDistanceAtMostOne(a, b []rune) bool {
+	if len(a) > len(b) {
+		a, b = b, a
+	}
+	if len(b)-len(a) > 1 {
+		return false
+	}
+	i, j, diff := 0, 0, 0
+	for i < len(a) && j < len(b) {
+		if a[i] == b[j] {
+			i++
+			j++
+			continue
+		}
+		if diff++; diff > 1 {
+			return false
+		}
+		if len(a) == len(b) {
+			i++
+		}
+		j++
+	}
+	return diff+(len(b)-j)+(len(a)-i) <= 1
+}
+
 // SearchMarcasModelos procura marca/modelo por texto: todas as palavras do
 // termo precisam aparecer na descrição. É a busca do select do SIPOM.
 func (c *Catalog) SearchMarcasModelos(q string, limit int) []MarcaModelo {

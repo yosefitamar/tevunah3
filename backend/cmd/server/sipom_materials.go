@@ -288,7 +288,7 @@ func (a *app) handleSipomMarcasModelos(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	items := []sipomRefJSON{}
-	for _, m := range a.sipom.SearchMarcasModelos(r.URL.Query().Get("q"), 30) {
+	for _, m := range a.sipom.SuggestMarcasModelos(r.URL.Query().Get("q"), 30) {
 		items = append(items, sipomRefJSON{ID: m.Codigo, Nome: m.Descricao})
 	}
 	httpx.OK(w, map[string]any{"items": items})

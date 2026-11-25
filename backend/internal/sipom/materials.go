@@ -332,6 +332,10 @@ func (c *Catalog) ResolveVehicle(in VehicleInput, terms *TermMap) VehicleResult 
 				r.MarcaModeloCodigo = &code
 			} else if len(cands) > 1 {
 				r.MarcaModeloCandidates = cands
+			} else if fz := c.fuzzyMarcasModelos(in.Brand+" "+in.Model, 21); len(fz) > 0 {
+				// Erro de digitação no relatório ("BROZ"): só candidatos,
+				// mesmo que seja um só — quem escolhe é o analista.
+				r.MarcaModeloCandidates = fz
 			}
 		}
 	}

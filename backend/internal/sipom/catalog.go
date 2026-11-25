@@ -72,6 +72,9 @@ type Catalog struct {
 	delegacias      map[int]Delegacia
 	delegaciaByCode map[int]int // código ("201") → id
 	delegaciaList   []Delegacia
+	// delegaciaByCity: "DELEGACIA MUNICIPAL DE <CIDADE>" pela cidade
+	// normalizada; -1 quando a cidade tem mais de uma.
+	delegaciaByCity map[string]int
 	delegados       map[int]Delegado
 	delegadoList    []Delegado // só ativos, em ordem de nome
 
@@ -189,8 +192,9 @@ func Load(ctx context.Context, db *sql.DB) (*Catalog, error) {
 		postos:           map[int]string{},
 
 		procedimentos: map[int]string{}, delegacias: map[int]Delegacia{}, delegaciaByCode: map[int]int{},
-		delegados: map[int]Delegado{},
-		armaTipos: newRefList(), armaMarcas: newRefList(), armaCalibres: newRefList(),
+		delegaciaByCity: map[string]int{},
+		delegados:       map[int]Delegado{},
+		armaTipos:       newRefList(), armaMarcas: newRefList(), armaCalibres: newRefList(),
 		drogas: map[int]Droga{}, celularMarcas: newRefList(), vinculos: map[string]int{},
 		veiculoTipos: newCodeList(), veiculoCores: newCodeList(),
 		marcaModeloKey: map[string]MarcaModelo{}, marcaModeloByCode: map[int]MarcaModelo{},
@@ -316,6 +320,14 @@ func Load(ctx context.Context, db *sql.DB) (*Catalog, error) {
 			}
 			c.delegacias[d.ID] = d
 			c.delegaciaList = append(c.delegaciaList, d)
+			if m := reDelegaciaMunicipal.FindStringSubmatch(d.Nome); m != nil {
+				k := key(m[1])
+				if _, dup := c.delegaciaByCity[k]; dup {
+					c.delegaciaByCity[k] = -1
+				} else {
+					c.delegaciaByCity[k] = d.ID
+				}
+			}
 			return nil
 		}},
 		{"delegados", `SELECT id, nome, deletado_em IS NOT NULL FROM sipom.delegados ORDER BY nome`, func(r *sql.Rows) error {
@@ -588,6 +600,28 @@ func (c *Catalog) Delegacia(id int) (Delegacia, bool) {
 func (c *Catalog) DelegaciaByCode(code int) (Delegacia, bool) {
 	id, ok := c.delegaciaByCode[code]
 	if !ok {
+		return Delegacia{}, false
+	}
+	return c.delegacias[id], true
+}
+
+// reDelegaciaMunicipal: "520-DELEGACIA MUNICIPAL DE PARAIPABA" → PARAIPABA.
+var reDelegaciaMunicipal = regexp.MustCompile(`(?i)^\s*\d+\s*-\s*DELEGACIA\s+MUNICIPAL\s+DE\s+(.+?)\s*$`)
+
+// reStationCity tira do texto do relatório o que não é o nome da cidade:
+// "Delegacia Municipal de", "DM de" na frente e "-CE"/"/CE" no fim.
+var (
+	reStationPrefix = regexp.MustCompile(`^(?:delegacia(?:\s+municipal)?|dm)(?:\s+de|\s+do|\s+da)?\s+`)
+	reStationUF     = regexp.MustCompile(`\s+ce$`)
+)
+
+// DelegaciaByCity acha a delegacia municipal pelo nome da cidade escrito no
+// relatório ("PARAIPABA-CE", "Delegacia Municipal de Trairi"). Só quando a
+// cidade tem uma delegacia municipal no catálogo.
+func (c *Catalog) DelegaciaByCity(station string) (Delegacia, bool) {
+	k := reStationUF.ReplaceAllString(reStationPrefix.ReplaceAllString(key(station), ""), "")
+	id, ok := c.delegaciaByCity[strings.TrimSpace(k)]
+	if !ok || id < 0 {
 		return Delegacia{}, false
 	}
 	return c.delegacias[id], true

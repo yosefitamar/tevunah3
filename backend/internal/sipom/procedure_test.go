@@ -88,10 +88,13 @@ func TestReProcNumber(t *testing.T) {
 		"939-7635/2026":     {"939", "7635", "2026"},
 		"7635/2026":         {"", "7635", "2026"},
 		"939 - 7635 / 2026": {"939", "7635", "2026"},
+		"939/7495-2026":     {"939", "7495", "2026"},
+		"939 / 7495 - 2026": {"939", "7495", "2026"},
+		"939/7495":          {"", "", ""},
 		"7635":              {"", "", ""},
 		"":                  {"", "", ""},
 	} {
-		m := reProcNumber.FindStringSubmatch(in)
+		m := matchProcNumber(in)
 		var got [3]string
 		if m != nil {
 			got = [3]string{m[1], m[2], m[3]}
@@ -140,6 +143,7 @@ func TestResolveProcedureMulti(t *testing.T) {
 		{"AI;IP", "939-874/2026;939-64/2026", []item{{ProcAtoInfracional, "874", "2026"}, {ProcIP, "64", "2026"}}, nil},
 		{"IP, TCO", "205-13/2026, 205-01/2026", []item{{ProcIP, "13", "2026"}, {ProcTCO, "01", "2026"}}, nil},
 		{"IP", "939-7635/2026", []item{{ProcIP, "7635", "2026"}}, nil},
+		{"IP", "939/7495-2026", []item{{ProcIP, "7495", "2026"}}, nil},
 		// Um tipo para dois números vale para os dois.
 		{"IP", "10/2026;11/2026", []item{{ProcIP, "10", "2026"}, {ProcIP, "11", "2026"}}, nil},
 		// Dois tipos e um número só: falta o número do segundo.
@@ -169,6 +173,37 @@ func TestResolveProcedureMulti(t *testing.T) {
 		}
 		if strings.Join(got, ",") != strings.Join(tc.pending, ",") {
 			t.Errorf("%q %q: pendências %v, quer %v", tc.typ, tc.num, got, tc.pending)
+		}
+	}
+}
+
+func TestDelegaciaByCity(t *testing.T) {
+	c := &Catalog{delegacias: map[int]Delegacia{}, delegaciaByCity: map[string]int{}}
+	for id, nome := range map[int]string{
+		190: "520-DELEGACIA MUNICIPAL DE PARAIPABA", 226: "561-DELEGACIA MUNICIPAL DE TRAIRI",
+		300: "600-DELEGACIA MUNICIPAL DE SÃO GONÇALO DO AMARANTE",
+		400: "700-DELEGACIA MUNICIPAL DE DUPLA", 401: "701-DELEGACIA MUNICIPAL DE DUPLA",
+		500: "939-DELEGACIA METROPOLITANA DE CAUCAIA",
+	} {
+		d := Delegacia{ID: id, Nome: nome}
+		c.delegacias[id] = d
+		if m := reDelegaciaMunicipal.FindStringSubmatch(nome); m != nil {
+			k := key(m[1])
+			if _, dup := c.delegaciaByCity[k]; dup {
+				c.delegaciaByCity[k] = -1
+			} else {
+				c.delegaciaByCity[k] = id
+			}
+		}
+	}
+	for in, want := range map[string]int{
+		"PARAIPABA-CE": 190, "PARAIPABA": 190, "Trairi/CE": 226, "Delegacia Municipal de Trairi": 226,
+		"DM de Paraipaba": 190, "SAO GONCALO DO AMARANTE-CE": 300,
+		"DUPLA-CE": 0, "DMC": 0, "CAUCAIA": 0, "": 0,
+	} {
+		d, _ := c.DelegaciaByCity(in)
+		if d.ID != want {
+			t.Errorf("%q → %d, quer %d", in, d.ID, want)
 		}
 	}
 }

@@ -60,7 +60,9 @@ func (a *app) handleSipomAISuggest(w http.ResponseWriter, r *http.Request) {
 	req, ok := sipomai.Build(a.sipom, terms, so, guidance)
 	// Releitura do PDF original: campos que a importação pode ter lido errado.
 	rr := a.sipomReread(r.Context(), so)
-	if !ok && rr == nil {
+	// Delegacia que a tradução não identificou: a IA escolhe no catálogo.
+	dg := sipomai.BuildDelegacia(a.sipom, so)
+	if !ok && rr == nil && dg == nil {
 		httpx.OK(w, map[string]any{"suggestions": []sipomai.Suggestion{}, "sections": []string{}})
 		return
 	}
@@ -71,8 +73,11 @@ func (a *app) handleSipomAISuggest(w http.ResponseWriter, r *http.Request) {
 	if rr != nil {
 		sections = append(sections, "releitura")
 	}
+	if dg != nil {
+		sections = append(sections, "delegacia")
+	}
 
-	// Até quatro chamadas em paralelo (juntas, o schema passa do limite do
+	// Até cinco chamadas em paralelo (juntas, o schema passa do limite do
 	// structured outputs): a principal (pendências), a das apreensões que
 	// faltam e a da recusa do SIPOM. A das apreensões é complemento — se
 	// falhar, as outras valem sozinhas.
@@ -97,6 +102,9 @@ func (a *app) handleSipomAISuggest(w http.ResponseWriter, r *http.Request) {
 	}
 	if rr != nil {
 		calls = append(calls, &call{name: "releitura", prompt: rr.Prompt, schema: sipomai.RereadSchema, max: 3000, parse: rr.Parse})
+	}
+	if dg != nil {
+		calls = append(calls, &call{name: "delegacia", prompt: dg.Prompt, schema: sipomai.DelegaciaSchema, max: 1500, parse: dg.Parse})
 	}
 	var wg sync.WaitGroup
 	for _, c := range calls {
@@ -124,7 +132,8 @@ func (a *app) handleSipomAISuggest(w http.ResponseWriter, r *http.Request) {
 	// Erro que vale para a resposta: o da principal ou, sem ela, o da recusa.
 	// Os de chave, limite e recusa da IA valem de qualquer uma.
 	err = nil
-	var suggestions []sipomai.Suggestion
+	// Lista, nunca null: a tela itera sobre ela.
+	suggestions := []sipomai.Suggestion{}
 	var res *ai.StructuredResult
 	ran := 0
 	for _, c := range calls {

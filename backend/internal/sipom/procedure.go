@@ -82,7 +82,11 @@ type ProcResult struct {
 
 var (
 	// "939-7635/2026", "7635/2026", "939 - 7635 / 2026".
-	reProcNumber = regexp.MustCompile(`^\s*(?:(\d+)\s*-\s*)?(\d+)\s*/\s*(\d{4})\s*$`)
+	// O ano é 19xx/20xx: "939/7495" não é o número 939 de 7495.
+	reProcNumber = regexp.MustCompile(`^\s*(?:(\d+)\s*-\s*)?(\d+)\s*/\s*((?:19|20)\d{2})\s*$`)
+	// Separadores trocados, como o SGR às vezes escreve: "939/7495-2026"
+	// (código/número-ano).
+	reProcNumberInv = regexp.MustCompile(`^\s*(\d+)\s*/\s*(\d+)\s*-\s*((?:19|20)\d{2})\s*$`)
 	// "22° DP", "22º DP", "22 DP", "22o DP", "DP 22".
 	reDistrito = regexp.MustCompile(`(?i)(?:^|\D)(\d{1,2})\s*[°ºo]?\s*(?:dp|distrito)|(?:dp|distrito)\s*(\d{1,2})(?:\D|$)`)
 )
@@ -93,6 +97,15 @@ var procTypes = map[string]int{
 	"tco": ProcTCO, "termo circunstanciado": ProcTCO, "termo circunstanciado de ocorrencia": ProcTCO,
 	"bo": ProcBO, "boletim": ProcBO, "boletim de ocorrencia": ProcBO, "bop": ProcBO,
 	"ai": ProcAtoInfracional, "ato infracional": ProcAtoInfracional, "baai": ProcAtoInfracional,
+}
+
+// matchProcNumber lê "código-número/ano" (o padrão) ou "código/número-ano"
+// (separadores trocados): [_, código, número, ano].
+func matchProcNumber(s string) []string {
+	if m := reProcNumber.FindStringSubmatch(s); m != nil {
+		return m
+	}
+	return reProcNumberInv.FindStringSubmatch(s)
 }
 
 // splitProc separa o campo do relatório que traz mais de um procedimento
@@ -142,7 +155,7 @@ func (c *Catalog) ResolveProcedure(in ProcInput) ProcResult {
 			it.ProcedimentoID = &id
 		}
 		// Número/ano, com o código da delegacia que abre o número.
-		if m := reProcNumber.FindStringSubmatch(it.NumeroTexto); m != nil {
+		if m := matchProcNumber(it.NumeroTexto); m != nil {
 			it.Code, _ = strconv.Atoi(m[1])
 			it.Numero, it.Ano = m[2], m[3]
 		}
@@ -162,7 +175,8 @@ func (c *Catalog) ResolveProcedure(in ProcInput) ProcResult {
 	}
 
 	// Delegacia: a fixada; senão o código do número; senão o termo
-	// aprendido; senão "N° DP" → distrito policial (código 100 + N).
+	// aprendido; senão a cidade ("PARAIPABA-CE" → delegacia municipal de
+	// Paraipaba); senão "N° DP" → distrito policial (código 100 + N).
 	switch {
 	case in.ManualDelegacia:
 		r.DelegaciaID = in.DelegaciaID
@@ -178,6 +192,12 @@ func (c *Catalog) ResolveProcedure(in ProcInput) ProcResult {
 				if _, exists := c.delegacias[id]; exists {
 					r.DelegaciaID = &id
 				}
+			}
+		}
+		if r.DelegaciaID == nil {
+			if d, ok := c.DelegaciaByCity(in.Station); ok {
+				id := d.ID
+				r.DelegaciaID = &id
 			}
 		}
 		if r.DelegaciaID == nil {

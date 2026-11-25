@@ -6230,3 +6230,12 @@ body.session-locked > *:not(.session-overlay-root) {
   justify-content: flex-end;
 }
 .ops-person-remove-act .muted { flex: 1; font-size: 10px; }
+
+/* Texto do relatório de onde o valor do SIPOM saiu (ex.: Nº do procedimento). */
+.ops-field-raw {
+  display: block;
+  margin-top: 2px;
+  font-size: 10px;
+  color: var(--fg-2);
+  font-family: inherit;
+}

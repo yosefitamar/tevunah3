@@ -297,7 +297,7 @@ export default function OpsOccurrenceBody({
           </OpsBlock>
           {s && (
             <OpsBlock title="SIPOM">
-              <SipomProcedimento occ={occ} ed={ed} />
+              <SipomProcedimento occ={occ} ed={ed} onEditReport={onEdit ? () => onEdit("procedimento") : undefined} />
             </OpsBlock>
           )}
         </>

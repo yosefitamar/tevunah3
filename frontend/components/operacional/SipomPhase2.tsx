@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useState } from "react";
-import { Check, Plus, RotateCcw, Search, Trash2, X } from "lucide-react";
+import { Check, Pencil, Plus, RotateCcw, Search, Trash2, X } from "lucide-react";
 import type { OpsOccurrence, SipomArma, SipomDroga, SipomRef, SipomRemocao, SipomVeiculo } from "@/lib/ops-reports-api";
 import { useModal } from "@/contexts/ModalContext";
 import { formatBR } from "@/lib/format";
@@ -51,14 +51,19 @@ function useCatalogo(editable: boolean) {
 
 const CAT_ERROR = <div className="banner banner-error">⚠ NÃO FOI POSSÍVEL CARREGAR AS LISTAS DO SIPOM</div>;
 
-type PartProps = { occ: OpsOccurrence; ed: SipomEdit };
+type PartProps = {
+  occ: OpsOccurrence;
+  ed: SipomEdit;
+  /** Abre a correção do texto do relatório (o número/ano sai de lá). */
+  onEditReport?: () => void;
+};
 
 /**
  * Fase 2 do envio, parte 1: o procedimento (tipo, número, delegacia, delegado)
  * nos códigos do SIPOM. O que o analista fixa vira termo aprendido e vale
  * para as próximas ocorrências com o mesmo texto.
  */
-export function SipomProcedimento({ occ, ed }: PartProps) {
+export function SipomProcedimento({ occ, ed, onEditReport }: PartProps) {
   const s = occ.sipom!;
   const { editable, busy, pending, manual } = ed;
   const { cat, error } = useCatalogo(editable);
@@ -110,8 +115,30 @@ export function SipomProcedimento({ occ, ed }: PartProps) {
                 label={`NÚMERO / ANO${n}`}
                 span={2}
                 mono
-                value={it.numero ? `${it.numero} / ${it.ano}` : ""}
+                value={
+                  <>
+                    {it.numero ? `${it.numero} / ${it.ano}` : "—"}
+                    {/* O número/ano sai do texto do relatório: à vista, para
+                        o analista ver por que não foi lido. */}
+                    <span className="ops-field-raw">
+                      NO RELATÓRIO: {it.numero_texto?.trim() || "(VAZIO)"}
+                      {!it.numero && " · FORA DO PADRÃO 939-7495/2026"}
+                    </span>
+                  </>
+                }
                 missing={!it.numero}
+                action={
+                  !it.numero && onEditReport ? (
+                    <button
+                      type="button"
+                      className="ops-field-btn"
+                      onClick={onEditReport}
+                      title="Corrigir o Nº do procedimento no texto do relatório"
+                    >
+                      <Pencil size={11} /> CORRIGIR
+                    </button>
+                  ) : undefined
+                }
               />
             </Fragment>
           );

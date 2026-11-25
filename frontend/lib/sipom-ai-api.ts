@@ -20,6 +20,7 @@ import {
   setOpsSipomField,
   setOpsSipomMaterial,
   setOpsSipomNatureza,
+  setOpsSipomProcedimento,
   setSipomMaterialRemoved,
   setSipomSexo,
   setSipomVehicleComoOutros,
@@ -37,7 +38,9 @@ export type SipomAIKind = "natureza" | "bairro" | "sexo" | "arma" | "droga" | "v
   /** Releitura do PDF original: nome, mãe ou idade do envolvido. */
   | "pessoa_dados"
   /** Releitura do PDF original: envolvido lido a mais (linha quebrada). */
-  | "pessoa_remover";
+  | "pessoa_remover"
+  /** Delegacia do catálogo que a tradução automática não identificou. */
+  | "delegacia";
 
 export type SipomAISuggestion = {
   kind: SipomAIKind;
@@ -103,7 +106,10 @@ export function sipomAIHandles(codes: string[]) {
 }
 
 export function suggestSipomAI(occId: string) {
-  return api<SipomAIResult>(`/api/ops-occurrences/${encodeURIComponent(occId)}/sipom/ia`, { method: "POST" });
+  return api<SipomAIResult>(`/api/ops-occurrences/${encodeURIComponent(occId)}/sipom/ia`, { method: "POST" }).then(
+    // Servidor antigo devolvia null quando nenhuma chamada sugeria nada.
+    (r) => ({ ...r, suggestions: r.suggestions ?? [], sections: r.sections ?? [] }),
+  );
 }
 
 export const CONFIANCA_LABEL: Record<SipomAISuggestion["confianca"], string> = {
@@ -164,6 +170,8 @@ export function applySipomAISuggestion(occId: string, s: SipomAISuggestion): Pro
       return updateOpsPerson(occId, s.person_id!, a as OpsPersonEdit).then(fromOccurrence);
     case "pessoa_remover":
       return setOpsPersonRemoved(occId, s.person_id!, true, String(a.motivo ?? "")).then(fromOccurrence);
+    case "delegacia":
+      return setOpsSipomProcedimento(occId, { delegacia_id: num("delegacia_id") });
     case "recusa_info":
       return Promise.reject(new Error("a explicação da recusa não é uma correção"));
     case "adicionar": {

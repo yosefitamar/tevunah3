@@ -33,11 +33,14 @@ const opsImportMaxBytes = 20 << 20
 // aplica o vínculo automático com os dossiês, guarda o PDF e registra na
 // auditoria, em nome do usuário informado.
 //
-//	admin ops-import -user <email> [-dry-run] [-after <ficha>] [-lancadas] <pasta|arquivo.pdf>...
+//	admin ops-import -user <email> [-dry-run] [-after <ficha>] [-ate <ficha>] [-lancadas] [-complementar] <pasta|arquivo.pdf>...
 //
 // É seguro rodar de novo: PDF já importado é pulado (pelo hash), e ocorrência
 // cuja ficha CIOPS já existe não é duplicada. -after descarta a ficha
 // informada e as anteriores a ela: as que já foram lançadas no SIPOM à mão.
+// -ate faz o inverso de -after: só a ficha informada e as anteriores entram.
+// -complementar relê PDF já importado e acrescenta ao mesmo relatório as
+// fichas que ainda não estão no acervo (as que um -after cortou antes).
 // -lancadas importa o acervo que já está no SIPOM (lançado à mão) marcando
 // cada ocorrência como lançada: ela entra para estatística, mapa e dossiês,
 // mas não vai para a fila de envio — enviar duplicaria no SIPOM, que não
@@ -47,6 +50,8 @@ func runOpsImport(args []string) {
 	email := fs.String("user", "", "e-mail do usuário em nome de quem a importação é registrada")
 	dry := fs.Bool("dry-run", false, "só lê e mostra o que seria importado, sem gravar")
 	after := fs.String("after", "", "ficha CIOPS de corte: ela e as anteriores não são importadas")
+	ate := fs.String("ate", "", "ficha CIOPS de corte: só ela e as anteriores são importadas (inverso de -after)")
+	complementar := fs.Bool("complementar", false, "PDF já importado: acrescenta ao mesmo relatório as fichas que faltam no acervo")
 	lancadas := fs.Bool("lancadas", false, "marca as ocorrências importadas como já lançadas no SIPOM à mão (fora da fila de envio)")
 	_ = fs.Parse(args)
 	if *email == "" || fs.NArg() == 0 {
@@ -124,6 +129,16 @@ func runOpsImport(args []string) {
 		len(files), map[bool]string{true: " · SIMULAÇÃO (nada é gravado)", false: ""}[*dry])
 
 	cut := strings.ToUpper(strings.TrimSpace(*after))
+	upTo := strings.ToUpper(strings.TrimSpace(*ate))
+	if cut != "" && upTo != "" {
+		log.Fatal("use -after ou -ate, não os dois")
+	}
+	if upTo != "" {
+		if _, ok := opsreport.CIOPSNotAfter(upTo, upTo); !ok {
+			log.Fatalf("ficha de corte inválida: %q", *ate)
+		}
+		fmt.Printf("Corte: só fichas até %s (inclusive) são importadas\n\n", upTo)
+	}
 	if cut != "" {
 		if _, ok := opsreport.CIOPSNotAfter(cut, cut); !ok {
 			log.Fatalf("ficha de corte inválida: %q", *after)
@@ -151,10 +166,14 @@ func runOpsImport(args []string) {
 		}
 		sum := sha256.Sum256(data)
 		sha := hex.EncodeToString(sum[:])
+		existingReport := ""
 		if prev, err := repo.FindReportBySHA(ctx, sha); err == nil && prev != nil {
-			tot.skippedFiles++
-			fmt.Printf("= %-44s já importado\n", name)
-			continue
+			if !*complementar {
+				tot.skippedFiles++
+				fmt.Printf("= %-44s já importado\n", name)
+				continue
+			}
+			existingReport = prev.ID
 		}
 
 		pages, err := opsreport.Extract(ctx, data)
@@ -164,6 +183,28 @@ func runOpsImport(args []string) {
 		}
 		rep := opsreport.Parse(pages)
 		mine := rep.ForUnit(unit)
+		if upTo != "" {
+			kept := mine[:0]
+			for _, o := range mine {
+				notAfter, ok := opsreport.CIOPSNotAfter(o.CIOPS, upTo)
+				if !ok {
+					// Sem ficha comparável: fica de fora (o corte é para o que
+					// já está no SIPOM — na dúvida, não marca como lançada).
+					fmt.Printf("⚠ %-44s ficha %q não se compara com o corte — não importada\n", name, o.CIOPS)
+				}
+				if !notAfter {
+					tot.cutOcc++
+					continue
+				}
+				kept = append(kept, o)
+			}
+			if len(kept) == 0 {
+				tot.skippedFiles++
+				fmt.Printf("- %-44s nenhuma ocorrência até a ficha de corte\n", name)
+				continue
+			}
+			mine = kept
+		}
 		if cut != "" {
 			kept := mine[:0]
 			for _, o := range mine {
@@ -271,14 +312,18 @@ func runOpsImport(args []string) {
 
 		// O PDF original fica guardado para conferência. Nome = hash: o mesmo
 		// arquivo nunca é gravado duas vezes.
+		// Complemento: o PDF já está guardado (é o mesmo arquivo).
 		dst := filepath.Join(pdfDir, sha+".pdf")
-		if err := os.WriteFile(dst, data, 0o640); err != nil {
-			log.Fatalf("guardar o PDF: %v", err)
+		if existingReport == "" {
+			if err := os.WriteFile(dst, data, 0o640); err != nil {
+				log.Fatalf("guardar o PDF: %v", err)
+			}
 		}
 		res, err := repo.Import(ctx, opsreport.ImportInput{
 			FileSHA256: sha, FileName: name, FileSize: len(data),
 			ReportDate: rep.ReportDate, Total: len(rep.Occurrences),
 			Occurrences: mine, Links: links, CreatedBy: me.ID,
+			ExistingReportID: existingReport,
 		})
 		if errors.Is(err, opsreport.ErrAlreadyImported) {
 			tot.skippedFiles++
@@ -286,7 +331,9 @@ func runOpsImport(args []string) {
 			continue
 		}
 		if err != nil {
-			_ = os.Remove(dst)
+			if existingReport == "" {
+				_ = os.Remove(dst)
+			}
 			fail("erro ao importar: %v", err)
 			continue
 		}

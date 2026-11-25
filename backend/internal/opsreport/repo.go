@@ -195,6 +195,10 @@ type ImportInput struct {
 	Occurrences []Occurrence
 	Links       []PersonLink
 	CreatedBy   string
+	// ExistingReportID: acrescenta as ocorrências a um relatório (PDF) já
+	// importado, em vez de gravar outro — para trazer fichas que uma
+	// importação anterior cortou.
+	ExistingReportID string
 }
 
 // ImportResult diz o que foi gravado.
@@ -218,21 +222,25 @@ func (r *Repo) Import(ctx context.Context, in ImportInput) (*ImportResult, error
 	defer tx.Rollback()
 
 	res := &ImportResult{Imported: map[int]string{}}
-	err = tx.QueryRowContext(ctx, `
-		INSERT INTO app.ops_reports
-		  (report_date, file_sha256, file_name, file_size,
-		   total_occurrences, unit_occurrences, created_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-		ON CONFLICT (file_sha256) DO NOTHING
-		RETURNING id`,
-		nilDate(in.ReportDate), in.FileSHA256, in.FileName, in.FileSize,
-		in.Total, len(in.Occurrences), in.CreatedBy,
-	).Scan(&res.ReportID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrAlreadyImported
-	}
-	if err != nil {
-		return nil, fmt.Errorf("ops_reports: %w", err)
+	if in.ExistingReportID != "" {
+		res.ReportID = in.ExistingReportID
+	} else {
+		err = tx.QueryRowContext(ctx, `
+			INSERT INTO app.ops_reports
+			  (report_date, file_sha256, file_name, file_size,
+			   total_occurrences, unit_occurrences, created_by)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
+			ON CONFLICT (file_sha256) DO NOTHING
+			RETURNING id`,
+			nilDate(in.ReportDate), in.FileSHA256, in.FileName, in.FileSize,
+			in.Total, len(in.Occurrences), in.CreatedBy,
+		).Scan(&res.ReportID)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrAlreadyImported
+		}
+		if err != nil {
+			return nil, fmt.Errorf("ops_reports: %w", err)
+		}
 	}
 
 	links := map[[2]int]string{}
@@ -369,11 +377,14 @@ func (r *Repo) Import(ctx context.Context, in ImportInput) (*ImportResult, error
 		}
 	}
 
+	// Complemento de um relatório já importado: os contadores somam.
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE app.ops_reports
-		   SET imported_occurrences = $2, skipped_occurrences = $3
+		   SET imported_occurrences = CASE WHEN $4 THEN imported_occurrences + $2 ELSE $2 END,
+		       skipped_occurrences  = CASE WHEN $4 THEN skipped_occurrences + $3 ELSE $3 END,
+		       unit_occurrences     = CASE WHEN $4 THEN unit_occurrences + $5 ELSE unit_occurrences END
 		 WHERE id = $1`,
-		res.ReportID, len(res.Imported), len(res.Skipped),
+		res.ReportID, len(res.Imported), len(res.Skipped), in.ExistingReportID != "", len(in.Occurrences),
 	); err != nil {
 		return nil, err
 	}

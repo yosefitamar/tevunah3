@@ -1,15 +1,19 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/belia/tevunah/backend/internal/ai"
 	"github.com/belia/tevunah/backend/internal/audit"
 	"github.com/belia/tevunah/backend/internal/httpx"
 	"github.com/belia/tevunah/backend/internal/middleware"
+	"github.com/belia/tevunah/backend/internal/opsreport"
 	"github.com/belia/tevunah/backend/internal/sipomai"
 )
 
@@ -54,12 +58,21 @@ func (a *app) handleSipomAISuggest(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	req, ok := sipomai.Build(a.sipom, terms, so, guidance)
-	if !ok {
+	// Releitura do PDF original: campos que a importação pode ter lido errado.
+	rr := a.sipomReread(r.Context(), so)
+	if !ok && rr == nil {
 		httpx.OK(w, map[string]any{"suggestions": []sipomai.Suggestion{}, "sections": []string{}})
 		return
 	}
+	sections := []string{}
+	if ok {
+		sections = append(sections, req.Sections...)
+	}
+	if rr != nil {
+		sections = append(sections, "releitura")
+	}
 
-	// Até três chamadas em paralelo (juntas, o schema passa do limite do
+	// Até quatro chamadas em paralelo (juntas, o schema passa do limite do
 	// structured outputs): a principal (pendências), a das apreensões que
 	// faltam e a da recusa do SIPOM. A das apreensões é complemento — se
 	// falhar, as outras valem sozinhas.
@@ -74,10 +87,16 @@ func (a *app) handleSipomAISuggest(w http.ResponseWriter, r *http.Request) {
 		res  *ai.StructuredResult
 		err  error
 	}
-	calls := []*call{
-		{name: "principal", prompt: req.Prompt, schema: sipomai.Schema, max: 6000, parse: req.Parse},
-		{name: "apreensões que faltam", prompt: req.AddPrompt, schema: sipomai.AddSchema, max: 3000, parse: req.ParseAdd},
-		{name: "recusa", prompt: req.RefusalPrompt, schema: sipomai.RefusalSchema, max: 3000, parse: req.ParseRefusal},
+	var calls []*call
+	if ok {
+		calls = append(calls,
+			&call{name: "principal", prompt: req.Prompt, schema: sipomai.Schema, max: 6000, parse: req.Parse},
+			&call{name: "apreensões que faltam", prompt: req.AddPrompt, schema: sipomai.AddSchema, max: 3000, parse: req.ParseAdd},
+			&call{name: "recusa", prompt: req.RefusalPrompt, schema: sipomai.RefusalSchema, max: 3000, parse: req.ParseRefusal},
+		)
+	}
+	if rr != nil {
+		calls = append(calls, &call{name: "releitura", prompt: rr.Prompt, schema: sipomai.RereadSchema, max: 3000, parse: rr.Parse})
 	}
 	var wg sync.WaitGroup
 	for _, c := range calls {
@@ -148,7 +167,7 @@ func (a *app) handleSipomAISuggest(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		after := map[string]any{
-			"model": res.Model, "sections": req.Sections, "recusa": req.RefusalPrompt != "",
+			"model": res.Model, "sections": sections, "recusa": ok && req.RefusalPrompt != "", "releitura": rr != nil,
 			"input_tokens": in, "output_tokens": outTok,
 		}
 		if err != nil {
@@ -184,8 +203,8 @@ func (a *app) handleSipomAISuggest(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	var cidade *sipomRefJSON
-	if req.CidadeID != 0 {
-		cidade = &sipomRefJSON{ID: req.CidadeID, Nome: a.sipom.CidadeNome(req.CidadeID)}
+	if so.Sipom.CidadeID != nil && *so.Sipom.CidadeID != 0 {
+		cidade = &sipomRefJSON{ID: *so.Sipom.CidadeID, Nome: a.sipom.CidadeNome(*so.Sipom.CidadeID)}
 	}
 	cost := 0.0
 	for _, c := range calls {
@@ -200,9 +219,34 @@ func (a *app) handleSipomAISuggest(w http.ResponseWriter, r *http.Request) {
 	}
 	httpx.OK(w, map[string]any{
 		"suggestions": suggestions,
-		"sections":    req.Sections,
+		"sections":    sections,
 		"model":       res.Model,
 		"cost_usd":    cost,
 		"cidade":      cidade,
 	})
+}
+
+// sipomReread monta a releitura quando a ficha tem pendência que pode ser
+// leitura errada do PDF (ou campo com cara disso) e o PDF original está
+// guardado. Sem PDF ou sem achar a ficha nele, não há releitura.
+func (a *app) sipomReread(ctx context.Context, so *opsreport.StoredOccurrence) *sipomai.Reread {
+	if !sipomai.NeedsReread(so) || so.Page < 1 {
+		return nil
+	}
+	rep, err := a.opsReports.FindReport(ctx, so.ReportID)
+	if err != nil {
+		log.Printf("sipom ia releitura (relatório): %v", err)
+		return nil
+	}
+	path := filepath.Join(photoDir(), opsreport.ReportsSubdir, rep.FileSHA256+".pdf")
+	if _, err := os.Stat(path); err != nil {
+		return nil
+	}
+	// A ocorrência começa na página gravada e pode seguir por mais duas.
+	text, err := opsreport.LayoutText(ctx, path, so.Page, so.Page+2)
+	if err != nil {
+		log.Printf("sipom ia releitura (pdf): %v", err)
+		return nil
+	}
+	return sipomai.BuildReread(so, opsreport.OccurrenceSource(text, so.CIOPS))
 }

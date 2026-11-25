@@ -431,7 +431,7 @@ export default function OpsOccurrenceBody({
 
       {error}
       {ed.editable && occ.id && onSipomChange && s && !s.sent_at && sipomAIHandles(s.pendencias.map((p) => p.code)) && (
-        <SipomAIPanel key={occ.id} occId={occ.id} onApplied={onSipomChange} />
+        <SipomAIPanel key={occ.id} occId={occ.id} onApplied={onSipomChange} onOccurrence={onGeoChange} />
       )}
       {/* Todas as etapas ficam montadas (só a ativa aparece): o que o analista
           escolheu e ainda não gravou numa etapa não se perde ao passar por outra. */}

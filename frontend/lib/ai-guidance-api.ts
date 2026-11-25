@@ -56,6 +56,8 @@ export const TOPIC_OF_KIND: Record<string, GuidanceTopic> = {
   veiculo_ano: "recusa",
   veiculo_como_outros: "recusa",
   recusa_info: "recusa",
+  campo: "geral",
+  pessoa_dados: "geral",
 };
 
 export type GuidanceInput = {

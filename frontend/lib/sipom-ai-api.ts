@@ -3,7 +3,16 @@
 // correção de sempre (mesma validação, auditoria e termos aprendidos).
 
 import { api } from "./api";
-import type { OpsOfficer, SipomChangeExtra, SipomOccurrence } from "./ops-reports-api";
+import {
+  type OpsOccurrence,
+  type OpsOccurrenceEdit,
+  type OpsOfficer,
+  type OpsPersonEdit,
+  type SipomChangeExtra,
+  type SipomOccurrence,
+  updateOpsOccurrence,
+  updateOpsPerson,
+} from "./ops-reports-api";
 import {
   addSipomMaterial,
   type SipomNewMaterial,
@@ -21,7 +30,11 @@ export type SipomAIKind = "natureza" | "bairro" | "sexo" | "arma" | "droga" | "v
   | "adicionar"
   | "veiculo_ano"
   | "veiculo_como_outros"
-  | "recusa_info";
+  | "recusa_info"
+  /** Releitura do PDF original: campo do cabeçalho lido errado na importação. */
+  | "campo"
+  /** Releitura do PDF original: nome, mãe ou idade do envolvido. */
+  | "pessoa_dados";
 
 export type SipomAISuggestion = {
   kind: SipomAIKind;
@@ -64,7 +77,23 @@ export const SIPOM_AI_CODES = new Set([
   "veiculo",
   "veiculo_placa",
   "envio_recusado",
+  // Podem ser leitura errada do PDF: a IA relê o relatório original.
+  "data_hora",
+  "ficha",
+  "logradouro",
+  "cidade",
+  "bairro",
+  "procedimento",
+  "procedimento_tipo",
+  "procedimento_numero",
+  "delegacia",
+  "delegado",
 ]);
+
+/** Sugestões que mudam o texto da ficha (a tela precisa reler a ocorrência). */
+export function changesReport(s: SipomAISuggestion) {
+  return s.kind === "campo" || s.kind === "pessoa_dados";
+}
 
 export function sipomAIHandles(codes: string[]) {
   return codes.some((c) => SIPOM_AI_CODES.has(c));
@@ -85,7 +114,11 @@ export function preselect(s: SipomAISuggestion) {
   return s.applicable && (s.confianca === "alta" || !!s.agrees);
 }
 
-type Change = { sipom: SipomOccurrence; officers?: OpsOfficer[] } & SipomChangeExtra;
+type Change = { sipom: SipomOccurrence; officers?: OpsOfficer[]; occurrence?: OpsOccurrence } & SipomChangeExtra;
+
+function fromOccurrence(r: { occurrence: OpsOccurrence }): Change {
+  return { sipom: r.occurrence.sipom!, occurrence: r.occurrence };
+}
 
 /** Aplica a sugestão pelo endpoint de correção correspondente. */
 export function applySipomAISuggestion(occId: string, s: SipomAISuggestion): Promise<Change> {
@@ -122,6 +155,10 @@ export function applySipomAISuggestion(occId: string, s: SipomAISuggestion): Pro
       return setSipomVehicleYears(occId, s.index!, num("ano_fabricacao"), opt("ano_modelo") ?? null);
     case "veiculo_como_outros":
       return setSipomVehicleComoOutros(occId, s.index!, true, String(a.descricao ?? ""));
+    case "campo":
+      return updateOpsOccurrence(occId, { [String(a.field)]: a.value } as OpsOccurrenceEdit).then(fromOccurrence);
+    case "pessoa_dados":
+      return updateOpsPerson(occId, s.person_id!, a as OpsPersonEdit).then(fromOccurrence);
     case "recusa_info":
       return Promise.reject(new Error("a explicação da recusa não é uma correção"));
     case "adicionar": {
@@ -148,7 +185,9 @@ export function applySipomAISuggestion(occId: string, s: SipomAISuggestion): Pro
 export async function applySipomAISuggestions(occId: string, list: SipomAISuggestion[]) {
   let last: Change | null = null;
   const failed: { s: SipomAISuggestion; error: string }[] = [];
-  for (const s of list) {
+  // O texto da ficha primeiro: as demais correções partem dele.
+  const ordered = [...list.filter(changesReport), ...list.filter((s) => !changesReport(s))];
+  for (const s of ordered) {
     try {
       last = await applySipomAISuggestion(occId, s);
     } catch (e) {

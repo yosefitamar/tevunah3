@@ -2,10 +2,17 @@
 
 import { useState } from "react";
 import { GraduationCap, Sparkles, X } from "lucide-react";
-import type { OpsOfficer, SipomChangeExtra, SipomOccurrence } from "@/lib/ops-reports-api";
+import {
+  getOpsOccurrence,
+  type OpsOccurrence,
+  type OpsOfficer,
+  type SipomChangeExtra,
+  type SipomOccurrence,
+} from "@/lib/ops-reports-api";
 import {
   CONFIANCA_LABEL,
   applySipomAISuggestions,
+  changesReport,
   preselect,
   suggestSipomAI,
   type SipomAISuggestion,
@@ -87,13 +94,15 @@ export function SipomAISuggestionList({
 type Props = {
   occId: string;
   onApplied: (s: SipomOccurrence, officers?: OpsOfficer[], extra?: SipomChangeExtra) => void;
+  /** Correção do texto do relatório (releitura do PDF): a ficha inteira mudou. */
+  onOccurrence?: (occ: OpsOccurrence) => void;
 };
 
 /**
  * RESOLVER COM IA na ficha: pede as sugestões, o analista marca as que
  * aceita e aplica — cada uma pelo endpoint de correção de sempre.
  */
-export default function SipomAIPanel({ occId, onApplied }: Props) {
+export default function SipomAIPanel({ occId, onApplied, onOccurrence }: Props) {
   const [items, setItems] = useState<SipomAISuggestion[] | null>(null);
   const [checked, setChecked] = useState<Set<number>>(new Set());
   const [errors, setErrors] = useState<Map<number, string>>(new Map());
@@ -132,7 +141,15 @@ export default function SipomAIPanel({ occId, onApplied }: Props) {
       occId,
       idx.map((i) => items[i]),
     );
-    if (last) onApplied(last.sipom, last.officers, last);
+    const okList = idx.map((i) => items[i]).filter((s) => !failed.some((f) => f.s === s));
+    if (onOccurrence && okList.some(changesReport)) {
+      // O texto mudou (endereço, data…): relê a ficha inteira, já recalculada.
+      try {
+        onOccurrence((await getOpsOccurrence(occId)).occurrence);
+      } catch {
+        if (last) onApplied(last.sipom, last.officers, last);
+      }
+    } else if (last) onApplied(last.sipom, last.officers, last);
     const failedIdx = new Map<number, string>();
     failed.forEach((f) => failedIdx.set(items.indexOf(f.s), f.error));
     // Ficam na lista as que falharam e as que o analista não marcou.

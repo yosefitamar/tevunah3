@@ -477,6 +477,10 @@ type StoredOccurrence struct {
 	// Photos são as fotos que o analista anexou à ficha (só no detalhe).
 	Photos []Photo
 
+	// RemovedPeople são os envolvidos que o analista tirou da ficha (só no
+	// detalhe, para mostrar e restaurar). Não estão em People.
+	RemovedPeople []RemovedPerson
+
 	// Contagens (preenchidas na listagem; no detalhe, os slices valem).
 	PeopleCount, WeaponCount, DrugCount, VehicleCount int
 	// AccusedNames lista os acusados na listagem (busca rápida na tabela).
@@ -566,7 +570,7 @@ func (r *Repo) List(ctx context.Context, opts ListOpts) ([]StoredOccurrence, int
 		       OR app.norm_txt(o.teams) LIKE app.norm_txt($2)
 		       OR app.norm_txt(o.narrative) LIKE app.norm_txt($2)
 		       OR EXISTS (SELECT 1 FROM app.ops_occurrence_people p
-		                   WHERE p.occurrence_id = o.id
+		                   WHERE p.occurrence_id = o.id AND p.removed_at IS NULL
 		                     AND (app.norm_txt(p.name) LIKE app.norm_txt($2)
 		                          OR app.norm_txt(p.mother_name) LIKE app.norm_txt($2)))
 		       OR EXISTS (SELECT 1 FROM app.ops_occurrence_vehicles v
@@ -601,13 +605,13 @@ func (r *Repo) List(ctx context.Context, opts ListOpts) ([]StoredOccurrence, int
 	}
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT `+occSelect+`,
-		       (SELECT COUNT(*) FROM app.ops_occurrence_people p WHERE p.occurrence_id = o.id),
+		       (SELECT COUNT(*) FROM app.ops_occurrence_people p WHERE p.occurrence_id = o.id AND p.removed_at IS NULL),
 		       (SELECT COUNT(*) FROM app.ops_occurrence_weapons w WHERE w.occurrence_id = o.id AND w.removed_at IS NULL),
 		       (SELECT COUNT(*) FROM app.ops_occurrence_drugs d WHERE d.occurrence_id = o.id AND d.removed_at IS NULL),
 		       (SELECT COUNT(*) FROM app.ops_occurrence_vehicles v WHERE v.occurrence_id = o.id AND v.removed_at IS NULL),
 		       COALESCE((SELECT jsonb_agg(p.name ORDER BY p.position)
 		                   FROM app.ops_occurrence_people p
-		                  WHERE p.occurrence_id = o.id AND p.role = 'ACUSADO'), '[]'::jsonb)::text
+		                  WHERE p.occurrence_id = o.id AND p.role = 'ACUSADO' AND p.removed_at IS NULL), '[]'::jsonb)::text
 		  FROM app.ops_occurrences o`+where+`
 		 ORDER BY `+col+` `+dir+`, o.start_time `+dir+` NULLS LAST, o.created_at DESC
 		 LIMIT $11 OFFSET $12`,
@@ -783,6 +787,9 @@ func (r *Repo) FindByID(ctx context.Context, id string) (*StoredOccurrence, erro
 		return nil, err
 	}
 	so.People = people
+	if so.RemovedPeople, err = r.removedPeople(ctx, id); err != nil {
+		return nil, err
+	}
 
 	var errMat error
 	so.Weapons, so.Drugs, so.Vehicles, errMat = r.materials(ctx, id)
@@ -906,7 +913,7 @@ func (r *Repo) listPeople(ctx context.Context, occID string) ([]StoredPerson, er
 		  FROM app.ops_occurrence_people p
 		  LEFT JOIN app.entities e ON e.id = p.entity_id
 		  LEFT JOIN app.entity_persons ep ON ep.entity_id = p.entity_id
-		 WHERE p.occurrence_id = $1
+		 WHERE p.occurrence_id = $1 AND p.removed_at IS NULL
 		 ORDER BY p.position`, occID)
 	if err != nil {
 		return nil, err
@@ -1065,9 +1072,9 @@ func (r *Repo) Update(ctx context.Context, id, actor string, e Edit) error {
 // letra de nome ("OÃO" por "JOÃO"). Campo nil = não tocar; AgeClear limpa a
 // idade.
 type PersonEdit struct {
-	Name, MotherName *string
-	Age              *int
-	AgeClear         bool
+	Name, MotherName, Address *string
+	Age                       *int
+	AgeClear                  bool
 }
 
 // UpdatePerson aplica a correção (nomes em MAIÚSCULAS, como na importação)
@@ -1089,12 +1096,92 @@ func (r *Repo) UpdatePerson(ctx context.Context, occID, personID, actor string, 
 		UPDATE app.ops_occurrence_people p SET
 		  name        = COALESCE($3::text, p.name),
 		  mother_name = COALESCE($4::text, p.mother_name),
-		  age         = CASE WHEN $6 THEN NULL ELSE COALESCE($5::smallint, p.age) END
+		  age         = CASE WHEN $6 THEN NULL ELSE COALESCE($5::smallint, p.age) END,
+		  address     = COALESCE($7::text, p.address)
 		  FROM app.ops_occurrences o
-		 WHERE p.id::text = $2 AND p.occurrence_id = $1 AND o.id = p.occurrence_id AND o.deleted_at IS NULL`,
-		occID, personID, upper(e.Name), upper(e.MotherName), nilInt(e.Age), e.AgeClear)
+		 WHERE p.id::text = $2 AND p.occurrence_id = $1 AND o.id = p.occurrence_id AND o.deleted_at IS NULL
+		   AND p.removed_at IS NULL`,
+		occID, personID, upper(e.Name), upper(e.MotherName), nilInt(e.Age), e.AgeClear, upper(e.Address))
 	if err != nil {
 		return fmt.Errorf("ops_occurrence_people update: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE app.ops_occurrences SET updated_at = now(), updated_by = $2 WHERE id = $1`, occID, actor); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// RemovedPerson é o envolvido removido da ficha pelo analista.
+type RemovedPerson struct {
+	ID            string
+	Role          string
+	Name          string
+	Age           *int
+	RemovedAt     time.Time
+	RemovedByName string
+	RemovedReason string
+}
+
+func (r *Repo) removedPeople(ctx context.Context, occID string) ([]RemovedPerson, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT p.id, p.role, p.name, p.age, p.removed_at,
+		       COALESCE(NULLIF(u.display_name, ''), u.email, ''), p.removed_reason
+		  FROM app.ops_occurrence_people p
+		  LEFT JOIN app.users u ON u.id = p.removed_by
+		 WHERE p.occurrence_id = $1 AND p.removed_at IS NOT NULL
+		 ORDER BY p.position`, occID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []RemovedPerson{}
+	for rows.Next() {
+		var x RemovedPerson
+		var age sql.NullInt64
+		if err := rows.Scan(&x.ID, &x.Role, &x.Name, &age, &x.RemovedAt, &x.RemovedByName, &x.RemovedReason); err != nil {
+			return nil, err
+		}
+		if age.Valid {
+			n := int(age.Int64)
+			x.Age = &n
+		}
+		out = append(out, x)
+	}
+	return out, rows.Err()
+}
+
+// SetPersonRemoved tira (remove = true, com o motivo) ou devolve o envolvido
+// à ficha. Quem chama refaz a tradução para o SIPOM.
+func (r *Repo) SetPersonRemoved(ctx context.Context, occID, personID, actor string, remove bool, reason string) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var res sql.Result
+	if remove {
+		res, err = tx.ExecContext(ctx, `
+			UPDATE app.ops_occurrence_people p
+			   SET removed_at = now(), removed_by = $3, removed_reason = $4
+			  FROM app.ops_occurrences o
+			 WHERE p.id::text = $2 AND p.occurrence_id = $1 AND o.id = p.occurrence_id
+			   AND o.deleted_at IS NULL AND p.removed_at IS NULL`,
+			occID, personID, actor, strings.TrimSpace(reason))
+	} else {
+		res, err = tx.ExecContext(ctx, `
+			UPDATE app.ops_occurrence_people p
+			   SET removed_at = NULL, removed_by = NULL, removed_reason = ''
+			  FROM app.ops_occurrences o
+			 WHERE p.id::text = $2 AND p.occurrence_id = $1 AND o.id = p.occurrence_id
+			   AND o.deleted_at IS NULL AND p.removed_at IS NOT NULL`,
+			occID, personID)
+	}
+	if err != nil {
+		return fmt.Errorf("ops_occurrence_people removal: %w", err)
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return ErrNotFound
@@ -1422,7 +1509,7 @@ func (r *Repo) UnlinkedPeople(ctx context.Context) ([]UnlinkedPerson, error) {
 		       to_jsonb(o.natures)::text
 		  FROM app.ops_occurrence_people p
 		  JOIN app.ops_occurrences o ON o.id = p.occurrence_id
-		 WHERE p.entity_id IS NULL AND o.deleted_at IS NULL AND p.name <> ''
+		 WHERE p.entity_id IS NULL AND o.deleted_at IS NULL AND p.name <> '' AND p.removed_at IS NULL
 		 ORDER BY o.occurred_on DESC, p.position`)
 	if err != nil {
 		return nil, err
@@ -1596,7 +1683,7 @@ func (r *Repo) SipomSources(ctx context.Context, onlyID string) ([]SipomSource, 
 		  JOIN app.ops_occurrences o ON o.id = p.occurrence_id
 		  LEFT JOIN app.entities e ON e.id = p.entity_id
 		  LEFT JOIN app.entity_persons ep ON ep.entity_id = p.entity_id
-		 WHERE o.deleted_at IS NULL AND ($1 = '' OR o.id::text = $1)
+		 WHERE o.deleted_at IS NULL AND p.removed_at IS NULL AND ($1 = '' OR o.id::text = $1)
 		 ORDER BY p.occurrence_id, p.position`, onlyID)
 	if err != nil {
 		return nil, err
@@ -1982,8 +2069,8 @@ func (r *Repo) SipomQueue(ctx context.Context, dateFrom, dateTo string) ([]Sipom
 		SELECT o.id, o.ciops_record, o.occurred_on, COALESCE(to_char(o.start_time, 'HH24:MI'), ''),
 		       to_jsonb(o.natures)::text, o.sipom_natureza_id, o.place_city, o.place_neighborhood,
 		       o.sipom_area_id, o.sipom_opm_id, to_jsonb(o.sipom_pendencias)::text,
-		       (SELECT COUNT(*) FROM app.ops_occurrence_people p WHERE p.occurrence_id = o.id),
-		       (SELECT COUNT(*) FROM app.ops_occurrence_people p WHERE p.occurrence_id = o.id AND p.entity_id IS NULL),
+		       (SELECT COUNT(*) FROM app.ops_occurrence_people p WHERE p.occurrence_id = o.id AND p.removed_at IS NULL),
+		       (SELECT COUNT(*) FROM app.ops_occurrence_people p WHERE p.occurrence_id = o.id AND p.entity_id IS NULL AND p.removed_at IS NULL),
 		       (SELECT COUNT(*) FROM app.ops_occurrence_officers f WHERE f.occurrence_id = o.id),
 		       o.intel_participation
 		  FROM app.ops_occurrences o
@@ -2204,7 +2291,7 @@ func (r *Repo) ListByEntity(ctx context.Context, entityID string) ([]EntityOccur
 		       o.cia, o.pel, o.place_city, o.place_neighborhood, o.ciops_record, p.role
 		  FROM app.ops_occurrence_people p
 		  JOIN app.ops_occurrences o ON o.id = p.occurrence_id
-		 WHERE p.entity_id = $1 AND o.deleted_at IS NULL
+		 WHERE p.entity_id = $1 AND o.deleted_at IS NULL AND p.removed_at IS NULL
 		 ORDER BY o.occurred_on DESC, o.start_time DESC NULLS LAST`, entityID)
 	if err != nil {
 		return nil, err

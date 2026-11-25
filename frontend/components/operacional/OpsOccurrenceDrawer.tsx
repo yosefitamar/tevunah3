@@ -248,6 +248,14 @@ export default function OpsOccurrenceDrawer({ occurrenceId, onClose, onChanged }
                   steps
                   onEdit={canLink && data.id ? setEditing : undefined}
                   onEditPerson={canLink && data.id ? setEditingPerson : undefined}
+                  onOccurrenceChange={
+                    canLink
+                      ? (occ) => {
+                          setData(occ);
+                          onChanged();
+                        }
+                      : undefined
+                  }
                   renderPerson={renderPerson}
                   onSipomChange={
                     canIntel

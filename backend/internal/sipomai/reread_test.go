@@ -97,3 +97,46 @@ func TestLooksMisread(t *testing.T) {
 		t.Error("rótulo grudado devia parecer mal lido")
 	}
 }
+
+// Linha da tabela de vítimas quebrada em duas: a importação leu uma vítima a
+// mais. A IA junta nome e endereço na verdadeira e remove a falsa.
+func TestRereadWrappedVictim(t *testing.T) {
+	src := `Vítimas
+Nome                         Idade                                  Endereço
+3º SGT PM PAULO AUGUSTO AMARO DA                        RUA RIO NEGRO, Nº 98, CONDOMÍNIO PRAIA SOL, APARTAMENTO 934,
+         SILVA MAT. 30190815                     38                     BAIRRO TABAPUÁ, CAUCAIA-CE
+Histórico: o 3º SGT PM Paulo Augusto Amaro da Silva relatou.`
+	age := 38
+	so := &opsreport.StoredOccurrence{ID: "o2"}
+	so.CIOPS = "M20260588571"
+	so.People = []opsreport.StoredPerson{
+		{ID: "v1", Person: opsreport.Person{Role: "VÍTIMA", Name: "3º SGT PM PAULO AUGUSTO AMARO DA SILVA", Age: &age,
+			Address: "RUA RIO NEGRO, Nº 98, CONDOMÍNIO PRAIA SOL, APARTAMENTO 934,"}},
+		{ID: "v2", Person: opsreport.Person{Role: "VÍTIMA", Name: "SILVA MAT. 30190815", Address: "BAIRRO TABAPUÁ, CAUCAIA-CE"}},
+	}
+	rr := BuildReread(so, src)
+	got, err := rr.Parse([]byte(`{"campos":[],"pessoas":[
+		{"ref":"P1","nome":"3º SGT PM PAULO AUGUSTO AMARO DA SILVA MAT. 30190815","mae":"","idade":0,
+		 "endereco":"RUA RIO NEGRO, Nº 98, CONDOMÍNIO PRAIA SOL, APARTAMENTO 934, BAIRRO TABAPUÁ, CAUCAIA-CE","remover":false,"confianca":"alta","motivo":"linha quebrada"},
+		{"ref":"P2","nome":"","mae":"","idade":0,"endereco":"","remover":true,"confianca":"alta","motivo":"continuação da linha da vítima P1"},
+		{"ref":"P1","nome":"","mae":"","idade":0,"endereco":"RUA INVENTADA, 1","remover":false,"confianca":"alta","motivo":"repetida: some"}
+	]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("esperava 2 sugestões, veio %+v", got)
+	}
+	if got[0].Kind != KindPessoaDados || got[0].PersonID != "v1" ||
+		got[0].Apply["address"] != "RUA RIO NEGRO, Nº 98, CONDOMÍNIO PRAIA SOL, APARTAMENTO 934, BAIRRO TABAPUÁ, CAUCAIA-CE" ||
+		got[0].Apply["name"] != "3º SGT PM PAULO AUGUSTO AMARO DA SILVA MAT. 30190815" {
+		t.Errorf("junção: %+v", got[0])
+	}
+	if got[1].Kind != KindPessoaRemover || got[1].PersonID != "v2" || got[1].Confianca != "media" {
+		t.Errorf("remoção: %+v", got[1])
+	}
+	// Palavra que não está no trecho não passa, nem fora de ordem.
+	if rr.inSource("RUA INVENTADA") || rr.inSource("CAUCAIA RIO NEGRO") {
+		t.Error("inSource aceitou palavra inventada ou fora de ordem")
+	}
+}

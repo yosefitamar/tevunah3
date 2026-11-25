@@ -34,6 +34,16 @@ export type OpsPerson = {
   link_warning?: string;
 };
 
+export type OpsRemovedPerson = {
+  id: string;
+  role: OpsPersonRole;
+  name: string;
+  age: number | null;
+  removed_at: string;
+  removed_by_name: string;
+  removed_reason: string;
+};
+
 export type OpsWeapon = { kind: string; model: string; brand: string; caliber: string; serial: string };
 export type OpsDrug = { description: string; grams: number | null; packages: number | null };
 export type OpsVehicle = { kind: string; brand: string; model: string; plate: string; color: string };
@@ -313,6 +323,8 @@ export type OpsOccurrence = {
   weapons: OpsWeapon[];
   drugs: OpsDrug[];
   vehicles: OpsVehicle[];
+  /** Envolvidos que o analista tirou da ficha (lidos a mais na importação). */
+  removed_people?: OpsRemovedPerson[];
   officers: OpsOfficer[];
   // Participação da inteligência: "auto" = decidida pelos termos
   // configurados; "manual" = o analista marcou/desmarcou na ficha.
@@ -507,7 +519,15 @@ export function getOpsOccurrence(id: string) {
 }
 
 /** Correção do envolvido como o relatório o trouxe; `age: null` limpa a idade. */
-export type OpsPersonEdit = { name?: string; mother_name?: string; age?: number | null };
+export type OpsPersonEdit = { name?: string; mother_name?: string; age?: number | null; address?: string };
+
+/** Tira o envolvido da ficha (com o motivo) ou o devolve; devolve a ficha recalculada. */
+export function setOpsPersonRemoved(occId: string, personId: string, remover: boolean, motivo = "") {
+  return api<{ occurrence: OpsOccurrence }>(
+    `/api/ops-occurrences/${encodeURIComponent(occId)}/people/${encodeURIComponent(personId)}/remocao`,
+    { method: "PUT", body: JSON.stringify({ remover, motivo }) },
+  );
+}
 
 export function updateOpsPerson(occId: string, personId: string, input: OpsPersonEdit) {
   return api<{ occurrence: OpsOccurrence }>(

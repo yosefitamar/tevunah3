@@ -22,8 +22,11 @@ import (
 const (
 	// KindCampo: campo do cabeçalho (PATCH /api/ops-occurrences/{id}).
 	KindCampo = "campo"
-	// KindPessoaDados: nome, mãe ou idade do envolvido (PATCH .../people/{pid}).
+	// KindPessoaDados: nome, mãe, idade ou endereço do envolvido (PATCH .../people/{pid}).
 	KindPessoaDados = "pessoa_dados"
+	// KindPessoaRemover: envolvido lido a mais (linha da tabela quebrada em
+	// duas, repetido) — PUT .../people/{pid}/remocao.
+	KindPessoaRemover = "pessoa_remover"
 )
 
 // RereadCodes são as pendências que podem vir de leitura errada do PDF.
@@ -102,7 +105,8 @@ type Reread struct {
 	Prompt string
 	so     *opsreport.StoredOccurrence
 	source string
-	flat   string // trecho normalizado, sem espaços, para conferir os valores
+	flat   string   // trecho normalizado, sem espaços, para conferir os valores
+	tokens []string // palavras do trecho normalizado, na ordem
 	people map[string]opsreport.StoredPerson
 }
 
@@ -112,7 +116,8 @@ func BuildReread(so *opsreport.StoredOccurrence, source string) *Reread {
 	if source == "" {
 		return nil
 	}
-	rr := &Reread{so: so, source: source, flat: flat(source), people: map[string]opsreport.StoredPerson{}}
+	rr := &Reread{so: so, source: source, flat: flat(source), tokens: strings.Fields(intel.Normalize(source)),
+		people: map[string]opsreport.StoredPerson{}}
 	o := &so.Occurrence
 	var b strings.Builder
 	b.WriteString("# RELEITURA DO RELATÓRIO ORIGINAL\n")
@@ -130,7 +135,10 @@ func BuildReread(so *opsreport.StoredOccurrence, source string) *Reread {
 		fmt.Fprintf(&b, "%s | %s | %s\n", f.key, f.label, quoteOrEmpty(f.get(o)))
 	}
 	if len(so.People) > 0 {
-		b.WriteString("\n## ENVOLVIDOS GRAVADOS (ref | papel | nome | mãe | idade) — corrija em pessoas só nome, mãe ou idade lidos errado\n")
+		b.WriteString("\n## ENVOLVIDOS GRAVADOS (ref | papel | nome | mãe | idade | endereço)\n")
+		b.WriteString("Em pessoas, corrija nome, mãe, idade ou endereço lidos errado. Célula da tabela quebrada em duas linhas costuma virar uma pessoa a mais: ")
+		b.WriteString("junte o que falta na pessoa verdadeira (nome, endereço completos como no trecho) e marque remover = true na que não existe, com o motivo. ")
+		b.WriteString("Nunca remova pessoa que o trecho lista de fato. Campo que não muda: texto vazio (idade 0). No motivo, cite as pessoas pelo nome, não pela ref.\n")
 		for i, p := range so.People {
 			ref := fmt.Sprintf("P%d", i+1)
 			rr.people[ref] = p
@@ -138,7 +146,7 @@ func BuildReread(so *opsreport.StoredOccurrence, source string) *Reread {
 			if p.Age != nil {
 				age = strconv.Itoa(*p.Age)
 			}
-			fmt.Fprintf(&b, "%s | %s | %s | %s | %s\n", ref, p.Role, quoteOrEmpty(p.Name), quoteOrEmpty(p.MotherName), age)
+			fmt.Fprintf(&b, "%s | %s | %s | %s | %s | %s\n", ref, p.Role, quoteOrEmpty(p.Name), quoteOrEmpty(p.MotherName), age, quoteOrEmpty(p.Address))
 		}
 	}
 	fmt.Fprintf(&b, "\n## TRECHO ORIGINAL (texto do PDF, na disposição impressa)\n%s\n", source)
@@ -165,6 +173,8 @@ var RereadSchema = obj(map[string]any{
 		"nome":      map[string]any{"type": "string"},
 		"mae":       map[string]any{"type": "string"},
 		"idade":     map[string]any{"type": "integer"},
+		"endereco":  map[string]any{"type": "string"},
+		"remover":   map[string]any{"type": "boolean"},
 		"confianca": confianca, "motivo": motivo,
 	})),
 })
@@ -189,6 +199,8 @@ type rereadAnswer struct {
 		Nome      string `json:"nome"`
 		Mae       string `json:"mae"`
 		Idade     int    `json:"idade"`
+		Endereco  string `json:"endereco"`
+		Remover   bool   `json:"remover"`
 		Confianca string `json:"confianca"`
 		Motivo    string `json:"motivo"`
 	} `json:"pessoas"`
@@ -234,6 +246,23 @@ func (rr *Reread) Parse(raw []byte) ([]Suggestion, error) {
 		if !ok || seen[p.Ref] {
 			continue
 		}
+		if p.Remover {
+			// Tirar alguém da ficha é decisão do analista: no máximo média,
+			// e só com o motivo.
+			why := strings.TrimSpace(p.Motivo)
+			if why == "" {
+				continue
+			}
+			conf := confOf(p.Confianca)
+			if conf == "alta" {
+				conf = "media"
+			}
+			seen[p.Ref] = true
+			out = append(out, Suggestion{Kind: KindPessoaRemover, Code: "releitura", Target: "Envolvido: " + sp.Name, PersonID: sp.ID,
+				Value: "remover da ficha (lido a mais na importação)", Confianca: conf, Motivo: why, Applicable: true,
+				Apply: map[string]any{"motivo": "Sugerido pela IA (releitura do relatório): " + why}})
+			continue
+		}
 		apply := map[string]any{}
 		var parts []string
 		if n := clean(p.Nome); n != "" && flat(n) != flat(sp.Name) && rr.inSource(n) {
@@ -247,6 +276,10 @@ func (rr *Reread) Parse(raw []byte) ([]Suggestion, error) {
 		if p.Idade > 0 && p.Idade < 120 && (sp.Age == nil || *sp.Age != p.Idade) && rr.inSource(strconv.Itoa(p.Idade)) {
 			apply["age"] = p.Idade
 			parts = append(parts, fmt.Sprintf("idade %d", p.Idade))
+		}
+		if e := clean(p.Endereco); e != "" && flat(e) != flat(sp.Address) && rr.inSource(e) {
+			apply["address"] = e
+			parts = append(parts, "endereço "+e)
 		}
 		if len(apply) == 0 {
 			continue
@@ -300,10 +333,25 @@ func (rr *Reread) fieldValue(key, raw string) (string, bool) {
 }
 
 // inSource: o valor está escrito no trecho (sem diferença de caixa, acento,
-// pontuação, espaço ou quebra de linha).
+// pontuação, espaço ou quebra de linha) — inteiro ou, quando a célula da
+// tabela quebrou em duas linhas com texto de outra coluna no meio, com todas
+// as palavras na mesma ordem do trecho. Palavra que não está lá não passa.
 func (rr *Reread) inSource(v string) bool {
 	f := flat(v)
-	return f != "" && strings.Contains(rr.flat, f)
+	if f == "" {
+		return false
+	}
+	if strings.Contains(rr.flat, f) {
+		return true
+	}
+	words := strings.Fields(intel.Normalize(v))
+	j := 0
+	for _, t := range rr.tokens {
+		if j < len(words) && t == words[j] {
+			j++
+		}
+	}
+	return j == len(words)
 }
 
 func flat(s string) string { return strings.ReplaceAll(intel.Normalize(s), " ", "") }

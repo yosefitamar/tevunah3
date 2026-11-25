@@ -250,7 +250,7 @@ const sharedWhere = `
 	                                 WHERE app.norm_txt(al) LIKE app.norm_txt($8)))))
 	       OR (u.ops_id IS NOT NULL AND (
 	             EXISTS (SELECT 1 FROM app.ops_occurrence_people p
-	                      WHERE p.occurrence_id = u.ops_id
+	                      WHERE p.occurrence_id = u.ops_id AND p.removed_at IS NULL
 	                        AND (app.norm_txt(p.name) LIKE app.norm_txt($8)
 	                             OR app.norm_txt(p.mother_name) LIKE app.norm_txt($8)))
 	             OR EXISTS (SELECT 1 FROM app.ops_occurrence_vehicles v
@@ -335,7 +335,7 @@ const rowSelect = `
 	       u.means, u.intel, u.updated_at,
 	       CASE WHEN u.incident_id IS NOT NULL
 	            THEN (SELECT COUNT(*) FROM app.incident_entities ie WHERE ie.incident_id = u.incident_id)
-	            ELSE (SELECT COUNT(*) FROM app.ops_occurrence_people p WHERE p.occurrence_id = u.ops_id)
+	            ELSE (SELECT COUNT(*) FROM app.ops_occurrence_people p WHERE p.occurrence_id = u.ops_id AND p.removed_at IS NULL)
 	       END,
 	       to_jsonb(u.pending)::text,
 	       u.latitude, u.longitude, u.geo_precision, u.sipom_nature, u.sent_at, u.sipom_erro

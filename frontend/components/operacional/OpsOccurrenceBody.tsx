@@ -1,15 +1,17 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { ChevronLeft, ChevronRight, Pencil } from "lucide-react";
+import { ChevronLeft, ChevronRight, Pencil, RotateCcw } from "lucide-react";
 import {
   OPS_ROLE_TONE,
   formatGrams,
+  setOpsPersonRemoved,
   opsTimeRange,
   opsUnitLabel,
   type OpsOccurrence,
   type OpsPerson,
   type OpsPhoto,
+  type OpsRemovedPerson,
   type OpsOfficer,
   type SipomOccurrence,
   type SipomChangeExtra,
@@ -101,6 +103,8 @@ type Props = {
   onEdit?: (tab: OpsEditTab) => void;
   /** Corrigir um envolvido (nome, mãe, idade) como o relatório o trouxe. */
   onEditPerson?: (p: OpsPerson) => void;
+  /** A ficha inteira mudou (restaurar envolvido, correção da IA no texto). */
+  onOccurrenceChange?: (occ: OpsOccurrence) => void;
 };
 
 /**
@@ -121,6 +125,7 @@ export default function OpsOccurrenceBody({
   onPhotosChange,
   onEdit,
   onEditPerson,
+  onOccurrenceChange,
 }: Props) {
   const [step, setStep] = useState<OpsStep>("fato");
   const ed = useSipomEdit(occ, !!onSipomChange && !!occ.id, onSipomChange);
@@ -266,6 +271,9 @@ export default function OpsOccurrenceBody({
               </div>
             ))}
           </OpsBlock>
+          {occ.id && (occ.removed_people?.length ?? 0) > 0 && (
+            <RemovedPeople occId={occ.id} list={occ.removed_people!} onChange={onOccurrenceChange} />
+          )}
           {s && occ.people.length > 0 && (
             <OpsBlock title={`SIPOM · ENVOLVIDOS (${s.pessoas.length})`}>
               <SipomEnvolvidos occ={occ} ed={ed} />
@@ -431,7 +439,7 @@ export default function OpsOccurrenceBody({
 
       {error}
       {ed.editable && occ.id && onSipomChange && s && !s.sent_at && sipomAIHandles(s.pendencias.map((p) => p.code)) && (
-        <SipomAIPanel key={occ.id} occId={occ.id} onApplied={onSipomChange} onOccurrence={onGeoChange} />
+        <SipomAIPanel key={occ.id} occId={occ.id} onApplied={onSipomChange} onOccurrence={onOccurrenceChange} />
       )}
       {/* Todas as etapas ficam montadas (só a ativa aparece): o que o analista
           escolheu e ainda não gravou numa etapa não se perde ao passar por outra. */}
@@ -463,6 +471,64 @@ export default function OpsOccurrenceBody({
 
 // Apreensões como o relatório as trouxe — usadas quando o catálogo do SIPOM
 // não está carregado e não há tradução para mostrar ao lado.
+/** Envolvidos tirados da ficha: ficam à vista, com o motivo, para restaurar. */
+function RemovedPeople({
+  occId,
+  list,
+  onChange,
+}: {
+  occId: string;
+  list: OpsRemovedPerson[];
+  onChange?: (occ: OpsOccurrence) => void;
+}) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  async function restore(id: string) {
+    setBusy(id);
+    setErr(null);
+    try {
+      onChange?.((await setOpsPersonRemoved(occId, id, false)).occurrence);
+    } catch (e) {
+      setErr((e as Error).message || "Falha ao restaurar");
+    } finally {
+      setBusy(null);
+    }
+  }
+  return (
+    <OpsBlock title={`REMOVIDOS DA FICHA (${list.length})`}>
+      {err && <div className="banner banner-error">⚠ {err}</div>}
+      {list.map((p) => (
+        <div key={p.id} className="ops-person ops-person--removed">
+          <div className="ops-person-info">
+            <div className="ops-person-name">
+              <s>{p.name}</s>
+              {onChange && (
+                <button
+                  type="button"
+                  className="ops-field-btn"
+                  onClick={() => restore(p.id)}
+                  disabled={busy !== null}
+                  title="Devolver o envolvido à ficha"
+                >
+                  <RotateCcw size={11} /> {busy === p.id ? "RESTAURANDO…" : "RESTAURAR"}
+                </button>
+              )}
+            </div>
+            <div className="ops-person-meta">
+              <span className={OPS_ROLE_TONE[p.role]}>{p.role}</span>
+              {p.age != null && <span>{p.age} ANOS</span>}
+              <span>
+                REMOVIDO POR {(p.removed_by_name || "—").toUpperCase()} EM {formatBR(p.removed_at)}
+                {p.removed_reason && ` · ${p.removed_reason}`}
+              </span>
+            </div>
+          </div>
+        </div>
+      ))}
+    </OpsBlock>
+  );
+}
+
 function SeizureTables({ occ }: { occ: OpsOccurrence }) {
   return (
     <>

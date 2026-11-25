@@ -156,8 +156,8 @@ func (r *Repo) opsTotals(ctx context.Context, p Period) (OperationalTotals, erro
 		  (SELECT COUNT(*) FROM occ),
 		  (SELECT COUNT(*) FROM app.ops_occurrence_weapons  x WHERE x.occurrence_id IN (SELECT id FROM occ) AND x.removed_at IS NULL),
 		  (SELECT COALESCE(SUM(grams), 0)::float8 FROM app.ops_occurrence_drugs x WHERE x.occurrence_id IN (SELECT id FROM occ) AND x.removed_at IS NULL),
-		  (SELECT COUNT(*) FROM app.ops_occurrence_people   x WHERE x.occurrence_id IN (SELECT id FROM occ) AND x.role = 'ACUSADO'),
-		  (SELECT COUNT(*) FROM app.ops_occurrence_people   x WHERE x.occurrence_id IN (SELECT id FROM occ) AND x.role = 'ACUSADO' AND x.age < 18),
+		  (SELECT COUNT(*) FROM app.ops_occurrence_people   x WHERE x.occurrence_id IN (SELECT id FROM occ) AND x.role = 'ACUSADO' AND x.removed_at IS NULL),
+		  (SELECT COUNT(*) FROM app.ops_occurrence_people   x WHERE x.occurrence_id IN (SELECT id FROM occ) AND x.role = 'ACUSADO' AND x.age < 18 AND x.removed_at IS NULL),
 		  (SELECT COUNT(*) FROM app.ops_occurrence_vehicles x WHERE x.occurrence_id IN (SELECT id FROM occ) AND x.removed_at IS NULL)`,
 		nilDate(p.From), nilDate(p.To),
 	).Scan(&t.Occurrences, &t.Weapons, &t.DrugsGrams, &t.Accused, &t.Adolescents, &t.Vehicles)

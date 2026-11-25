@@ -58,6 +58,7 @@ export const TOPIC_OF_KIND: Record<string, GuidanceTopic> = {
   recusa_info: "recusa",
   campo: "geral",
   pessoa_dados: "geral",
+  pessoa_remover: "geral",
 };
 
 export type GuidanceInput = {

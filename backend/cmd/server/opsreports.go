@@ -130,11 +130,14 @@ type opsOccurrenceJSON struct {
 	GeoPrecision string   `json:"geo_precision"`
 	GeoSource    string   `json:"geo_source"`
 
-	People   []opsPersonJSON  `json:"people"`
-	Weapons  []opsWeaponJSON  `json:"weapons"`
-	Drugs    []opsDrugJSON    `json:"drugs"`
-	Vehicles []opsVehicleJSON `json:"vehicles"`
-	Officers []opsOfficerJSON `json:"officers"`
+	People []opsPersonJSON `json:"people"`
+	// RemovedPeople: envolvidos que o analista tirou da ficha (lidos a mais
+	// na importação); só no detalhe, para restaurar.
+	RemovedPeople []opsRemovedPersonJSON `json:"removed_people,omitempty"`
+	Weapons       []opsWeaponJSON        `json:"weapons"`
+	Drugs         []opsDrugJSON          `json:"drugs"`
+	Vehicles      []opsVehicleJSON       `json:"vehicles"`
+	Officers      []opsOfficerJSON       `json:"officers"`
 
 	// Participação da inteligência. Na prévia vem só da regra (modo "auto");
 	// gravada, pode ter sido decidida pelo analista ("manual").
@@ -827,6 +830,13 @@ func (a *app) respondOpsOccurrence(w http.ResponseWriter, r *http.Request, id st
 	out.IntelHistory = so.IntelHistory
 	out.Warnings = []string{}
 	out.People = make([]opsPersonJSON, 0, len(so.People))
+	out.RemovedPeople = make([]opsRemovedPersonJSON, 0, len(so.RemovedPeople))
+	for _, p := range so.RemovedPeople {
+		out.RemovedPeople = append(out.RemovedPeople, opsRemovedPersonJSON{
+			ID: p.ID, Role: p.Role, Name: p.Name, Age: p.Age,
+			RemovedAt: p.RemovedAt, RemovedByName: p.RemovedByName, RemovedReason: p.RemovedReason,
+		})
+	}
 	canSearch := a.hasPerm(r, "entity.list")
 	for _, sp := range so.People {
 		pj := opsPersonJSON{
@@ -1065,7 +1075,7 @@ func (a *app) handleOpsPersonUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var e opsreport.PersonEdit
-	for field, dst := range map[string]**string{"name": &e.Name, "mother_name": &e.MotherName} {
+	for field, dst := range map[string]**string{"name": &e.Name, "mother_name": &e.MotherName, "address": &e.Address} {
 		raw, ok := req[field]
 		if !ok {
 			continue
@@ -1126,7 +1136,7 @@ func (a *app) handleOpsPersonUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	snap := func(p opsreport.StoredPerson) map[string]any {
-		return map[string]any{"name": p.Name, "mother_name": p.MotherName, "age": p.Age}
+		return map[string]any{"name": p.Name, "mother_name": p.MotherName, "age": p.Age, "address": p.Address}
 	}
 	var now map[string]any
 	for _, p := range after.People {
@@ -1142,6 +1152,99 @@ func (a *app) handleOpsPersonUpdate(w http.ResponseWriter, r *http.Request) {
 		ResourceID:   &id,
 		Before:       map[string]any{"person_id": pid, "person": snap(*was)},
 		After:        map[string]any{"person_id": pid, "person": now},
+	})
+	a.respondOpsOccurrence(w, r, id)
+}
+
+// ─────────── PUT /api/ops-occurrences/{id}/people/{pid}/remocao ───────────
+//
+// Tira o envolvido da ficha (lido a mais na importação: linha da tabela
+// quebrada em duas, pessoa repetida) ou o devolve. Não apaga: sai do envio
+// ao SIPOM, das pendências, das contagens e dos dossiês.
+
+type opsRemovedPersonJSON struct {
+	ID            string    `json:"id"`
+	Role          string    `json:"role"`
+	Name          string    `json:"name"`
+	Age           *int      `json:"age"`
+	RemovedAt     time.Time `json:"removed_at"`
+	RemovedByName string    `json:"removed_by_name"`
+	RemovedReason string    `json:"removed_reason"`
+}
+
+func (a *app) handleOpsPersonRemove(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePerm(w, r, "opsreport.update") {
+		return
+	}
+	me := middleware.UserFrom(r.Context())
+	id, pid := r.PathValue("id"), r.PathValue("pid")
+	var req struct {
+		Remover bool   `json:"remover"`
+		Motivo  string `json:"motivo"`
+	}
+	if err := httpx.Decode(r, &req); err != nil {
+		httpx.Error(w, http.StatusBadRequest, "corpo inválido")
+		return
+	}
+	req.Motivo = strings.Join(strings.Fields(req.Motivo), " ")
+	if req.Remover && len([]rune(req.Motivo)) < 3 {
+		httpx.Error(w, http.StatusBadRequest, "informe o motivo da remoção")
+		return
+	}
+	if len([]rune(req.Motivo)) > 500 {
+		httpx.Error(w, http.StatusBadRequest, "motivo com até 500 caracteres")
+		return
+	}
+	before, err := a.opsReports.FindByID(r.Context(), id)
+	if err != nil {
+		httpx.Error(w, http.StatusNotFound, "ocorrência não encontrada")
+		return
+	}
+	if before.Sipom.SentAt != nil {
+		httpx.Error(w, http.StatusConflict, "ocorrência já enviada ao SIPOM")
+		return
+	}
+	var snap map[string]any
+	for _, p := range before.People {
+		if p.ID == pid {
+			snap = map[string]any{"role": p.Role, "name": p.Name, "mother_name": p.MotherName, "age": p.Age, "address": p.Address}
+		}
+	}
+	for _, p := range before.RemovedPeople {
+		if p.ID == pid {
+			snap = map[string]any{"role": p.Role, "name": p.Name, "age": p.Age}
+		}
+	}
+	if snap == nil {
+		httpx.Error(w, http.StatusNotFound, "pessoa não encontrada")
+		return
+	}
+	if err := a.opsReports.SetPersonRemoved(r.Context(), id, pid, me.ID, req.Remover, req.Motivo); err != nil {
+		if errors.Is(err, opsreport.ErrNotFound) {
+			msg := "a pessoa já foi removida"
+			if !req.Remover {
+				msg = "a pessoa não está removida"
+			}
+			httpx.Error(w, http.StatusConflict, msg)
+			return
+		}
+		log.Printf("opsreport person remove: %v", err)
+		httpx.Error(w, http.StatusInternalServerError, "erro ao gravar")
+		return
+	}
+	a.sipomCorrected(r.Context(), id)
+	action := "opsreport.person.remove"
+	if !req.Remover {
+		action = "opsreport.person.restore"
+	}
+	aid, sid, ip, ua := a.actorInfo(r)
+	_ = a.audit.Log(r.Context(), audit.Entry{
+		ActorUserID: aid, ActorSessionID: sid, ActorIP: ip, ActorUserAgent: ua,
+		Action:       action,
+		ResourceType: audit.Ptr("ops_occurrence"),
+		ResourceID:   &id,
+		Before:       map[string]any{"person_id": pid, "person": snap},
+		After:        map[string]any{"person_id": pid, "removido": req.Remover, "motivo": req.Motivo},
 	})
 	a.respondOpsOccurrence(w, r, id)
 }

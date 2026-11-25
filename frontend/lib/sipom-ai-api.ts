@@ -10,6 +10,7 @@ import {
   type OpsPersonEdit,
   type SipomChangeExtra,
   type SipomOccurrence,
+  setOpsPersonRemoved,
   updateOpsOccurrence,
   updateOpsPerson,
 } from "./ops-reports-api";
@@ -34,7 +35,9 @@ export type SipomAIKind = "natureza" | "bairro" | "sexo" | "arma" | "droga" | "v
   /** Releitura do PDF original: campo do cabeçalho lido errado na importação. */
   | "campo"
   /** Releitura do PDF original: nome, mãe ou idade do envolvido. */
-  | "pessoa_dados";
+  | "pessoa_dados"
+  /** Releitura do PDF original: envolvido lido a mais (linha quebrada). */
+  | "pessoa_remover";
 
 export type SipomAISuggestion = {
   kind: SipomAIKind;
@@ -92,7 +95,7 @@ export const SIPOM_AI_CODES = new Set([
 
 /** Sugestões que mudam o texto da ficha (a tela precisa reler a ocorrência). */
 export function changesReport(s: SipomAISuggestion) {
-  return s.kind === "campo" || s.kind === "pessoa_dados";
+  return s.kind === "campo" || s.kind === "pessoa_dados" || s.kind === "pessoa_remover";
 }
 
 export function sipomAIHandles(codes: string[]) {
@@ -159,6 +162,8 @@ export function applySipomAISuggestion(occId: string, s: SipomAISuggestion): Pro
       return updateOpsOccurrence(occId, { [String(a.field)]: a.value } as OpsOccurrenceEdit).then(fromOccurrence);
     case "pessoa_dados":
       return updateOpsPerson(occId, s.person_id!, a as OpsPersonEdit).then(fromOccurrence);
+    case "pessoa_remover":
+      return setOpsPersonRemoved(occId, s.person_id!, true, String(a.motivo ?? "")).then(fromOccurrence);
     case "recusa_info":
       return Promise.reject(new Error("a explicação da recusa não é uma correção"));
     case "adicionar": {

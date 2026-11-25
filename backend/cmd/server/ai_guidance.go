@@ -18,8 +18,10 @@ import (
 //
 //	GET  /api/ai/orientacoes                 lista (admin: todas; demais: aprovadas + as próprias)
 //	POST /api/ai/orientacoes                 {topic, cidade_id, body, occurrence_id}
-//	PUT  /api/ai/orientacoes/{id}            {topic, cidade_id, body} — autor, só pendente
-//	POST /api/ai/orientacoes/{id}/decisao    {decisao: aprovar|recusar|desativar, nota}
+//	PUT  /api/ai/orientacoes/{id}            {topic, cidade_id, body} — autor (pendente) ou admin (pendente/aprovada)
+//	POST /api/ai/orientacoes/{id}/decisao    {decisao: aprovar|recusar|desativar|reativar, nota}
+//
+// A criada pelo administrador já nasce aprovada (vale para todos).
 
 const guidanceApprovePerm = "ai.guidance.approve"
 
@@ -130,6 +132,16 @@ func (a *app) handleGuidanceCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.auditGuidance(r, "ai.guidance.create", g.ID, nil, g)
+	// Do administrador, já vale para todos.
+	if a.hasPerm(r, guidanceApprovePerm) {
+		before := g
+		if ap, err := a.ai.DecideGuidance(r.Context(), g.ID, ai.GuidanceApproved, me.ID, "criada pelo administrador"); err != nil {
+			log.Printf("ai guidance auto-aprovar: %v", err)
+		} else {
+			a.auditGuidance(r, "ai.guidance.aprovar", g.ID, before, ap)
+			g = ap
+		}
+	}
 	httpx.OK(w, map[string]any{"item": a.guidanceOut(*g, me.ID)})
 }
 
@@ -144,15 +156,16 @@ func (a *app) handleGuidanceUpdate(w http.ResponseWriter, r *http.Request) {
 		guidanceError(w, err)
 		return
 	}
-	if before.CreatedBy != me.ID {
-		httpx.Error(w, http.StatusForbidden, "só o autor edita a orientação")
+	isAdmin := a.hasPerm(r, guidanceApprovePerm)
+	if before.CreatedBy != me.ID && !isAdmin {
+		httpx.Error(w, http.StatusForbidden, "só o autor ou o administrador edita a orientação")
 		return
 	}
 	in, ok := a.decodeGuidance(w, r)
 	if !ok {
 		return
 	}
-	g, err := a.ai.UpdateGuidance(r.Context(), id, *in)
+	g, err := a.ai.UpdateGuidance(r.Context(), id, *in, isAdmin)
 	if err != nil {
 		guidanceError(w, err)
 		return
@@ -174,9 +187,10 @@ func (a *app) handleGuidanceDecide(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusBadRequest, "corpo inválido")
 		return
 	}
-	status := map[string]string{"aprovar": ai.GuidanceApproved, "recusar": ai.GuidanceRejected, "desativar": ai.GuidanceDisabled}[req.Decisao]
+	status := map[string]string{"aprovar": ai.GuidanceApproved, "recusar": ai.GuidanceRejected,
+		"desativar": ai.GuidanceDisabled, "reativar": ai.GuidanceApproved}[req.Decisao]
 	if status == "" {
-		httpx.Error(w, http.StatusBadRequest, "decisao deve ser aprovar, recusar ou desativar")
+		httpx.Error(w, http.StatusBadRequest, "decisao deve ser aprovar, recusar, desativar ou reativar")
 		return
 	}
 	me := middleware.UserFrom(r.Context())
@@ -195,7 +209,11 @@ func (a *app) handleGuidanceDecide(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusBadRequest, "nota com no máximo 500 caracteres")
 		return
 	}
-	g, err := a.ai.DecideGuidance(r.Context(), id, status, me.ID, req.Nota)
+	var from []string
+	if req.Decisao == "reativar" {
+		from = []string{ai.GuidanceDisabled, ai.GuidanceRejected}
+	}
+	g, err := a.ai.DecideGuidance(r.Context(), id, status, me.ID, req.Nota, from...)
 	if err != nil {
 		guidanceError(w, err)
 		return

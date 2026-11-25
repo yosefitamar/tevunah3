@@ -105,6 +105,8 @@ type Props = {
   onEditPerson?: (p: OpsPerson) => void;
   /** A ficha inteira mudou (restaurar envolvido, correção da IA no texto). */
   onOccurrenceChange?: (occ: OpsOccurrence) => void;
+  /** A IA descartou a ocorrência (com a confirmação do analista). */
+  onDiscarded?: () => void;
 };
 
 /**
@@ -126,6 +128,7 @@ export default function OpsOccurrenceBody({
   onEdit,
   onEditPerson,
   onOccurrenceChange,
+  onDiscarded,
 }: Props) {
   const [step, setStep] = useState<OpsStep>("fato");
   const ed = useSipomEdit(occ, !!onSipomChange && !!occ.id, onSipomChange);
@@ -439,7 +442,7 @@ export default function OpsOccurrenceBody({
 
       {error}
       {ed.editable && occ.id && onSipomChange && s && !s.sent_at && sipomAIHandles(s.pendencias.map((p) => p.code)) && (
-        <SipomAIPanel key={occ.id} occId={occ.id} onApplied={onSipomChange} onOccurrence={onOccurrenceChange} />
+        <SipomAIPanel key={occ.id} occId={occ.id} onApplied={onSipomChange} onOccurrence={onOccurrenceChange} onDiscarded={onDiscarded} />
       )}
       {/* Todas as etapas ficam montadas (só a ativa aparece): o que o analista
           escolheu e ainda não gravou numa etapa não se perde ao passar por outra. */}

@@ -651,9 +651,18 @@ export function SipomEnvolvidos({ occ, ed }: { occ: OpsOccurrence; ed?: SipomEdi
 export function SipomReadyPill({ s }: { s: SipomOccurrence }) {
   const blocking = s.pendencias.filter((p) => p.blocking).length;
   if (s.envio?.excluida_em) {
+    // O SIPOM responde 409 quando a ficha CIOPS já existe lá (lançada à mão).
+    const dup = /j[aá]\s+existe/i.test(s.envio.erro ?? "");
     return (
-      <span className="pill crit sipom-ready" title="O SIPOM informou que a ocorrência foi excluída lá e não a recria">
-        <AlertTriangle size={10} strokeWidth={2} /> EXCLUÍDA NO SIPOM
+      <span
+        className="pill crit sipom-ready"
+        title={
+          dup
+            ? "O SIPOM já tem uma ocorrência com esta ficha CIOPS — descarte esta ou marque como lançada"
+            : "O SIPOM informou que a ocorrência foi excluída lá e não a recria"
+        }
+      >
+        <AlertTriangle size={10} strokeWidth={2} /> {dup ? "FICHA JÁ EXISTE NO SIPOM" : "EXCLUÍDA NO SIPOM"}
       </span>
     );
   }

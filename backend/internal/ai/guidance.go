@@ -154,14 +154,19 @@ func (r *Repo) CreateGuidance(ctx context.Context, feature, userID string, in Gu
 	return r.GetGuidance(ctx, id)
 }
 
-// UpdateGuidance troca o texto, o tema e a cidade — só enquanto pendente.
-func (r *Repo) UpdateGuidance(ctx context.Context, id string, in GuidanceInput) (*Guidance, error) {
+// UpdateGuidance troca o texto, o tema e a cidade — só enquanto pendente;
+// alsoApproved deixa editar a aprovada (administrador).
+func (r *Repo) UpdateGuidance(ctx context.Context, id string, in GuidanceInput, alsoApproved ...bool) (*Guidance, error) {
 	if err := in.normalize(); err != nil {
 		return nil, err
 	}
+	from := []string{GuidancePending}
+	if len(alsoApproved) > 0 && alsoApproved[0] {
+		from = append(from, GuidanceApproved)
+	}
 	res, err := r.db.ExecContext(ctx, `
 		UPDATE app.ai_guidance SET topic = $2, cidade_id = $3, body = $4, updated_at = now()
-		 WHERE id = $1 AND status = 'pendente'`, id, in.Topic, in.CidadeID, in.Body)
+		 WHERE id = $1 AND status = ANY($5)`, id, in.Topic, in.CidadeID, in.Body, from)
 	if err != nil {
 		return nil, err
 	}
@@ -172,11 +177,14 @@ func (r *Repo) UpdateGuidance(ctx context.Context, id string, in GuidanceInput) 
 }
 
 // DecideGuidance muda a situação. Aprovar e recusar só de pendente;
-// desativar, de pendente ou aprovada.
-func (r *Repo) DecideGuidance(ctx context.Context, id, status, userID, note string) (*Guidance, error) {
-	from := []string{GuidancePending}
-	if status == GuidanceDisabled {
-		from = append(from, GuidanceApproved)
+// desativar, de pendente ou aprovada. from, quando dado, troca a origem
+// aceita (reativar: de desativada ou recusada para aprovada).
+func (r *Repo) DecideGuidance(ctx context.Context, id, status, userID, note string, from ...string) (*Guidance, error) {
+	if len(from) == 0 {
+		from = []string{GuidancePending}
+		if status == GuidanceDisabled {
+			from = append(from, GuidanceApproved)
+		}
 	}
 	res, err := r.db.ExecContext(ctx, `
 		UPDATE app.ai_guidance

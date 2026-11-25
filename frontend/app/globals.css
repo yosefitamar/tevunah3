@@ -6316,3 +6316,9 @@ body.session-locked > *:not(.session-overlay-root) {
   font: inherit; font-size: 10.5px; letter-spacing: .05em; color: var(--fg-3);
 }
 .sai-done-toggle:hover { color: var(--accent); }
+
+/* Cadastro de instruções da IA (configuração do assistente). */
+.guid-filter { align-items: center; flex-wrap: wrap; }
+.guid-topic-filter { width: 200px; }
+.guid-new { margin-left: auto; }
+.guid-item--off .guid-body { color: var(--fg-3); text-decoration: line-through; text-decoration-color: var(--line-2); }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Check, GraduationCap, Pencil, Power, X } from "lucide-react";
+import { Check, GraduationCap, Pencil, Plus, Power, RotateCcw, X } from "lucide-react";
 import { useModal } from "@/contexts/ModalContext";
 import {
   GUIDANCE_STATUS_LABEL,
@@ -10,9 +10,11 @@ import {
   listGuidance,
   type Guidance,
   type GuidanceStatus,
+  type GuidanceTopic,
 } from "@/lib/ai-guidance-api";
 import { formatBR } from "@/lib/format";
 import type { ApiError } from "@/lib/api";
+import Select from "../shared/Select";
 import GuidanceModal from "./GuidanceModal";
 
 const STATUS_PILL: Record<GuidanceStatus, string> = {
@@ -25,8 +27,11 @@ const STATUS_PILL: Record<GuidanceStatus, string> = {
 type Filter = "ativas" | "pendentes" | "todas";
 
 /**
- * Orientações para a IA nas pendências do SIPOM. O analista vê as aprovadas e
- * as suas; o administrador vê todas e aprova ou recusa as pendentes.
+ * Instruções para a IA nas pendências do SIPOM: cadastro completo (criar,
+ * editar, desativar, reativar). O analista vê as aprovadas e as suas — a
+ * dele vale só para ele até o administrador aprovar. O administrador vê
+ * todas, aprova ou recusa as pendentes, edita as aprovadas, e a que ele cria
+ * já vale para todos. Nada é apagado: desativada fica no histórico.
  */
 export default function GuidancePanel() {
   const modal = useModal();
@@ -36,7 +41,9 @@ export default function GuidancePanel() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [editing, setEditing] = useState<Guidance | null>(null);
+  const [creating, setCreating] = useState(false);
   const [filter, setFilter] = useState<Filter>("ativas");
+  const [topic, setTopic] = useState<"" | GuidanceTopic>("");
 
   async function load() {
     try {
@@ -57,12 +64,12 @@ export default function GuidancePanel() {
 
   const replace = (g: Guidance) => setItems((cur) => cur.map((x) => (x.id === g.id ? g : x)));
 
-  async function decide(g: Guidance, decisao: "aprovar" | "recusar" | "desativar") {
+  async function decide(g: Guidance, decisao: "aprovar" | "recusar" | "desativar" | "reativar") {
     let nota = "";
     if (decisao === "recusar") {
       const r = await modal.prompt({
-        title: "RECUSAR ORIENTAÇÃO",
-        message: "A orientação deixa de valer também para o autor. Diga o motivo — ele verá na lista.",
+        title: "RECUSAR INSTRUÇÃO",
+        message: "A instrução deixa de valer também para o autor. Diga o motivo — ele verá na lista.",
         label: "MOTIVO",
         type: "textarea",
         confirm: "RECUSAR",
@@ -73,8 +80,8 @@ export default function GuidancePanel() {
     } else if (decisao === "desativar") {
       const ok = await modal.confirm({
         variant: "warning",
-        title: "DESATIVAR ORIENTAÇÃO",
-        message: "A IA deixa de seguir esta orientação. Ela continua no histórico.",
+        title: "DESATIVAR INSTRUÇÃO",
+        message: "A IA deixa de seguir esta instrução. Ela continua no histórico e pode ser reativada.",
         confirm: "DESATIVAR",
         cancel: "CANCELAR",
       });
@@ -92,20 +99,28 @@ export default function GuidancePanel() {
   }
 
   const pending = items.filter((g) => g.status === "pendente").length;
-  const shown = items.filter((g) =>
-    filter === "todas" ? true : filter === "pendentes" ? g.status === "pendente" : g.status === "pendente" || g.status === "aprovada",
+  const shown = items.filter(
+    (g) =>
+      (!topic || g.topic === topic) &&
+      (filter === "todas"
+        ? true
+        : filter === "pendentes"
+          ? g.status === "pendente"
+          : g.status === "pendente" || g.status === "aprovada"),
   );
+  const canEdit = (g: Guidance) =>
+    (g.mine && g.status === "pendente") || (canApprove && (g.status === "pendente" || g.status === "aprovada"));
 
   return (
     <div className="panel">
       <div className="panel-hd">
         <span className="ttl">
-          <GraduationCap size={13} style={{ verticalAlign: -2 }} /> ORIENTAÇÕES PARA A IA
+          <GraduationCap size={13} style={{ verticalAlign: -2 }} /> INSTRUÇÕES PARA A IA
         </span>
         <span className="meta">
           {canApprove
-            ? `${pending} AGUARDANDO SUA APROVAÇÃO`
-            : "CRIE PELO BOTÃO ENSINAR NAS SUGESTÕES DA IA · VALEM PARA VOCÊ ATÉ O ADMINISTRADOR APROVAR"}
+            ? `AS QUE VOCÊ CRIA JÁ VALEM PARA TODOS · ${pending} AGUARDANDO SUA APROVAÇÃO`
+            : "VALEM PARA VOCÊ ATÉ O ADMINISTRADOR APROVAR"}
         </span>
       </div>
       <div className="panel-bd dense">
@@ -120,6 +135,22 @@ export default function GuidancePanel() {
               {f === "ativas" ? "EM VIGOR" : f === "pendentes" ? `PENDENTES (${pending})` : "TODAS"}
             </button>
           ))}
+          <div className="guid-topic-filter">
+            <Select
+              value={topic}
+              onChange={(v) => setTopic(v as "" | GuidanceTopic)}
+              options={[
+                { value: "", label: "TODOS OS TEMAS" },
+                ...(Object.keys(GUIDANCE_TOPIC_LABEL) as GuidanceTopic[]).map((k) => ({
+                  value: k,
+                  label: GUIDANCE_TOPIC_LABEL[k],
+                })),
+              ]}
+            />
+          </div>
+          <button type="button" className="btn btn-sm btn-primary guid-new" onClick={() => setCreating(true)}>
+            <Plus size={12} /> NOVA INSTRUÇÃO
+          </button>
         </div>
         {error && <div className="banner banner-error">⚠ {error}</div>}
         {loading ? (
@@ -127,11 +158,14 @@ export default function GuidancePanel() {
             <span className="spinner" aria-label="Carregando" />
           </div>
         ) : shown.length === 0 ? (
-          <div className="muted guid-empty">// NENHUMA ORIENTAÇÃO {filter === "pendentes" ? "PENDENTE" : "AQUI"}</div>
+          <div className="muted guid-empty">
+            // NENHUMA INSTRUÇÃO {filter === "pendentes" ? "PENDENTE" : "AQUI"} — CRIE EM NOVA INSTRUÇÃO OU PELO BOTÃO
+            ENSINAR NAS SUGESTÕES DA IA
+          </div>
         ) : (
           <ul className="guid-list">
             {shown.map((g) => (
-              <li key={g.id} className="guid-item">
+              <li key={g.id} className={"guid-item" + (g.status === "desativada" || g.status === "recusada" ? " guid-item--off" : "")}>
                 <div className="guid-meta">
                   <span className="guid-topic">{GUIDANCE_TOPIC_LABEL[g.topic]}</span>
                   <span className="muted">· {g.cidade ? g.cidade.toUpperCase() : "TODAS AS CIDADES"}</span>
@@ -157,7 +191,7 @@ export default function GuidancePanel() {
                       </button>
                     </>
                   )}
-                  {g.mine && g.status === "pendente" && (
+                  {canEdit(g) && (
                     <button type="button" className="btn btn-sm btn-ghost" disabled={!!busy} onClick={() => setEditing(g)}>
                       <Pencil size={12} /> EDITAR
                     </button>
@@ -165,6 +199,11 @@ export default function GuidancePanel() {
                   {(g.mine || canApprove) && (g.status === "pendente" || g.status === "aprovada") && (
                     <button type="button" className="btn btn-sm btn-ghost" disabled={!!busy} onClick={() => decide(g, "desativar")}>
                       <Power size={12} /> DESATIVAR
+                    </button>
+                  )}
+                  {canApprove && (g.status === "desativada" || g.status === "recusada") && (
+                    <button type="button" className="btn btn-sm btn-ghost" disabled={!!busy} onClick={() => decide(g, "reativar")}>
+                      <RotateCcw size={12} /> REATIVAR
                     </button>
                   )}
                 </div>
@@ -177,10 +216,23 @@ export default function GuidancePanel() {
         <GuidanceModal
           editing={editing}
           topic={editing.topic}
+          autoApproved={canApprove}
           onClose={() => setEditing(null)}
           onSaved={(g) => {
             replace(g);
             setEditing(null);
+          }}
+        />
+      )}
+      {creating && (
+        <GuidanceModal
+          topic={topic || "geral"}
+          autoApproved={canApprove}
+          onClose={() => setCreating(false)}
+          onSaved={(g) => {
+            setItems((cur) => [g, ...cur]);
+            setCreating(false);
+            setFilter("ativas");
           }}
         />
       )}

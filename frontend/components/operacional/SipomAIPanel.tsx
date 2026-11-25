@@ -238,13 +238,15 @@ type Props = {
   onApplied: (s: SipomOccurrence, officers?: OpsOfficer[], extra?: SipomChangeExtra) => void;
   /** Correção do texto do relatório (releitura do PDF): a ficha inteira mudou. */
   onOccurrence?: (occ: OpsOccurrence) => void;
+  /** A ocorrência foi descartada (sugestão da IA): a ficha fecha. */
+  onDiscarded?: () => void;
 };
 
 /**
  * RESOLVER COM IA na ficha: pede as sugestões, o analista marca as que
  * aceita e aplica — cada uma pelo endpoint de correção de sempre.
  */
-export default function SipomAIPanel({ occId, onApplied, onOccurrence }: Props) {
+export default function SipomAIPanel({ occId, onApplied, onOccurrence, onDiscarded }: Props) {
   const [items, setItems] = useState<SipomAISuggestion[] | null>(null);
   const [analysis, setAnalysis] = useState<SipomAIAnalysis | null>(null);
   const [checked, setChecked] = useState<Set<number>>(new Set());
@@ -301,7 +303,7 @@ export default function SipomAIPanel({ occId, onApplied, onOccurrence }: Props) 
     const idx = [...checked].sort((a, b) => a - b);
     setBusy("apply");
     setError(null);
-    const { last, failed } = await applySipomAISuggestions(
+    const { last, failed, discarded } = await applySipomAISuggestions(
       occId,
       idx.map((i) => items[i]),
     );
@@ -313,6 +315,11 @@ export default function SipomAIPanel({ occId, onApplied, onOccurrence }: Props) 
       } catch {
         // O registro é auxiliar: as correções já foram gravadas.
       }
+    }
+    if (discarded) {
+      setBusy(null);
+      onDiscarded?.();
+      return;
     }
     const okList = idx.map((i) => items[i]).filter((s) => !failed.some((f) => f.s === s));
     if (onOccurrence && okList.some(changesReport)) {

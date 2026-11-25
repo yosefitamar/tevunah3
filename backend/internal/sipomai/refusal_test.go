@@ -69,3 +69,39 @@ func TestPayloadMaterialRefs(t *testing.T) {
 		}
 	}
 }
+
+// Ficha que já existe no SIPOM (409): a ação é descartar a ocorrência.
+func TestRefusalDuplicateDiscard(t *testing.T) {
+	so := &opsreport.StoredOccurrence{ID: "y"}
+	so.Narrative = "Texto qualquer."
+	so.Sipom.Pending = []string{sipom.PendEnvioRecusado}
+	so.Sipom.Send.Erro = "SIPOM 409 conflito: Já existe no SIPOM uma ocorrência com este número (M20260072779)."
+	req, ok := Build(nil, nil, so, nil)
+	if !ok || !strings.Contains(req.RefusalPrompt, `"descartar"`) {
+		t.Fatalf("pedido da recusa sem a ação descartar:\n%s", req.RefusalPrompt)
+	}
+	got, err := req.ParseRefusal([]byte(`{"explicacao":"A ficha já foi lançada no SIPOM.","acoes":[
+		{"acao":"descartar","material":"veiculo","item":0,"ano_fabricacao":0,"ano_modelo":0,"descricao":"","confianca":"alta","motivo":"ficha já lançada no SIPOM","orientacao":""},
+		{"acao":"descartar","material":"veiculo","item":0,"ano_fabricacao":0,"ano_modelo":0,"descricao":"","confianca":"alta","motivo":"repetida","orientacao":""}
+	]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var d []Suggestion
+	for _, s := range got {
+		if s.Kind == KindDescartar {
+			d = append(d, s)
+		}
+	}
+	if len(d) != 1 || d[0].Confianca != "alta" || !d[0].Applicable ||
+		!strings.Contains(d[0].Apply["motivo"].(string), "ficha já lançada") {
+		t.Fatalf("descartar: %+v", d)
+	}
+	// Fora do caso da ficha duplicada, sem orientação: no máximo média.
+	so.Sipom.Send.Erro = "SIPOM 422 validacao: campo x."
+	req, _ = Build(nil, nil, so, nil)
+	got, _ = req.ParseRefusal([]byte(`{"explicacao":"","acoes":[{"acao":"descartar","material":"arma","item":0,"ano_fabricacao":0,"ano_modelo":0,"descricao":"","confianca":"alta","motivo":"x","orientacao":""}]}`))
+	if len(got) != 1 || got[0].Confianca != "media" {
+		t.Fatalf("descartar fora do caso: %+v", got)
+	}
+}

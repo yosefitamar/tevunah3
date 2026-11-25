@@ -11,6 +11,7 @@ import {
   type SipomChangeExtra,
   type SipomOccurrence,
   setOpsPersonRemoved,
+  discardOpsOccurrence,
   updateOpsOccurrence,
   updateOpsPerson,
 } from "./ops-reports-api";
@@ -40,7 +41,9 @@ export type SipomAIKind = "natureza" | "bairro" | "sexo" | "arma" | "droga" | "v
   /** Releitura do PDF original: envolvido lido a mais (linha quebrada). */
   | "pessoa_remover"
   /** Delegacia do catálogo que a tradução automática não identificou. */
-  | "delegacia";
+  | "delegacia"
+  /** Descartar a ocorrência (ex.: a ficha já existe no SIPOM). */
+  | "descartar";
 
 export type SipomAISuggestion = {
   kind: SipomAIKind;
@@ -247,6 +250,8 @@ export function applySipomAISuggestion(occId: string, s: SipomAISuggestion): Pro
       return setOpsSipomProcedimento(occId, { delegacia_id: num("delegacia_id") });
     case "recusa_info":
       return Promise.reject(new Error("a explicação da recusa não é uma correção"));
+    case "descartar":
+      return Promise.reject(new Error("o descarte é aplicado à parte"));
     case "adicionar": {
       const { material, ...rest } = a;
       return addSipomMaterial(occId, { kind: material, ...rest } as unknown as SipomNewMaterial);
@@ -271,6 +276,17 @@ export function applySipomAISuggestion(occId: string, s: SipomAISuggestion): Pro
 export async function applySipomAISuggestions(occId: string, list: SipomAISuggestion[]) {
   let last: Change | null = null;
   const failed: { s: SipomAISuggestion; error: string }[] = [];
+  // Descartar tira a ocorrência: as outras correções não têm mais para onde ir.
+  const discard = list.find((s) => s.kind === "descartar");
+  if (discard) {
+    try {
+      await discardOpsOccurrence(occId, String(discard.apply?.motivo ?? "Sugerido pela IA"));
+      return { last, failed, discarded: true };
+    } catch (e) {
+      failed.push({ s: discard, error: (e as Error).message || "erro ao descartar" });
+      list = list.filter((s) => s !== discard);
+    }
+  }
   // O texto da ficha primeiro: as demais correções partem dele.
   const ordered = [...list.filter(changesReport), ...list.filter((s) => !changesReport(s))];
   for (const s of ordered) {
@@ -280,5 +296,5 @@ export async function applySipomAISuggestions(occId: string, list: SipomAISugges
       failed.push({ s, error: (e as Error).message || "erro ao gravar" });
     }
   }
-  return { last, failed };
+  return { last, failed, discarded: false };
 }

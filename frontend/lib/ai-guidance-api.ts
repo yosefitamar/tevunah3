@@ -60,6 +60,7 @@ export const TOPIC_OF_KIND: Record<string, GuidanceTopic> = {
   pessoa_dados: "geral",
   pessoa_remover: "geral",
   delegacia: "geral",
+  descartar: "recusa",
 };
 
 export type GuidanceInput = {
@@ -84,7 +85,7 @@ export function updateGuidance(id: string, input: GuidanceInput) {
   });
 }
 
-export function decideGuidance(id: string, decisao: "aprovar" | "recusar" | "desativar", nota = "") {
+export function decideGuidance(id: string, decisao: "aprovar" | "recusar" | "desativar" | "reativar", nota = "") {
   return api<{ item: Guidance }>(`/api/ai/orientacoes/${encodeURIComponent(id)}/decisao`, {
     method: "POST",
     body: JSON.stringify({ decisao, nota }),

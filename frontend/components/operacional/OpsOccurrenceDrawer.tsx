@@ -248,6 +248,10 @@ export default function OpsOccurrenceDrawer({ occurrenceId, onClose, onChanged }
                   steps
                   onEdit={canLink && data.id ? setEditing : undefined}
                   onEditPerson={canLink && data.id ? setEditingPerson : undefined}
+                  onDiscarded={() => {
+                    onChanged();
+                    onClose();
+                  }}
                   onOccurrenceChange={
                     canLink
                       ? (occ) => {

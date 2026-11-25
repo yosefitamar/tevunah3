@@ -24,6 +24,8 @@ type Props = {
   context?: string;
   onClose: () => void;
   onSaved: (g: Guidance) => void;
+  /** Quem cria é administrador: a instrução já nasce valendo para todos. */
+  autoApproved?: boolean;
 };
 
 const EXAMPLES: Record<GuidanceTopic, string> = {
@@ -31,7 +33,7 @@ const EXAMPLES: Record<GuidanceTopic, string> = {
   natureza: "Ex.: Resistência sem outro crime na ficha vai como CONTRAVENÇÃO PENAL.",
   sexo: "Ex.: \"Nacional\" sem outro indício não define o sexo; use o nome.",
   apreensoes: "Ex.: \"Trouxinha\" de maconha conta como uma unidade de 1 g quando o peso não vier.",
-  recusa: "Ex.: Quando o SIPOM exigir o ano de fabricação e o relatório não trouxer, envie o veículo como OUTROS com a placa na descrição.",
+  recusa: "Ex.: Quando o SIPOM disser que já existe ocorrência com o mesmo número de ficha, descarte a ocorrência no Tevunah.",
   geral: "Ex.: Ficha da Operação X sempre se refere ao 2º BPRAIO.",
 };
 
@@ -40,7 +42,16 @@ const EXAMPLES: Record<GuidanceTopic, string> = {
  * tipo de caso. Vale para ele na hora; para todos, depois que o
  * administrador aprovar.
  */
-export default function GuidanceModal({ editing, topic: topic0, cidade, occurrenceId, context, onClose, onSaved }: Props) {
+export default function GuidanceModal({
+  editing,
+  topic: topic0,
+  cidade,
+  occurrenceId,
+  context,
+  onClose,
+  onSaved,
+  autoApproved = false,
+}: Props) {
   const [topic, setTopic] = useState<GuidanceTopic>(editing?.topic ?? topic0);
   const cityOption = editing?.cidade_id ? { id: editing.cidade_id, nome: editing.cidade } : cidade ?? null;
   // Bairro é sempre da cidade; os outros temas costumam valer para todas.
@@ -73,7 +84,8 @@ export default function GuidanceModal({ editing, topic: topic0, cidade, occurren
       <div className="modal" style={{ width: 560 }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-hd">
           <span>
-            <GraduationCap size={14} style={{ verticalAlign: -2 }} /> {editing ? "EDITAR ORIENTAÇÃO" : "ENSINAR A IA"}
+            <GraduationCap size={14} style={{ verticalAlign: -2 }} />{" "}
+            {editing ? "EDITAR INSTRUÇÃO" : context ? "ENSINAR A IA" : "NOVA INSTRUÇÃO PARA A IA"}
           </span>
           <button type="button" className="action-btn" onClick={onClose} aria-label="Fechar" disabled={busy}>
             <X size={14} />
@@ -123,8 +135,12 @@ export default function GuidanceModal({ editing, topic: topic0, cidade, occurren
             />
           </label>
           <div className="muted guid-hint">
-            A IA continua escolhendo só opções do catálogo do SIPOM — a orientação diz qual usar. Vale para você
-            imediatamente; para os demais analistas, depois da aprovação de um administrador. · {len}/1000
+            A IA continua escolhendo só opções do catálogo do SIPOM e só as ações previstas (corrigir, remover item,
+            descartar a ocorrência…) — a instrução diz qual usar e quando.{" "}
+            {autoApproved
+              ? "Criada por administrador: vale para todos os analistas imediatamente."
+              : "Vale para você imediatamente; para os demais analistas, depois da aprovação de um administrador."}{" "}
+            · {len}/1000
           </div>
           {error && <div className="banner banner-error">⚠ {error}</div>}
         </div>
@@ -133,7 +149,7 @@ export default function GuidanceModal({ editing, topic: topic0, cidade, occurren
             CANCELAR
           </button>
           <button type="button" className="btn btn-primary" onClick={save} disabled={busy || len < 5}>
-            {busy ? "SALVANDO…" : "SALVAR ORIENTAÇÃO"}
+            {busy ? "SALVANDO…" : "SALVAR INSTRUÇÃO"}
           </button>
         </div>
       </div>

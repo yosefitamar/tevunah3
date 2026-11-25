@@ -49,6 +49,9 @@ const (
 	KindVeiculoAno        = "veiculo_ano"
 	KindVeiculoComoOutros = "veiculo_como_outros"
 	KindRecusaInfo        = "recusa_info"
+	// KindDescartar: a ocorrência não deve ir ao SIPOM (ex.: a ficha já
+	// existe lá) — POST .../descartar com o motivo.
+	KindDescartar = "descartar"
 )
 
 // Codes são as pendências que a IA ajuda a resolver.
@@ -441,6 +444,7 @@ func (req *Request) buildRefusalPrompt() string {
 - "ano": ano_fabricacao (e ano_modelo, se souber; senão 0) do veículo. SÓ se o ano estiver escrito no relatório ou vier de uma orientação dos analistas — nunca estime.
 - "outros": mandar o veículo como material OUTROS (sem cadastro de veículo no SIPOM), com descricao objetiva (tipo, marca, modelo, cor, placa). Use quando uma orientação mandar, ou quando o dado exigido (ano) não existe no relatório e uma orientação permitir.
 - "remover": tirar o item da ocorrência (lançado por engano, não apreendido).
+- "descartar": descartar a ocorrência inteira no Tevunah (ela não vai ao SIPOM). Use quando o SIPOM disser que já existe lá uma ocorrência com este número (ficha CIOPS duplicada: ela já foi lançada) ou quando uma orientação mandar. Em material e item, qualquer valor (são ignorados); em motivo, por quê.
 Em material use arma | droga | veiculo e em item o número do item na ficha (o que vem depois de "veiculo", "arma" ou "droga" na lista acima, não o N de materiais.N).
 Em explicacao, diga em uma ou duas frases o que a recusa significa e o que falta para resolver — sobretudo quando não há ação possível (ex.: OPM não permitida para o cliente é configuração do SIPOM; ano que o relatório não traz depende do analista).
 `)
@@ -690,7 +694,7 @@ var AddSchema = obj(map[string]any{
 var RefusalSchema = obj(map[string]any{
 	"explicacao": map[string]any{"type": "string"},
 	"acoes": arr(obj(map[string]any{
-		"acao":           map[string]any{"type": "string", "enum": []string{"ano", "outros", "remover"}},
+		"acao":           map[string]any{"type": "string", "enum": []string{"ano", "outros", "remover", "descartar"}},
 		"material":       map[string]any{"type": "string", "enum": []string{"arma", "droga", "veiculo"}},
 		"item":           map[string]any{"type": "integer"},
 		"ano_fabricacao": map[string]any{"type": "integer"},
@@ -741,6 +745,27 @@ func (req *Request) ParseRefusal(raw []byte) ([]Suggestion, error) {
 			conf = "media" // decisão do analista, salvo orientação
 		}
 		i := x.Item
+		if x.Acao == "descartar" {
+			if seen["descartar"] {
+				continue
+			}
+			why := strings.TrimSpace(x.Motivo)
+			// Ficha duplicada é o caso previsto: vale a confiança da IA.
+			// Fora dele, descartar é decisão do analista (salvo orientação).
+			dup := reFichaDuplicada.MatchString(req.so.Sipom.Send.Erro)
+			c := x.conf()
+			if !dup && g == nil && c == "alta" {
+				c = "media"
+			}
+			if why == "" {
+				why = "recusa do SIPOM"
+			}
+			seen["descartar"] = true
+			out = append(out, Suggestion{Kind: KindDescartar, Code: sipom.PendEnvioRecusado, Target: "Ocorrência",
+				Value: "descartar a ocorrência (não vai ao SIPOM)", Confianca: c, Motivo: why, Guidance: g,
+				Applicable: true, Apply: map[string]any{"motivo": "Sugerido pela IA (recusa do SIPOM): " + why}})
+			continue
+		}
 		if x.Acao == "remover" {
 			kinds := map[string]string{"arma": "armas", "droga": "drogas", "veiculo": "veiculos"}
 			k, ok := kinds[x.Material]
@@ -1310,6 +1335,10 @@ func orDash(s string) string {
 	}
 	return s
 }
+
+// reFichaDuplicada: a recusa do SIPOM por já existir ocorrência com a ficha
+// ("conflito: Já existe no SIPOM uma ocorrência com este número").
+var reFichaDuplicada = regexp.MustCompile(`(?i)j[aá]\s+existe.*(ocorr[eê]ncia|ficha|n[uú]mero)`)
 
 var rePlate = regexp.MustCompile(`^[A-Z]{3}[0-9][A-Z0-9][0-9]{2}$`)
 

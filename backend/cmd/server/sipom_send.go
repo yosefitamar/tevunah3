@@ -81,7 +81,12 @@ func (a *app) handleSipomEnviar(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if so.Sipom.Send.ExcluidaEm != nil {
-		httpx.Error(w, http.StatusConflict, "a ocorrência foi excluída no SIPOM — o SIPOM não a recria")
+		// 409: hoje o SIPOM o usa para ficha CIOPS que já existe lá.
+		msg := "a ocorrência foi excluída no SIPOM — o SIPOM não a recria"
+		if strings.Contains(strings.ToLower(so.Sipom.Send.Erro), "existe") {
+			msg = "o SIPOM já tem uma ocorrência com esta ficha CIOPS — descarte esta ocorrência ou marque como lançada"
+		}
+		httpx.Error(w, http.StatusConflict, msg)
 		return
 	}
 	me := middleware.UserFrom(r.Context())

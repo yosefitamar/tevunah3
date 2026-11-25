@@ -14,6 +14,7 @@ import {
   applySipomAISuggestions,
   changesReport,
   getSipomAIAnalysis,
+  hasOpenSuggestions,
   preselect,
   recordSipomAIResult,
   reviewResult,
@@ -119,10 +120,14 @@ export function SipomAISuggestionList({
   /** Situação na análise guardada, pela posição. */
   status?: Record<string, SipomAIStatus>;
 }) {
+  // As já aplicadas ficam recolhidas: não há o que fazer com elas.
+  const [showDone, setShowDone] = useState(false);
+  const doneCount = items.filter((_, i) => status[String(i)] === "aplicada").length;
   return (
     <div className="sai-grid" role="table">
       {header && <SuggestionHeader />}
       {items.map((s, i) => {
+        if (status[String(i)] === "aplicada" && !showDone) return null;
         const [lbl, detail] = splitTarget(s.target);
         const on = checked.has(i);
         const st = status[String(i)];
@@ -203,6 +208,12 @@ export function SipomAISuggestionList({
           </div>
         );
       })}
+      {doneCount > 0 && (
+        <button type="button" className="sai-done-toggle" onClick={() => setShowDone((v) => !v)}>
+          <Check size={11} strokeWidth={2.5} /> {doneCount} JÁ APLICADA(S) NESTA ANÁLISE ·{" "}
+          {showDone ? "OCULTAR" : "MOSTRAR"}
+        </button>
+      )}
     </div>
   );
 }
@@ -368,6 +379,12 @@ export default function SipomAIPanel({ occId, onApplied, onOccurrence }: Props) 
           </button>
         </div>
       )}
+      {analysis && !hidden && items && items.length > 0 && !hasOpenSuggestions({ suggestions: items, analysis }) && (
+        <div className="banner banner-info">
+          AS SUGESTÕES DESTA ANÁLISE JÁ FORAM APLICADAS (OU NÃO SÃO APLICÁVEIS). SE A FICHA AINDA TEM PENDÊNCIA, PEÇA UMA
+          NOVA VERIFICAÇÃO — A IA PARTE DESTA.
+        </div>
+      )}
       {items && items.length > 0 && !hidden && (
         <>
           {taught && (
@@ -401,7 +418,10 @@ export default function SipomAIPanel({ occId, onApplied, onOccurrence }: Props) 
             />
             <button
               type="button"
-              className={"btn btn-sm" + (taught || analysis?.stale ? "" : " btn-ghost")}
+              className={
+                "btn btn-sm" +
+                (taught || analysis?.stale || !hasOpenSuggestions({ suggestions: items, analysis }) ? "" : " btn-ghost")
+              }
               onClick={ask}
               disabled={!!busy}
               title="A IA refaz a análise usando esta (o que você aplicou, não aceitou e o que falhou)"

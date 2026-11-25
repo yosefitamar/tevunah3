@@ -5,6 +5,7 @@ import { Sparkles, Square, X } from "lucide-react";
 import {
   applySipomAISuggestions,
   getSipomAIAnalysis,
+  hasOpenSuggestions,
   recordSipomAIResult,
   reviewResult,
   selectable,
@@ -105,13 +106,14 @@ export default function SipomAIBatchModal({ items, onClose, onDone }: Props) {
         const it = todo[next++];
         patch(it.id, { status: "consultando" });
         try {
-          // A análise guardada (e ainda válida para a ficha) vale sem nova
-          // consulta, a não ser que o analista peça para refazer.
+          // A análise guardada vale sem nova consulta quando ainda é da ficha
+          // como está e tem o que aplicar. Toda aplicada e a ficha ainda
+          // pendente: nova verificação (a IA parte da anterior).
           let r: SipomAIResult | null = null;
           let saved = false;
           if (!redo) {
             const g = await getSipomAIAnalysis(it.id).catch(() => null);
-            if (g?.analysis && !g.analysis.stale) {
+            if (g?.analysis && !g.analysis.stale && hasOpenSuggestions(g)) {
               r = g;
               saved = true;
             }

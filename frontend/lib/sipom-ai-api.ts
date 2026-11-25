@@ -154,6 +154,12 @@ export function recordSipomAIResult(
   );
 }
 
+/** A análise ainda tem o que aplicar (sugestão aplicável não aplicada). */
+export function hasOpenSuggestions(r: Pick<SipomAIResult, "suggestions" | "analysis">) {
+  const st = r.analysis?.status ?? {};
+  return r.suggestions.some((s, i) => selectable(s, st[String(i)]));
+}
+
 /** Pode ser marcada: aplicável e ainda não aplicada. */
 export function selectable(s: SipomAISuggestion, status?: SipomAIStatus) {
   return s.applicable && status !== "aplicada";
